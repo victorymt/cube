@@ -1,4 +1,5 @@
 #include "world/volcano_runtime.h"
+#include "raymath.h"
 
 #include <math.h>
 #include <float.h>
@@ -78,25 +79,44 @@ bool VolcanoRuntimeStop(uint64_t id)
     return true;
 }
 
-static double DistanceSquared(const VolcanoDefinition *d, Vector3 observer)
+static double AddressDistanceSquared(const VolcanoDefinition *d,
+                                     SurfaceAddress observer)
 {
-    SurfaceMapOffset offset = SurfaceShortestMapOffset(
-        observer.x, observer.z, (float)d->mapX, (float)d->mapZ);
-    double dy = (double)d->address.radial - observer.y;
-    return (double)offset.x * offset.x + (double)offset.z * offset.z + dy * dy;
+    Vector3 centerDirection = SurfaceAddressDirection(d->address);
+    Vector3 observerDirection = SurfaceAddressDirection(observer);
+    Vector3 center = Vector3Scale(centerDirection,
+        SURFACE_RADIUS_BLOCKS + (float)d->address.radial);
+    Vector3 point = Vector3Scale(observerDirection,
+        SURFACE_RADIUS_BLOCKS + (float)observer.radial);
+    return (double)Vector3DistanceSqr(center, point);
+}
+
+static SurfaceAddress ContextObserver(const VolcanoContext *context)
+{
+    if (context->hasObserver) return context->observer;
+    return SurfaceAddressFromMapCoordinates(
+        context->bodyId, context->observerMap.x, context->observerMap.z,
+        (int)floorf(context->observerMap.y));
+}
+
+static double DistanceSquared(const VolcanoDefinition *d,
+                              const VolcanoContext *context)
+{
+    return AddressDistanceSquared(d, ContextObserver(context));
 }
 
 static bool ContextValid(const VolcanoContext *c)
 {
-    return c && c->valid && isfinite(c->observerMap.x) &&
-        isfinite(c->observerMap.y) && isfinite(c->observerMap.z);
+    return c && c->valid && (c->hasObserver ?
+        SurfaceAddressIsValid(c->observer) :
+        isfinite(c->observerMap.x) && isfinite(c->observerMap.y) &&
+        isfinite(c->observerMap.z));
 }
 
 static void Discover(const VolcanoContext *c)
 {
     if (!c->discover || !c->sample || !c->ready) return;
-    SurfaceAddress center = SurfaceAddressFromMapCoordinates(
-        c->bodyId, c->observerMap.x, c->observerMap.z, 0);
+    SurfaceAddress center = ContextObserver(c);
     VolcanoDefinition found[9];
     unsigned count = 0u;
     for (int z = -1; z <= 1; z++) {
@@ -105,7 +125,7 @@ static void Discover(const VolcanoContext *c)
                 x * VOLCANO_CANDIDATE_SPACING, z * VOLCANO_CANDIDATE_SPACING, 0);
             VolcanoDefinition definition;
             if (!VolcanoCandidateAt(address, c->seed, c->sample, c->userData, &definition) ||
-                DistanceSquared(&definition, c->observerMap) >
+                DistanceSquared(&definition, c) >
                     VOLCANO_ENTER_RADIUS * VOLCANO_ENTER_RADIUS ||
                 !c->ready(&definition, c->userData)) continue;
             unsigned insert = count;
@@ -140,7 +160,7 @@ void VolcanoRuntimeUpdate(double seconds, const VolcanoContext *c)
     for (unsigned i = 0u; i < recordCount; i++) {
         VolcanoRecord *r = &records[i];
         if (r->definition.address.bodyId != c->bodyId || r->definition.seed != c->seed ||
-            DistanceSquared(&r->definition, c->observerMap) >
+            DistanceSquared(&r->definition, c) >
                 VOLCANO_LEAVE_RADIUS * VOLCANO_LEAVE_RADIUS ||
             !c->ready || !c->ready(&r->definition, c->userData)) r->active = false;
         if (r->active) active++;
@@ -153,7 +173,7 @@ void VolcanoRuntimeUpdate(double seconds, const VolcanoContext *c)
             if (r->active || r->definition.address.bodyId != c->bodyId ||
                 r->definition.seed != c->seed || !c->ready ||
                 !c->ready(&r->definition, c->userData)) continue;
-            double candidate = DistanceSquared(&r->definition, c->observerMap);
+            double candidate = DistanceSquared(&r->definition, c);
             if (candidate < distance || (candidate == distance &&
                 (best < 0 || r->definition.id < records[best].definition.id))) {
                 distance = candidate;
@@ -201,10 +221,17 @@ void VolcanoRuntimeUpdate(double seconds, const VolcanoContext *c)
 void VolcanoRuntimeSolidifiedSource(uint32_t body, int x, int y, int z)
 {
     SurfaceMapCell cell = SurfaceCanonicalMapCell(x, z);
+    SurfaceAddress source = SurfaceAddressFromMapCoordinates(
+        body, (float)cell.x, (float)cell.z, y);
+    VolcanoRuntimeSolidifiedSourceAt(source);
+}
+
+void VolcanoRuntimeSolidifiedSourceAt(SurfaceAddress source)
+{
     for (unsigned i = 0; i < recordCount; i++) {
         VolcanoDefinition *d = &records[i].definition;
-        if (d->address.bodyId == body && d->mapX == cell.x && d->mapZ == cell.z &&
-            d->address.radial == y && y < 1000000) d->address.radial++;
+        if (SurfaceAddressEqual(d->address, source) &&
+            source.radial < 1000000) d->address.radial++;
     }
 }
 
@@ -217,12 +244,23 @@ bool VolcanoRuntimeAt(unsigned index, VolcanoRecord *out)
 
 bool VolcanoRuntimeNearest(uint32_t bodyId, Vector3 observer, VolcanoRecord *out)
 {
-    if (!out || !isfinite(observer.x) || !isfinite(observer.y) || !isfinite(observer.z)) return false;
+    if (!out || !isfinite(observer.x) || !isfinite(observer.y) ||
+        !isfinite(observer.z)) return false;
+    return VolcanoRuntimeNearestAt(
+        bodyId, SurfaceAddressFromMapCoordinates(
+            bodyId, observer.x, observer.z, (int)floorf(observer.y)), out);
+}
+
+bool VolcanoRuntimeNearestAt(uint32_t bodyId, SurfaceAddress observer,
+                             VolcanoRecord *out)
+{
+    if (!out || !SurfaceAddressIsValid(observer)) return false;
     int best = -1;
     double distance = INFINITY;
     for (unsigned i = 0u; i < recordCount; i++) {
         if (records[i].definition.address.bodyId != bodyId) continue;
-        double candidate = DistanceSquared(&records[i].definition, observer);
+        double candidate = AddressDistanceSquared(
+            &records[i].definition, observer);
         if (candidate < distance || (candidate == distance &&
             (best < 0 || records[i].definition.id < records[best].definition.id))) {
             best = (int)i;

@@ -1,5 +1,6 @@
 #ifndef VOXELCRAFT_ASH_RUNTIME_H
 #define VOXELCRAFT_ASH_RUNTIME_H
+#include "world/surface_types.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -9,6 +10,9 @@
 #define ASH_STEP_SECONDS 0.1
 
 typedef struct AshCell {
+    SurfaceAddress address;
+    bool addressed;
+    /* Canonical map projection retained for diagnostics and legacy callers. */
     uint32_t bodyId;
     int x, y, z;
     unsigned volume;
@@ -21,6 +25,8 @@ typedef struct AshContext {
     AshBoundary (*boundary)(int x, int y, int z, void *user);
     /* Rain/water exposure [0,1]. Unknown exposure must return zero. */
     double (*wetness)(int x, int y, int z, void *user);
+    AshBoundary (*addressBoundary)(SurfaceAddress address, void *user);
+    double (*addressWetness)(SurfaceAddress address, void *user);
     void *user;
 } AshContext;
 typedef struct AshStats {
@@ -31,9 +37,13 @@ typedef struct AshStats {
 void AshRuntimeReset(void);
 bool AshRuntimeAt(unsigned index, AshCell *out);
 bool AshRuntimeCellAt(uint32_t body, int x, int y, int z, AshCell *out);
+bool AshRuntimeCellAtAddress(SurfaceAddress address, AshCell *out);
 unsigned AshRuntimeDeposit(const AshContext *context, int x, int y, int z, unsigned units);
+unsigned AshRuntimeDepositAtAddress(const AshContext *context,
+                                    SurfaceAddress address, unsigned units);
 /* Compare and remove one whole overlay cell; caller owns inventory transaction. */
 bool AshRuntimeCollect(uint32_t body, int x, int y, int z, unsigned expectedUnits);
+bool AshRuntimeCollectAtAddress(SurfaceAddress address, unsigned expectedUnits);
 void AshRuntimeStep(const AshContext *context);
 AshStats AshRuntimeStats(void);
 bool AshRuntimeSave(FILE *file);

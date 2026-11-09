@@ -13,10 +13,10 @@ src/app/game_debug_topology.c|SURFACE_TOPOLOGY_CUBE_GRID
 src/app/game_debug_topology.c|world/surface_cube.h
 src/app/game_debug_trace.c|FindChunk
 src/app/game_debug_trace.c|WorldToChunkLocal
-src/app/game_geology.c|FindChunk
-src/app/game_geology.c|WorldToChunkLocal
 src/app/game_save.c|SURFACE_TOPOLOGY_CUBE_GRID
 src/app/game_stream_audit.c|FindChunk
 src/app/game_stream_audit.c|WorldToChunkLocal
 src/app/game_debug_topology.c|WorldCube
 src/app/game_save.c|WorldCube
+src/app/game_geology.c|FindChunk
+src/app/game_geology.c|WorldToChunkLocal

@@ -23,6 +23,8 @@ typedef struct VolcanoContext {
     bool discover;
     uint32_t bodyId, seed;
     Vector3 observerMap;
+    SurfaceAddress observer;
+    bool hasObserver;
     VolcanoSiteSample sample;
     VolcanoSiteReady ready;
     unsigned (*emitLava)(const VolcanoDefinition *definition, unsigned units, void *userData);
@@ -45,8 +47,11 @@ bool VolcanoRuntimeStop(uint64_t id);
 /* Called only after the runtime commits a full source-cell rock. Persist
    the raised outlet in the existing definition; player-built caps never lift it. */
 void VolcanoRuntimeSolidifiedSource(uint32_t bodyId, int mapX, int y, int mapZ);
+void VolcanoRuntimeSolidifiedSourceAt(SurfaceAddress source);
 bool VolcanoRuntimeAt(unsigned index, VolcanoRecord *out);
 bool VolcanoRuntimeNearest(uint32_t bodyId, Vector3 observerMap, VolcanoRecord *out);
+bool VolcanoRuntimeNearestAt(uint32_t bodyId, SurfaceAddress observer,
+                             VolcanoRecord *out);
 VolcanoStats VolcanoRuntimeStats(void);
 bool VolcanoRuntimeSave(FILE *file);
 bool VolcanoRuntimeLoad(FILE *file);

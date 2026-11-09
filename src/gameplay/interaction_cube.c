@@ -35,7 +35,7 @@ HitResult InteractionCubeRaycast(Vector3 origin, Vector3 direction,
     SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
         (float)context.originX + origin.x, (float)context.originZ + origin.z);
     SurfacePose pose;
-    /* Local Y is a radial height, matching PlayerCubePoseFromLocal. Subtracting
+    /* Local Y is a radial height, matching PlayerSurfacePoseFromLocal. Subtracting
      * the sphere radius here put the ray thousands of blocks below the surface,
      * so every cube pick missed. */
     if (!SurfacePoseFromGeographic(context.bodyId,

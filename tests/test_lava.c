@@ -1,4 +1,5 @@
 #include "world/lava_runtime.h"
+#include "world/surface_cube.h"
 #include "world/volcano_runtime.h"
 #include <assert.h>
 #include <math.h>
@@ -375,29 +376,56 @@ static void TestWaterReplay(void)
     assert(LavaRuntimeStats().evaporatedWater == expected.evaporatedWater);
     Balance();
     /* Reject corrupt face credit without changing live state. */
-    assert(fseek(file, 176L, SEEK_SET) == 0);
+    assert(fseek(file, 216L, SEEK_SET) == 0);
     unsigned char bad[8] = { 0, 0, 0, 0, 0, 0, 0xf0, 0x7f }; /* +inf */
     assert(fwrite(bad, 1u, 8u, file) == 8u);
     rewind(file); assert(!LavaRuntimeLoad(file));
     assert(LavaRuntimeStats().energy == expected.energy);
     fclose(file);
 }
-static void TestLegacyLavaPayload(void)
+static void TestNativeSurfacePayload(void)
 {
     Reset(); closed = true; LavaContext ctx = Context();
     assert(LavaRuntimeDeposit(&ctx, 0, 1, 0, 128u, 1450.0) == 128u);
-    FILE *current = tmpfile(), *legacy = tmpfile();
-    assert(current && legacy && LavaRuntimeSave(current));
-    unsigned char bytes[224]; rewind(current);
-    assert(fread(bytes, 1u, sizeof(bytes), current) == sizeof(bytes));
-    bytes[7] = '1';
-    assert(fwrite(bytes, 1u, 96u, legacy) == 96u);
-    assert(fwrite(bytes + 120u, 1u, 56u, legacy) == 56u);
-    assert(fputs("TAIL", legacy) >= 0);
-    rewind(legacy); LavaRuntimeReset(); assert(LavaRuntimeLoad(legacy));
+    FILE *file = tmpfile();
+    assert(file && LavaRuntimeSave(file));
+    rewind(file); LavaRuntimeReset(); assert(LavaRuntimeLoad(file));
     assert(LavaRuntimeStats().volume == 128u && LavaRuntimeStats().waterEnergy == 0.0);
-    char tail[4]; assert(fread(tail, 1u, 4u, legacy) == 4u && !memcmp(tail, "TAIL", 4u));
-    fclose(current); fclose(legacy); Balance();
+    assert(fseek(file, 136L, SEEK_SET) == 0);
+    const unsigned char badX[8] = { 0, 0, 0, 0x7f };
+    assert(fwrite(badX, 1u, sizeof(badX), file) == sizeof(badX));
+    rewind(file); assert(!LavaRuntimeLoad(file));
+    fclose(file); Balance();
+}
+
+static LavaBoundary OpenAddressBoundary(SurfaceAddress address, void *user)
+{
+    (void)user;
+    return address.radial >= 1 ? LAVA_OPEN : LAVA_BLOCKED;
+}
+
+static void TestCrossFaceAddressIdentity(void)
+{
+    LavaRuntimeReset();
+    LavaContext ctx = { .valid = true, .bodyId = 7u,
+        .addressBoundary = OpenAddressBoundary };
+    SurfaceAddress source = { 7u, SURFACE_FACE_POS_X, 4095, 100, 1 };
+    SurfaceAddress across;
+    assert(SurfaceCubeCellNeighbor(source, SURFACE_CUBE_U_PLUS, &across, NULL));
+    assert(across.face != source.face);
+    assert(LavaRuntimeDepositAtAddress(
+        &ctx, source, LAVA_CAPACITY, LAVA_SOURCE_K) == LAVA_CAPACITY);
+    LavaRuntimeStep(&ctx);
+    LavaCell acrossCell;
+    assert(LavaRuntimeCellAtAddress(across, &acrossCell));
+    assert(acrossCell.thermal.volume > 0u);
+    FILE *file = tmpfile();
+    assert(file && LavaRuntimeSave(file));
+    rewind(file); LavaRuntimeReset(); assert(LavaRuntimeLoad(file));
+    assert(LavaRuntimeCellAtAddress(across, &acrossCell));
+    assert(acrossCell.address.face == across.face &&
+           acrossCell.thermal.volume > 0u);
+    fclose(file); Balance();
 }
 static LavaBoundary TwoBasins(int x, int y, int z, void *user)
 {
@@ -474,8 +502,9 @@ static void TestMaterialFlowAndReplay(void)
     assert(actual.material.quenched == expected.material.quenched &&
            actual.thermal.energy == expected.thermal.energy);
     /* Three new marker fields must all reject non-finite payloads atomically. */
-    unsigned char bytes[248]; rewind(file); assert(fread(bytes, 1, sizeof(bytes), file) == sizeof(bytes));
-    for (unsigned offset = 224; offset < 248; offset += 8) {
+    unsigned char bytes[288]; rewind(file);
+    assert(fread(bytes, 1, sizeof(bytes), file) == sizeof(bytes));
+    for (unsigned offset = 264; offset < 288; offset += 8) {
         FILE *bad = tmpfile(); assert(bad && fwrite(bytes, 1, sizeof(bytes), bad) == sizeof(bytes));
         assert(fseek(bad, offset, SEEK_SET) == 0);
         const unsigned char inf[] = { 0, 0, 0, 0, 0, 0, 0xf0, 0x7f };
@@ -484,11 +513,11 @@ static void TestMaterialFlowAndReplay(void)
         assert(LavaRuntimeAt(0, &actual) && actual.material.quenched == expected.material.quenched);
     }
     fclose(file);
-    /* V2 carries the reaction ledger/credits, and defaults material to basalt. */
-    file = tmpfile(); assert(file); bytes[7] = '2';
-    assert(fwrite(bytes, 1, 224, file) == 224 && fputs("TAIL", file) >= 0);
+    file = tmpfile(); assert(file);
+    assert(fwrite(bytes, 1, sizeof(bytes), file) == sizeof(bytes) &&
+           fputs("TAIL", file) >= 0);
     rewind(file); assert(LavaRuntimeLoad(file));
-    assert(LavaRuntimeAt(0, &actual) && actual.material.silica == 0 && actual.material.quenched == 0);
+    assert(LavaRuntimeAt(0, &actual) && actual.material.quenched == expected.material.quenched);
     char tail[4]; assert(fread(tail, 1, 4, file) == 4 && !memcmp(tail, "TAIL", 4));
     fclose(file); Balance();
 }
@@ -536,7 +565,8 @@ int main(void)
     TestThermalImport();
     TestThermal(); TestHeatExposure(); TestFlowAndCooling(); TestUnknownAndMixing(); TestCapacity();
     TestOrderAndPersistence(); TestVolcanoInventory(); TestCoolingIgnoresParkedLava();
-    TestWaterContact(); TestWaterReplay(); TestLegacyLavaPayload();
+    TestWaterContact(); TestWaterReplay(); TestNativeSurfacePayload();
+    TestCrossFaceAddressIdentity();
     TestSharedWater(); TestRockProducts(); TestMaterialFlowAndReplay();
     TestCollection();
     puts("lava conservation, thermal, persistence and coupling tests passed");

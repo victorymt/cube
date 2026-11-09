@@ -2,6 +2,7 @@
 #include "world/block_types.h"
 #include "world/block_edits.h"
 #include "world/world_environment.h"
+#include "world/surface_contract.h"
 #include "world/ash_runtime.h"
 #include "world/lava_runtime.h"
 #include "app/game_geology.h"
@@ -17,10 +18,29 @@ static WorldSurfaceContext surface = { .active = true, .bodyId = 7 };
 bool IsColorBlock(BlockType type) { return type >= BLOCK_COLOR_START && type <= BLOCK_COLOR_END; }
 bool IsValidBlockType(BlockType type) { return (type >= BLOCK_AIR && type <= BLOCK_NATURAL_END) || IsColorBlock(type); }
 WorldSurfaceContext WorldCurrentSurfaceContext(void) { return surface; }
+const SurfaceContract *WorldCurrentSurfaceContract(void) { return NULL; }
+bool SurfaceContractCellRead(const SurfaceContract *contract,
+                             SurfaceAddress address, WorldCell *out)
+{
+    (void)contract; (void)address; (void)out;
+    return false;
+}
+bool SurfaceContractCellIsKnown(const SurfaceContract *contract,
+                                SurfaceAddress address)
+{
+    (void)contract; (void)address;
+    return false;
+}
 bool WorldNetherIsActive(void) { return nether; }
 WorldBlockRegion WorldBlockRegionAt(int y) { (void)y; return WORLD_BLOCK_REGION_SURFACE; }
 bool SurfaceBlockReadyAt(int x, int y, int z) { (void)x; (void)y; (void)z; return ready; }
 BlockType GetBlockBaseAt(int x, int y, int z) { (void)x; (void)y; (void)z; return base; }
+bool WorldSurfaceCellAt(int x, int y, int z, WorldCell *out)
+{
+    if (!out) return false;
+    *out = WorldCellFromLegacyBlock(GetBlockBaseAt(x, y, z));
+    return true;
+}
 void FluidOnBlockChanged(int x, int y, int z, BlockType previous, BlockType next)
 {
     (void)x; (void)y; (void)z;

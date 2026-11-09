@@ -1,4 +1,5 @@
 #include "world/volcano_runtime.h"
+#include "world/surface_cube.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -219,6 +220,27 @@ static void TestPersistence(void)
     AssertSame(First(), expected);
 }
 
+static void TestSurfaceAddressRuntimeIdentity(void)
+{
+    VolcanoRuntimeReset();
+    SurfaceAddress center = { 7u, SURFACE_FACE_POS_Y, 2048, 2048, 20 };
+    VolcanoDefinition definition = VolcanoDefine(
+        7u, 123u, 0, 20, 0, 0.8f, true);
+    definition.address = center;
+    definition.id = VolcanoId(center);
+    definition.mapX = VolcanoMapCell(center).x;
+    definition.mapZ = VolcanoMapCell(center).z;
+    assert(VolcanoRuntimeForce(definition, 1.0f, 100u));
+    SurfaceAddress across;
+    assert(SurfaceCubeCellNeighbor(center, SURFACE_CUBE_U_PLUS, &across, NULL));
+    VolcanoRecord nearest;
+    assert(VolcanoRuntimeNearestAt(7u, across, &nearest));
+    assert(nearest.definition.address.face == center.face);
+    VolcanoRuntimeSolidifiedSourceAt(center);
+    assert(First().definition.address.radial == center.radial + 1);
+    VolcanoRuntimeReset();
+}
+
 int main(void)
 {
     TestIdentityAndLifecycle();
@@ -226,6 +248,7 @@ int main(void)
     TestNaturalCandidate();
     TestCapacity();
     TestPersistence();
+    TestSurfaceAddressRuntimeIdentity();
     puts("volcano model/runtime tests passed");
     return 0;
 }

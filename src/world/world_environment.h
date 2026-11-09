@@ -9,6 +9,8 @@
 #include <stdint.h>
 #include "world/surface_topology.h"
 
+struct Chunk;
+
 // The active environment describes where the player currently lives. The
 // block region is kept separate because the space layer overlaps the ascent
 // corridor in the local coordinate system.
@@ -47,6 +49,15 @@ typedef struct WorldSurfaceRebaseEvent {
     float northDirection;
 } WorldSurfaceRebaseEvent;
 
+typedef struct WorldSurfaceCellRuntime {
+    struct Chunk *chunk;
+    int sectionY;
+    int localX;
+    int localY;
+    int localZ;
+    BlockType block;
+} WorldSurfaceCellRuntime;
+
 // Dimension selection is explicit; the position-aware form remains for
 // callers that also use altitude for presentation decisions.
 WorldDimension WorldCurrentDimension(void);
@@ -70,6 +81,8 @@ int WorldSurfaceHeightAt(int x, int z);
 bool WorldSurfaceCellAt(int x, int y, int z, WorldCell *outCell);
 bool WorldSurfaceCellKnownAt(int x, int y, int z);
 bool WorldSurfaceBiomeAt(int x, int z, Biome *outBiome);
+bool WorldSurfaceCellRuntimeAt(SurfaceAddress address,
+                               WorldSurfaceCellRuntime *outRuntime);
 bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY);
 bool WorldIsProceduralOceanWaterAt(int x, int y, int z);
 uint32_t WorldCurrentSurfaceId(void);

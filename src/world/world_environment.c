@@ -1,6 +1,7 @@
 #include "world/world_environment.h"
 
 #include "world/surface_contract.h"
+#include "world/surface_contract_internal.h"
 #include "world/terrain.h"
 #include "world/world_state.h"
 #include "world/world_surface_snapshot.h"
@@ -165,6 +166,27 @@ bool WorldSurfaceBiomeAt(int x, int z, Biome *outBiome)
         !SurfaceContractSampleAt(
             WorldCurrentSurfaceContract(), address, &sample)) return false;
     *outBiome = sample.biome;
+    return true;
+}
+
+bool WorldSurfaceCellRuntimeAt(SurfaceAddress address,
+                               WorldSurfaceCellRuntime *outRuntime)
+{
+    SurfaceMapCell map;
+    SurfaceCellRuntime runtime;
+    if (!outRuntime || !SurfaceAddressIsValid(address) ||
+        !SurfaceAddressCanonicalMapCell(address, &map) ||
+        !SurfaceContractLocateCellRuntime(
+            WorldCurrentSurfaceContract(), address, map.x, address.radial,
+            map.z, &runtime)) return false;
+    *outRuntime = (WorldSurfaceCellRuntime){
+        .chunk = runtime.chunk,
+        .sectionY = runtime.sectionY,
+        .localX = runtime.localX,
+        .localY = runtime.localY,
+        .localZ = runtime.localZ,
+        .block = runtime.block
+    };
     return true;
 }
 

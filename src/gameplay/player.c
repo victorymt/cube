@@ -334,7 +334,7 @@ static bool PlayerVectorIsFinite(Vector3 value)
 /* Local <-> pose conversion. The legacy local position uses absolute world Y,
  * while a cube pose stores a radial offset above the mean radius, so the two
  * differ by a constant. Both horizontal axes are map cells. */
-static bool PlayerCubePoseFromLocal(Vector3 position, SurfacePose *outPose)
+bool PlayerSurfacePoseFromLocal(Vector3 position, SurfacePose *outPose)
 {
     WorldSurfaceContext context = WorldCurrentSurfaceContext();
     if (!context.active || !outPose) return false;
@@ -379,7 +379,7 @@ bool PlayerLocalFromSurfacePose(const SurfacePose *pose, Vector3 *outPosition)
 static bool PlayerCubeTryAxis(Player *player, Vector3 delta)
 {
     SurfacePose pose;
-    if (!PlayerCubePoseFromLocal(player->position, &pose)) return false;
+    if (!PlayerSurfacePoseFromLocal(player->position, &pose)) return false;
     SurfacePose next;
     if (!SurfacePoseDisplace(&pose, (double)delta.x, (double)delta.z,
                              (double)delta.y, &next)) return false;

@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_LAVA_RUNTIME_H
 #define VOXELCRAFT_LAVA_RUNTIME_H
 #include "world/lava_model.h"
+#include "world/surface_types.h"
 #include "raylib.h"
 #include <stdio.h>
 
@@ -8,6 +9,9 @@
 #define LAVA_MAX_RECORDS 8192u
 
 typedef struct LavaCell {
+    SurfaceAddress address;
+    bool addressed;
+    /* Canonical map projection retained for diagnostics and legacy callers. */
     uint32_t bodyId;
     int x, y, z;
     LavaThermalState thermal;
@@ -33,6 +37,12 @@ typedef struct LavaContext {
        units are externally replenished and accounted separately. */
     bool (*evaporate)(int x, int y, int z, unsigned expected, unsigned units,
                       bool *reservoir, void *user);
+    LavaBoundary (*addressBoundary)(SurfaceAddress address, void *user);
+    double (*addressAmbient)(SurfaceAddress address, void *user);
+    bool (*addressSolidify)(SurfaceAddress address, void *user);
+    bool (*addressWater)(SurfaceAddress address, unsigned *volume, void *user);
+    bool (*addressEvaporate)(SurfaceAddress address, unsigned expected,
+                             unsigned units, bool *reservoir, void *user);
 } LavaContext;
 
 typedef struct LavaStats {
@@ -55,19 +65,31 @@ typedef struct LavaHeatExposure {
 void LavaRuntimeReset(void);
 bool LavaRuntimeAt(unsigned index, LavaCell *out);
 bool LavaRuntimeCellAt(uint32_t body, int x, int y, int z, LavaCell *out);
+bool LavaRuntimeCellAtAddress(SurfaceAddress address, LavaCell *out);
 /* Only ambient-cooled cells can be collected. Export all remaining heat. */
 bool LavaRuntimeCollect(uint32_t body, int x, int y, int z,
                         unsigned expectedUnits, LavaRock expectedRock);
+bool LavaRuntimeCollectAtAddress(SurfaceAddress address,
+                                 unsigned expectedUnits, LavaRock expectedRock);
 unsigned LavaRuntimeDeposit(const LavaContext *context, int x, int y, int z,
                             unsigned volume, double temperatureK);
+unsigned LavaRuntimeDepositAtAddress(const LavaContext *context,
+                                     SurfaceAddress address, unsigned volume,
+                                     double temperatureK);
 unsigned LavaRuntimeDepositMaterial(const LavaContext *context, int x, int y, int z,
                                      unsigned volume, double temperatureK,
                                      double silicaFraction, double vesicleFraction);
+unsigned LavaRuntimeDepositMaterialAtAddress(
+    const LavaContext *context, SurfaceAddress address, unsigned volume,
+    double temperatureK, double silicaFraction, double vesicleFraction);
 /* Import an already simulated, homogeneous thermal snapshot into an EMPTY
    cell. Count it as explicit supply; preserve partial phase and cold volume.
    No replacement/merge. Uses the same boundary and capacity checks. */
 bool LavaRuntimeImportThermal(const LavaContext *context, int x, int y, int z,
                               LavaThermalState state);
+bool LavaRuntimeImportThermalAtAddress(const LavaContext *context,
+                                       SurfaceAddress address,
+                                       LavaThermalState state);
 void LavaRuntimeStep(const LavaContext *context);
 /* Partition-independent 10 Hz driver; callback supplies and steps the world. */
 void LavaRuntimeAdvance(double seconds, bool active,
@@ -76,9 +98,14 @@ LavaStats LavaRuntimeStats(void);
 /* Only cells that can advance in this context may delay vent recovery. */
 bool LavaRuntimeHasActiveHotNear(const LavaContext *context,
                                  int x, int y, int z, float radius);
+bool LavaRuntimeHasActiveHotNearAddress(const LavaContext *context,
+                                        SurfaceAddress address, float radius);
 LavaHeatExposure LavaRuntimeHeatExposureAt(const LavaContext *context,
                                            Vector3 position, float radius,
                                            float shelter);
+LavaHeatExposure LavaRuntimeHeatExposureAtAddress(
+    const LavaContext *context, SurfaceAddress observer, float radius,
+    float shelter);
 bool LavaRuntimeSave(FILE *file);
 bool LavaRuntimeLoad(FILE *file);
 #endif

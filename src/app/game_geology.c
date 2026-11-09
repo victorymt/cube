@@ -18,9 +18,11 @@
 #include "space/space_state.h"
 #include "space/space_runtime.h"
 #include "world/world_surface_snapshot.h"
+#include "world/surface_contract.h"
 #include "world/block_types.h"
 #include "world/block_edits.h"
 #include "world/terrain.h"
+#include "raymath.h"
 #include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
@@ -37,98 +39,92 @@ typedef struct GeologyTickContext {
     unsigned activeCount;
     VolcanoDefinition active[VOLCANO_MAX_ACTIVE];
 } GeologyTickContext;
+
+typedef struct LavaBoundaryCacheEntry {
+    SurfaceAddress address;
+    uint64_t editRevision;
+    uint8_t cellClass; /* 1 = known air, 2 = known solid */
+} LavaBoundaryCacheEntry;
+
+#define LAVA_BOUNDARY_CACHE_SIZE 16384u
+static LavaBoundaryCacheEntry lavaBoundaryCache[LAVA_BOUNDARY_CACHE_SIZE];
+
+static unsigned LavaBoundaryCacheSlot(SurfaceAddress address)
+{
+    uint32_t hash = address.bodyId * 0x9e3779b9u ^
+        (uint32_t)address.face * 0x85ebca6bu ^
+        (uint32_t)address.u * 0xc2b2ae35u ^
+        (uint32_t)address.v * 0x27d4eb2fu ^
+        (uint32_t)address.radial * 0x165667b1u;
+    hash ^= hash >> 16;
+    hash *= 0x7feb352du;
+    hash ^= hash >> 15;
+    return hash & (LAVA_BOUNDARY_CACHE_SIZE - 1u);
+}
 static void GameGeologyTick(void *user);
 static void PrepareTick(GeologyTickContext *tick);
 
-static bool LocalLavaAt(int x, int y, int z, LavaCell *out)
+static bool LocalSurfaceAddressAt(int x, int y, int z, SurfaceAddress *out)
 {
-    WorldSurfaceContext s = WorldCurrentSurfaceContext();
-    return s.active && !WorldNetherIsActive() &&
-        LavaRuntimeCellAt(s.bodyId, x + s.originX, y, z + s.originZ, out);
-}
-static bool LocalAshAt(int x, int y, int z, AshCell *out)
-{
-    WorldSurfaceContext s = WorldCurrentSurfaceContext();
-    return s.active && !WorldNetherIsActive() &&
-        AshRuntimeCellAt(s.bodyId, x + s.originX, y, z + s.originZ, out);
-}
-static BlockType RockBlock(LavaRock rock)
-{
-    switch (rock) {
-    case LAVA_ROCK_OBSIDIAN: return BLOCK_OBSIDIAN;
-    case LAVA_ROCK_SCORIA: return BLOCK_SCORIA;
-    case LAVA_ROCK_PUMICE: return BLOCK_PUMICE;
-    case LAVA_ROCK_RHYOLITE: return BLOCK_RHYOLITE;
-    default: return BLOCK_BASALT;
-    }
-}
-BlockType GameGeologyBlockAt(int x, int y, int z)
-{
-    LavaCell c;
-    if (LocalLavaAt(x, y, z, &c)) return LavaLiquidVolume(c.thermal) > 0u ? BLOCK_LAVA :
-        RockBlock(LavaRockForMaterial(c.material, c.thermal.volume));
-    AshCell ash;
-    return LocalAshAt(x, y, z, &ash) ? BLOCK_VOLCANIC_ASH : BLOCK_AIR;
-}
-float GameGeologyCollisionHeightAt(int x, int y, int z)
-{
-    LavaCell c;
-    if (!LocalLavaAt(x, y, z, &c)) {
-        AshCell ash;
-        return LocalAshAt(x, y, z, &ash) ? (float)ash.volume / ASH_CAPACITY : 0.0f;
-    }
-    return (float)(c.thermal.volume - LavaLiquidVolume(c.thermal)) / LAVA_CAPACITY;
-}
-float GameGeologyLiquidHeightAt(int x, int y, int z)
-{
-    LavaCell c;
-    if (!LocalLavaAt(x, y, z, &c) || !LavaLiquidVolume(c.thermal)) return 0.0f;
-    return (float)c.thermal.volume / LAVA_CAPACITY;
-}
-bool GameGeologyCanSetBlock(int x, int y, int z, BlockType next)
-{
-    (void)next;
-    LavaCell c;
-    /* Ordinary edits cannot erase deposits. Collection has its own volume
-       transaction, independent of the base-block undo history.
-       Solidification may replace an occupied overlay. */
-    AshCell ash;
-    return solidifying || (!LocalLavaAt(x, y, z, &c) && !LocalAshAt(x, y, z, &ash));
+    WorldSurfaceContext surface = WorldCurrentSurfaceContext();
+    if (!out || !surface.active) return false;
+    *out = SurfaceAddressFromMapCoordinates(
+        surface.bodyId, (float)(surface.originX + x) + 0.5f,
+        (float)(surface.originZ + z) + 0.5f, y);
+    return SurfaceAddressIsValid(*out);
 }
 
-typedef struct CollectDeposit {
-    uint32_t body;
-    int x, y, z;
-    unsigned units;
-    bool ash;
-    LavaRock rock;
-} CollectDeposit;
-static bool RemoveDeposit(void *user)
+static bool AddressLocalMap(SurfaceAddress address, int *outX, int *outZ)
 {
-    CollectDeposit *c = user;
-    return c->ash ? AshRuntimeCollect(c->body, c->x, c->y, c->z, c->units) :
-        LavaRuntimeCollect(c->body, c->x, c->y, c->z, c->units, c->rock);
+    WorldSurfaceContext surface = WorldCurrentSurfaceContext();
+    SurfaceMapCell map;
+    if (!outX || !outZ || !SurfaceAddressCanonicalMapCell(address, &map)) {
+        return false;
+    }
+    *outX = map.x - surface.originX;
+    *outZ = map.z - surface.originZ;
+    return true;
 }
-GameGeologyCollection GameGeologyCollectAt(int x, int y, int z, BlockType expectedType)
+
+static bool AddressCell(SurfaceAddress address, WorldCell *out)
 {
-    WorldSurfaceContext s = WorldCurrentSurfaceContext();
-    if (!s.active || WorldNetherIsActive() || WorldBlockRegionAt(y) != WORLD_BLOCK_REGION_SURFACE)
-        return GAME_GEOLOGY_NO_DEPOSIT;
-    LavaCell lava; AshCell ash;
-    bool hasLava = LocalLavaAt(x, y, z, &lava), hasAsh = LocalAshAt(x, y, z, &ash);
-    if (!hasLava && !hasAsh) return GAME_GEOLOGY_NO_DEPOSIT;
-    /* Never excavate parked/hidden records, or solid crust beneath liquid. */
-    if (!SurfaceBlockReadyAt(x, y, z) || GetBlockBaseAt(x, y, z) != BLOCK_AIR ||
-        (hasLava && (!lava.cooled || LavaLiquidVolume(lava.thermal)))) return GAME_GEOLOGY_COLLECTION_BLOCKED;
-    LavaRock rock = hasLava ? LavaRockForMaterial(lava.material, lava.thermal.volume) : LAVA_ROCK_BASALT;
-    BlockType type = hasLava ? RockBlock(rock) : BLOCK_VOLCANIC_ASH;
-    if (expectedType != type) return GAME_GEOLOGY_COLLECTION_BLOCKED;
-    CollectDeposit source = { .body = s.bodyId, .x = x + s.originX, .y = y, .z = z + s.originZ,
-        .units = hasLava ? lava.thermal.volume : ash.volume, .ash = !hasLava, .rock = rock };
-    if (!InventoryCollectVolume(type, source.units, RemoveDeposit, &source)) return GAME_GEOLOGY_COLLECTION_BLOCKED;
-    /* Overlays draw directly; only neighboring sleeping water needs waking. */
-    FluidOnBlockChanged(x, y, z, type, BLOCK_AIR);
-    return GAME_GEOLOGY_COLLECTED;
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
+    if (!out) return false;
+    if (contract && SurfaceContractCellRead(contract, address, out)) return true;
+    int x, z;
+    return AddressLocalMap(address, &x, &z) &&
+        WorldSurfaceCellAt(x, address.radial, z, out);
+}
+
+static float AddressDistance(SurfaceAddress a, SurfaceAddress b)
+{
+    Vector3 pa = Vector3Scale(SurfaceAddressDirection(a),
+        SURFACE_RADIUS_BLOCKS + (float)a.radial);
+    Vector3 pb = Vector3Scale(SurfaceAddressDirection(b),
+        SURFACE_RADIUS_BLOCKS + (float)b.radial);
+    return Vector3Distance(pa, pb);
+}
+
+static bool LocalLavaAt(int x, int y, int z, LavaCell *out)
+{
+    SurfaceAddress address;
+    if (WorldNetherIsActive() || !out ||
+        !LocalSurfaceAddressAt(x, y, z, &address)) return false;
+    if (LavaRuntimeCellAtAddress(address, out)) return true;
+    WorldSurfaceContext surface = WorldCurrentSurfaceContext();
+    return LavaRuntimeCellAt(surface.bodyId, surface.originX + x, y,
+                             surface.originZ + z, out);
+}
+static BlockType RockBlock(LavaRock rock);
+static bool LocalAshAt(int x, int y, int z, AshCell *out)
+{
+    SurfaceAddress address;
+    if (WorldNetherIsActive() || !out ||
+        !LocalSurfaceAddressAt(x, y, z, &address)) return false;
+    if (AshRuntimeCellAtAddress(address, out)) return true;
+    WorldSurfaceContext surface = WorldCurrentSurfaceContext();
+    return AshRuntimeCellAt(surface.bodyId, surface.originX + x, y,
+                            surface.originZ + z, out);
 }
 
 static LavaBoundary LavaBoundaryAt(int x, int y, int z, void *user)
@@ -193,32 +189,6 @@ static bool LavaSolidifyAt(int x, int y, int z, void *user)
     if (ok) VolcanoRuntimeSolidifiedSource(s.bodyId, x, y, z);
     return ok;
 }
-static unsigned EmitLava(const VolcanoDefinition *d, unsigned units, void *user)
-{
-    GeologyTickContext *tick = user;
-    /* Stable source archetypes; forced legacy vents remain dense/mafic. */
-    uint32_t profile = (uint32_t)d->id ^ (uint32_t)(d->id >> 32) ^ d->seed;
-    profile ^= profile >> 16; profile *= 0x7feb352du;
-    profile ^= profile >> 15; profile *= 0x846ca68bu; profile ^= profile >> 16;
-    double silica = !d->forced && (profile & 1u) ? 1.0 : 0.0;
-    double vesicles = !d->forced && (profile & 2u) ? 1.0 : 0.0;
-    unsigned accepted = 0;
-    /* The conduit stays at the crater center. Stack only above FULL lava
-       cells; unknown terrain and player/ordinary solid caps stop injection. */
-    for (int dy = 0; dy < 64 && accepted < units; dy++) {
-        int y = d->address.radial + dy;
-        if (LavaBoundaryAt(d->mapX, y, d->mapZ, user) != LAVA_OPEN) break;
-        unsigned remaining = units - accepted;
-        if (remaining > LAVA_CAPACITY) remaining = LAVA_CAPACITY;
-        accepted += LavaRuntimeDepositMaterial(&tick->lava, d->mapX, y, d->mapZ,
-                                               remaining, LAVA_SOURCE_K, silica, vesicles);
-        LavaCell cell;
-        if (!LavaRuntimeCellAt(d->address.bodyId, d->mapX, y, d->mapZ, &cell) ||
-            cell.thermal.volume != LAVA_CAPACITY) break;
-    }
-    return accepted;
-}
-
 static AshBoundary AshBoundaryAt(int x, int y, int z, void *user)
 {
     GeologyTickContext *tick = user;
@@ -239,8 +209,6 @@ static double AshWetnessAt(int x, int y, int z, void *user)
 {
     GeologyTickContext *tick = user;
     WorldSurfaceContext s = WorldCurrentSurfaceContext();
-    /* Only exposed top layers weather. The same bounded 12-block canopy
-       probe used by fallout rejects solid roofs and unknown space. */
     for (int dy = 1; dy <= 12; dy++) {
         AshCell cover;
         if (AshBoundaryAt(x, y + dy, z, user) != ASH_OPEN ||
@@ -249,6 +217,271 @@ static double AshWetnessAt(int x, int y, int z, void *user)
     WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(x - s.originX, z - s.originZ, tick->weatherTime);
     return fmax(weather.rain, weather.drizzle);
 }
+static BlockType RockBlock(LavaRock rock)
+{
+    switch (rock) {
+    case LAVA_ROCK_OBSIDIAN: return BLOCK_OBSIDIAN;
+    case LAVA_ROCK_SCORIA: return BLOCK_SCORIA;
+    case LAVA_ROCK_PUMICE: return BLOCK_PUMICE;
+    case LAVA_ROCK_RHYOLITE: return BLOCK_RHYOLITE;
+    default: return BLOCK_BASALT;
+    }
+}
+BlockType GameGeologyBlockAt(int x, int y, int z)
+{
+    LavaCell c;
+    if (LocalLavaAt(x, y, z, &c)) return LavaLiquidVolume(c.thermal) > 0u ? BLOCK_LAVA :
+        RockBlock(LavaRockForMaterial(c.material, c.thermal.volume));
+    AshCell ash;
+    return LocalAshAt(x, y, z, &ash) ? BLOCK_VOLCANIC_ASH : BLOCK_AIR;
+}
+float GameGeologyCollisionHeightAt(int x, int y, int z)
+{
+    LavaCell c;
+    if (!LocalLavaAt(x, y, z, &c)) {
+        AshCell ash;
+        return LocalAshAt(x, y, z, &ash) ? (float)ash.volume / ASH_CAPACITY : 0.0f;
+    }
+    return (float)(c.thermal.volume - LavaLiquidVolume(c.thermal)) / LAVA_CAPACITY;
+}
+float GameGeologyLiquidHeightAt(int x, int y, int z)
+{
+    LavaCell c;
+    if (!LocalLavaAt(x, y, z, &c) || !LavaLiquidVolume(c.thermal)) return 0.0f;
+    return (float)c.thermal.volume / LAVA_CAPACITY;
+}
+bool GameGeologyCanSetBlock(int x, int y, int z, BlockType next)
+{
+    (void)next;
+    LavaCell c;
+    /* Ordinary edits cannot erase deposits. Collection has its own volume
+       transaction, independent of the base-block undo history.
+       Solidification may replace an occupied overlay. */
+    AshCell ash;
+    return solidifying || (!LocalLavaAt(x, y, z, &c) && !LocalAshAt(x, y, z, &ash));
+}
+
+typedef struct CollectDeposit {
+    SurfaceAddress address;
+    bool addressed;
+    uint32_t bodyId;
+    int x, y, z;
+    unsigned units;
+    bool ash;
+    LavaRock rock;
+} CollectDeposit;
+static bool RemoveDeposit(void *user)
+{
+    CollectDeposit *c = user;
+    if (c->addressed) {
+        return c->ash ? AshRuntimeCollectAtAddress(c->address, c->units) :
+            LavaRuntimeCollectAtAddress(c->address, c->units, c->rock);
+    }
+    return c->ash ? AshRuntimeCollect(c->bodyId, c->x, c->y, c->z,
+                                      c->units) :
+        LavaRuntimeCollect(c->bodyId, c->x, c->y, c->z, c->units, c->rock);
+}
+GameGeologyCollection GameGeologyCollectAt(int x, int y, int z, BlockType expectedType)
+{
+    WorldSurfaceContext s = WorldCurrentSurfaceContext();
+    if (!s.active || WorldNetherIsActive() || WorldBlockRegionAt(y) != WORLD_BLOCK_REGION_SURFACE)
+        return GAME_GEOLOGY_NO_DEPOSIT;
+    LavaCell lava; AshCell ash;
+    bool hasLava = LocalLavaAt(x, y, z, &lava), hasAsh = LocalAshAt(x, y, z, &ash);
+    if (!hasLava && !hasAsh) return GAME_GEOLOGY_NO_DEPOSIT;
+    SurfaceAddress address;
+    WorldCell cell;
+    if (!LocalSurfaceAddressAt(x, y, z, &address) ||
+        !AddressCell(address, &cell)) {
+        return GAME_GEOLOGY_COLLECTION_BLOCKED;
+    }
+    /* Never excavate parked/hidden records, or solid crust beneath liquid. */
+    if (!SurfaceBlockReadyAt(x, y, z) || cell.block != BLOCK_AIR ||
+        (hasLava && (!lava.cooled || LavaLiquidVolume(lava.thermal)))) return GAME_GEOLOGY_COLLECTION_BLOCKED;
+    LavaRock rock = hasLava ? LavaRockForMaterial(lava.material, lava.thermal.volume) : LAVA_ROCK_BASALT;
+    BlockType type = hasLava ? RockBlock(rock) : BLOCK_VOLCANIC_ASH;
+    if (expectedType != type) return GAME_GEOLOGY_COLLECTION_BLOCKED;
+    const LavaCell *lavaCell = hasLava ? &lava : NULL;
+    const AshCell *ashCell = hasAsh ? &ash : NULL;
+    bool addressed = lavaCell ? lavaCell->addressed : ashCell->addressed;
+    CollectDeposit source = { .address = lavaCell ? lavaCell->address :
+            ashCell->address, .addressed = addressed,
+        .bodyId = s.bodyId,
+        .x = x + s.originX, .y = y, .z = z + s.originZ,
+        .units = hasLava ? lava.thermal.volume : ash.volume,
+        .ash = !hasLava, .rock = rock };
+    if (!InventoryCollectVolume(type, source.units, RemoveDeposit, &source)) return GAME_GEOLOGY_COLLECTION_BLOCKED;
+    /* Overlays draw directly; only neighboring sleeping water needs waking. */
+    FluidOnBlockChanged(x, y, z, type, BLOCK_AIR);
+    return GAME_GEOLOGY_COLLECTED;
+}
+
+static bool AddressNearActiveVolcano(const GeologyTickContext *tick,
+                                     SurfaceAddress address, float radius)
+{
+    if (!tick) return false;
+    for (unsigned i = 0u; i < tick->activeCount; i++) {
+        if (AddressDistance(address, tick->active[i].address) <= radius) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static LavaBoundary LavaAddressBoundaryAt(SurfaceAddress address, void *user)
+{
+    GeologyTickContext *tick = user;
+    LavaBoundary result = LAVA_UNKNOWN;
+    if (!AddressNearActiveVolcano(tick, address, 136.0f)) {
+        result = LAVA_UNKNOWN;
+    } else if (WorldBlockRegionAt(address.radial) != WORLD_BLOCK_REGION_SURFACE ||
+               !WorldCanAccessBlockY(address.radial)) {
+        result = LAVA_BLOCKED;
+    }
+    AshCell ash;
+    if (result == LAVA_UNKNOWN &&
+        AshRuntimeCellAtAddress(address, &ash)) result = LAVA_BLOCKED;
+    if (result == LAVA_UNKNOWN) {
+        uint64_t revision = WorldGetEditRevision();
+        unsigned slot = LavaBoundaryCacheSlot(address);
+        LavaBoundaryCacheEntry *cached = &lavaBoundaryCache[slot];
+        bool hit = cached->editRevision == revision &&
+            (cached->cellClass == 1u || cached->cellClass == 2u) &&
+            SurfaceAddressEqual(cached->address, address);
+        if (hit) {
+            result = cached->cellClass == 1u ? LAVA_OPEN : LAVA_BLOCKED;
+        } else {
+            WorldCell cell;
+            if (AddressCell(address, &cell)) {
+                uint8_t cellClass = cell.block == BLOCK_AIR ? 1u : 2u;
+                *cached = (LavaBoundaryCacheEntry){
+                    .address = address,
+                    .editRevision = revision,
+                    .cellClass = cellClass
+                };
+                result = cellClass == 1u ? LAVA_OPEN : LAVA_BLOCKED;
+            }
+        }
+    }
+    return result;
+}
+
+static __attribute__((unused)) double LavaAddressAmbientAt(
+    SurfaceAddress address, void *user)
+{
+    GeologyTickContext *tick = user;
+    int x, z;
+    if (!tick || !AddressLocalMap(address, &x, &z)) return 293.0;
+    return WeatherFieldSampleAtWorldTime(x, z, tick->weatherTime).temperatureK;
+}
+
+static __attribute__((unused)) bool LavaAddressWaterAt(
+    SurfaceAddress address, unsigned *volume, void *user)
+{
+    if (LavaAddressBoundaryAt(address, user) == LAVA_UNKNOWN) return false;
+    WorldCell cell;
+    if (!AddressCell(address, &cell)) return false;
+    *volume = cell.waterVolume;
+    return true;
+}
+
+static __attribute__((unused)) bool LavaAddressEvaporateAt(
+    SurfaceAddress address, unsigned expected, unsigned units,
+    bool *reservoir, void *user)
+{
+    if (!reservoir || units > expected ||
+        LavaAddressBoundaryAt(address, user) == LAVA_UNKNOWN) return false;
+    WorldCell cell;
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
+    if (!AddressCell(address, &cell) || cell.waterVolume != expected ||
+        !contract) return false;
+    cell.waterVolume = (uint8_t)(expected - units);
+    if (!SurfaceContractCellWrite(contract, address, cell)) return false;
+    *reservoir = false;
+    return true;
+}
+
+static __attribute__((unused)) bool LavaAddressSolidifyAt(
+    SurfaceAddress address, void *user)
+{
+    if (LavaAddressBoundaryAt(address, user) != LAVA_OPEN) return false;
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
+    LavaCell lava;
+    WorldCell cell;
+    if (!contract || !LavaRuntimeCellAtAddress(address, &lava) ||
+        !AddressCell(address, &cell)) return false;
+    solidifying = true;
+    cell = WorldCellWithBlock(cell,
+        RockBlock(LavaRockForMaterial(lava.material, lava.thermal.volume)));
+    bool ok = SurfaceContractCellWrite(contract, address, cell);
+    solidifying = false;
+    if (ok) VolcanoRuntimeSolidifiedSourceAt(address);
+    return ok;
+}
+static unsigned EmitLava(const VolcanoDefinition *d, unsigned units, void *user)
+{
+    GeologyTickContext *tick = user;
+    /* Stable source archetypes; forced legacy vents remain dense/mafic. */
+    uint32_t profile = (uint32_t)d->id ^ (uint32_t)(d->id >> 32) ^ d->seed;
+    profile ^= profile >> 16; profile *= 0x7feb352du;
+    profile ^= profile >> 15; profile *= 0x846ca68bu; profile ^= profile >> 16;
+    double silica = !d->forced && (profile & 1u) ? 1.0 : 0.0;
+    double vesicles = !d->forced && (profile & 2u) ? 1.0 : 0.0;
+    unsigned accepted = 0;
+    /* The conduit stays at the crater center. Stack only above FULL lava
+       cells; unknown terrain and player/ordinary solid caps stop injection. */
+    for (int dy = 0; dy < 64 && accepted < units; dy++) {
+        int y = d->address.radial + dy;
+        if (LavaBoundaryAt(d->mapX, y, d->mapZ, user) != LAVA_OPEN) break;
+        unsigned remaining = units - accepted;
+        if (remaining > LAVA_CAPACITY) remaining = LAVA_CAPACITY;
+        accepted += LavaRuntimeDepositMaterial(
+            &tick->lava, d->mapX, y, d->mapZ, remaining, LAVA_SOURCE_K,
+            silica, vesicles);
+        LavaCell cell;
+        if (!LavaRuntimeCellAt(d->address.bodyId, d->mapX, y, d->mapZ,
+                               &cell) ||
+            cell.thermal.volume != LAVA_CAPACITY) break;
+    }
+    return accepted;
+}
+
+static AshBoundary AshAddressBoundaryAt(SurfaceAddress address, void *user)
+{
+    GeologyTickContext *tick = user;
+    SurfaceAddress observer = tick->volcano.hasObserver ?
+        tick->volcano.observer : tick->volcano.observer;
+    if (!tick->volcano.hasObserver ||
+        AddressDistance(address, observer) > 136.0f) return ASH_UNKNOWN;
+    if (!WorldCanAccessBlockY(address.radial) ||
+        WorldBlockRegionAt(address.radial) != WORLD_BLOCK_REGION_SURFACE) {
+        return ASH_BLOCKED;
+    }
+    LavaCell lava;
+    WorldCell cell;
+    if (!AddressCell(address, &cell)) return ASH_UNKNOWN;
+    return cell.block == BLOCK_AIR &&
+        !LavaRuntimeCellAtAddress(address, &lava) ? ASH_OPEN : ASH_BLOCKED;
+}
+
+static __attribute__((unused)) double AshAddressWetnessAt(
+    SurfaceAddress address, void *user)
+{
+    GeologyTickContext *tick = user;
+    for (int dy = 1; dy <= 12; dy++) {
+        SurfaceAddress cover = address;
+        cover.radial += dy;
+        AshCell ash;
+        if (AshAddressBoundaryAt(cover, user) != ASH_OPEN ||
+            AshRuntimeCellAtAddress(cover, &ash)) return 0.0;
+    }
+    int x, z;
+    if (!tick || !AddressLocalMap(address, &x, &z)) return 0.0;
+    WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(
+        x, z, tick->weatherTime);
+    return fmax(weather.rain, weather.drizzle);
+}
+
 static unsigned EmitAsh(const VolcanoDefinition *d, unsigned units, uint64_t activeTick, void *user)
 {
     GeologyTickContext *tick = user;
@@ -278,11 +511,12 @@ static unsigned EmitAsh(const VolcanoDefinition *d, unsigned units, uint64_t act
     }
     return 0;
 }
+
 static bool HasHotLava(const VolcanoDefinition *d, void *user)
 {
     GeologyTickContext *tick = user;
-    return LavaRuntimeHasActiveHotNear(&tick->lava, d->mapX, d->address.radial,
-                                       d->mapZ, 180.0f);
+    return LavaRuntimeHasActiveHotNear(&tick->lava, d->mapX,
+                                       d->address.radial, d->mapZ, 180.0f);
 }
 
 static bool SampleSite(SurfaceAddress address, float *potential, int *height, void *opaque)
@@ -318,7 +552,7 @@ static bool SiteReady(const VolcanoDefinition *d, void *opaque)
 static VolcanoContext ContextFor(const GameRuntime *game)
 {
     WorldSurfaceContext surface = WorldCurrentSurfaceContext();
-    return (VolcanoContext){
+    VolcanoContext context = {
         .valid = game && game->screen == SCREEN_PLAYING && surface.active &&
                  !WorldNetherIsActive() && !game->perfMode,
         .discover = surface.kind == WORLD_SURFACE_PLANET,
@@ -327,6 +561,16 @@ static VolcanoContext ContextFor(const GameRuntime *game)
             game->player.position.y, game->player.position.z + surface.originZ } : (Vector3){ 0 },
         .sample = SampleSite, .ready = SiteReady
     };
+    if (game) {
+        SurfacePose pose;
+        SurfaceAddress observer;
+        if (PlayerSurfacePoseFromLocal(game->player.position, &pose) &&
+            SurfaceCellFromPoint(pose.bodyId, pose.position, &observer)) {
+            context.observer = observer;
+            context.hasObserver = true;
+        }
+    }
+    return context;
 }
 
 LavaHeatExposure GameGeologyHeatExposureAt(const GameRuntime *game,
@@ -340,9 +584,12 @@ LavaHeatExposure GameGeologyHeatExposureAt(const GameRuntime *game,
         .volcano = ContextFor(game), .weatherTime = SpaceElapsedSimulationTime() };
     if (!tick.volcano.valid || !surface.active) return empty;
     PrepareTick(&tick);
-    position.x += (float)surface.originX;
-    position.z += (float)surface.originZ;
-    return LavaRuntimeHeatExposureAt(&tick.lava, position, radius, shelter);
+    SurfaceAddress observer;
+    if (!LocalSurfaceAddressAt((int)floorf(position.x),
+                               (int)floorf(position.y),
+                               (int)floorf(position.z), &observer)) return empty;
+    return LavaRuntimeHeatExposureAtAddress(&tick.lava, observer, radius,
+                                            shelter);
 }
 
 void GameGeologyUpdate(GameRuntime *game, double seconds)
@@ -370,7 +617,8 @@ static void PrepareTick(GeologyTickContext *tick)
         if (r.active && tick->activeCount < VOLCANO_MAX_ACTIVE) tick->active[tick->activeCount++] = r.definition;
     }
     tick->lava = (LavaContext){ .valid = tick->volcano.valid, .bodyId = tick->volcano.bodyId,
-        .boundary = LavaBoundaryAt, .ambient = LavaAmbientAt, .solidify = LavaSolidifyAt, .user = tick,
+        .boundary = LavaBoundaryAt, .ambient = LavaAmbientAt,
+        .solidify = LavaSolidifyAt, .user = tick,
         .water = LavaWaterAt, .evaporate = LavaEvaporateAt };
     tick->ash = (AshContext){ .valid = tick->volcano.valid, .bodyId = tick->volcano.bodyId,
         .boundary = AshBoundaryAt, .wetness = AshWetnessAt, .user = tick };
@@ -412,39 +660,38 @@ void GameGeologyDraw(const GameRuntime *game, const GameFrameView *frame)
     unsigned steamCells = 0u;
     uint64_t lavaTicks = LavaRuntimeStats().ticks;
     for (unsigned i = 0u; LavaRuntimeAt(i, &cell); i++) {
+        WorldSurfaceCellRuntime runtime;
         if (cell.bodyId != context.bodyId ||
-            !SurfaceBlockReadyAt(cell.x - s.originX, cell.y, cell.z - s.originZ) ||
-            GetBlockBaseAt(cell.x - s.originX, cell.y, cell.z - s.originZ) != BLOCK_AIR) continue;
+            !WorldSurfaceCellRuntimeAt(cell.address, &runtime) ||
+            runtime.block != BLOCK_AIR) continue;
         SurfaceMapOffset offset = SurfaceShortestMapOffset(context.observerMap.x,
             context.observerMap.z, cell.x, cell.z);
         if (hypotf(offset.x, offset.z) > VOLCANO_LEAVE_RADIUS) continue;
-        int cx, cz, lx, lz;
-        WorldToChunkLocal(cell.x - s.originX, cell.z - s.originZ, &cx, &cz, &lx, &lz);
-        const Chunk *chunk = FindChunk(cx, cz);
-        if (!chunk || !chunk->loaded) continue;
-        Matrix transform = SurfaceChunkRenderTransform(chunk, SurfaceSectionYFromBlockY(cell.y),
+        Matrix transform = SurfaceChunkRenderTransform(runtime.chunk, runtime.sectionY,
             game->camera.position, s.originX, s.originZ);
         DrawLavaCell(transform,
-            (Vector3){ (float)lx, (float)SurfaceSectionLocalYFromBlockY(cell.y), (float)lz },
+            (Vector3){ (float)runtime.localX, (float)runtime.localY,
+                       (float)runtime.localZ },
             cell.thermal, LavaRockForMaterial(cell.material, cell.thermal.volume));
         if (cell.steam >= 0.05 && steamCells < LAVA_STEAM_MAX_CELLS) {
             DrawLavaSteam(transform,
-                (Vector3){ lx + 0.5f, SurfaceSectionLocalYFromBlockY(cell.y) +
-                    (float)cell.thermal.volume / LAVA_CAPACITY, lz + 0.5f },
+                (Vector3){ runtime.localX + 0.5f, runtime.localY +
+                    (float)cell.thermal.volume / LAVA_CAPACITY,
+                    runtime.localZ + 0.5f },
                 cell.steam, lavaTicks, frame->weatherVisual.windAngle, frame->weatherVisual.windDrift);
             steamCells++;
         }
     }
     AshCell ash;
     for (unsigned i = 0; AshRuntimeAt(i, &ash); i++) {
-        int x = ash.x - s.originX, z = ash.z - s.originZ;
-        if (ash.bodyId != s.bodyId || !SurfaceBlockReadyAt(x, ash.y, z) || GetBlockBaseAt(x, ash.y, z) != BLOCK_AIR) continue;
-        int cx, cz, lx, lz; WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
-        const Chunk *chunk = FindChunk(cx, cz);
-        if (!chunk || !chunk->loaded) continue;
-        Matrix transform = SurfaceChunkRenderTransform(chunk, SurfaceSectionYFromBlockY(ash.y),
+        WorldSurfaceCellRuntime runtime;
+        if (ash.bodyId != s.bodyId ||
+            !WorldSurfaceCellRuntimeAt(ash.address, &runtime) ||
+            runtime.block != BLOCK_AIR) continue;
+        Matrix transform = SurfaceChunkRenderTransform(runtime.chunk, runtime.sectionY,
             game->camera.position, s.originX, s.originZ);
-        DrawAshCell(transform, (Vector3){ lx, SurfaceSectionLocalYFromBlockY(ash.y), lz }, ash.volume);
+        DrawAshCell(transform, (Vector3){ (float)runtime.localX,
+            (float)runtime.localY, (float)runtime.localZ }, ash.volume);
     }
 }
 
