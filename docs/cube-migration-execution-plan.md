@@ -408,7 +408,7 @@ capacity. `test_cga_voxel`, `test_cube_generation`, `test_terrain_cube` and
 
 #### M4.7: volcano, lava and ash
 
-**Status:** in progress (2026-11-09)
+**Status:** complete (2026-11-09)
 
 Migrate volcano addresses, history search and section effects to surface
 identity. Keep finite-volume lava/water displacement and persistence semantics
@@ -418,15 +418,18 @@ Exit: volcano history, mountain, overlay and water-contact suites pass on cube
 and legacy; cross-face and polar search cases return canonical surface cells.
 Commit `refactor(geology): address volcanic systems through surfaces`.
 
-Progress: lava and ash cells now have address-native APIs, identities,
+Exit evidence: lava and ash cells now have address-native APIs, identities,
 neighbour traversal and persistence; volcano observation and nearest-source
 queries accept `SurfaceAddress`; `WorldSurfaceCellRuntimeAt` gives overlays a
-contract-backed chunk/local render location. Focused `test_volcano`,
+contract-backed chunk/local render location. The gameplay boundary read caches
+known cell occupancy by edit revision, so live-flow growth no longer issues a
+contract/chunk lookup for every repeated neighbour check. Focused `test_volcano`,
 `test_volcano_history`, `test_volcano_history_cache`, `test_lava`, `test_ash`,
 `test_block_collection`, `test_game_save_spherical` and `test_render_volcano`
-pass. The app keeps the legacy map callback adapter as a fallback. The full
-Hyprland `volcano_live` scene remains open: the host kills the game process
-during `geology step 360` while creating the live flow, so M4.7 is not complete.
+pass. `make test-werror` and `make test-architecture` pass. The complete Hyprland
+`volcano_live` scene now passes in 41 seconds with 600 supplied lava units,
+1,628 records, 1,549 hot cells, zero volume error and the save/load replay.
+Commit M4.7.
 
 #### M4.8: hydrology and radiation
 

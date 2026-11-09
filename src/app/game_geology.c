@@ -96,6 +96,33 @@ static bool AddressCell(SurfaceAddress address, WorldCell *out)
         WorldSurfaceCellAt(x, address.radial, z, out);
 }
 
+static bool CachedMapCellClass(uint32_t bodyId, int x, int y, int z,
+                               uint8_t *outClass)
+{
+    WorldSurfaceContext surface = WorldCurrentSurfaceContext();
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        bodyId, (float)(surface.originX + x) + 0.5f,
+        (float)(surface.originZ + z) + 0.5f, y);
+    uint64_t revision = WorldGetEditRevision();
+    unsigned slot = LavaBoundaryCacheSlot(address);
+    LavaBoundaryCacheEntry *cached = &lavaBoundaryCache[slot];
+    if (cached->editRevision == revision &&
+        (cached->cellClass == 1u || cached->cellClass == 2u) &&
+        SurfaceAddressEqual(cached->address, address)) {
+        *outClass = cached->cellClass;
+        return true;
+    }
+    WorldCell cell;
+    if (!AddressCell(address, &cell)) return false;
+    *outClass = cell.block == BLOCK_AIR ? 1u : 2u;
+    *cached = (LavaBoundaryCacheEntry){
+        .address = address,
+        .editRevision = revision,
+        .cellClass = *outClass
+    };
+    return true;
+}
+
 static float AddressDistance(SurfaceAddress a, SurfaceAddress b)
 {
     Vector3 pa = Vector3Scale(SurfaceAddressDirection(a),
@@ -142,14 +169,13 @@ static LavaBoundary LavaBoundaryAt(int x, int y, int z, void *user)
     x -= s.originX; z -= s.originZ;
     if (WorldBlockRegionAt(y) != WORLD_BLOCK_REGION_SURFACE ||
         !WorldCanAccessBlockY(y)) return LAVA_BLOCKED;
-    int cx, cz, lx, lz;
-    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
-    const Chunk *chunk = FindChunk(cx, cz);
-    if (!chunk || !chunk->loaded ||
-        !ChunkTerrainSectionIsResolved(chunk, SurfaceSectionYFromBlockY(y))) return LAVA_UNKNOWN;
+    uint8_t cellClass = 0u;
+    if (!CachedMapCellClass(s.bodyId, x, y, z, &cellClass)) {
+        return LAVA_UNKNOWN;
+    }
     AshCell ash;
     if (LocalAshAt(x, y, z, &ash)) return LAVA_BLOCKED;
-    return GetBlockBaseAt(x, y, z) == BLOCK_AIR ? LAVA_OPEN : LAVA_BLOCKED;
+    return cellClass == 1u ? LAVA_OPEN : LAVA_BLOCKED;
 }
 static double LavaAmbientAt(int x, int z, void *user)
 {
@@ -199,11 +225,13 @@ static AshBoundary AshBoundaryAt(int x, int y, int z, void *user)
     WorldSurfaceContext s = WorldCurrentSurfaceContext();
     x -= s.originX; z -= s.originZ;
     if (!WorldCanAccessBlockY(y) || WorldBlockRegionAt(y) != WORLD_BLOCK_REGION_SURFACE) return ASH_BLOCKED;
-    int cx, cz, lx, lz; WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
-    const Chunk *chunk = FindChunk(cx, cz);
-    if (!chunk || !chunk->loaded || !ChunkTerrainSectionIsResolved(chunk, SurfaceSectionYFromBlockY(y))) return ASH_UNKNOWN;
+    uint8_t cellClass = 0u;
+    if (!CachedMapCellClass(s.bodyId, x, y, z, &cellClass)) {
+        return ASH_UNKNOWN;
+    }
     LavaCell lava;
-    return GetBlockBaseAt(x, y, z) == BLOCK_AIR && !LocalLavaAt(x, y, z, &lava) ? ASH_OPEN : ASH_BLOCKED;
+    return cellClass == 1u && !LocalLavaAt(x, y, z, &lava) ?
+        ASH_OPEN : ASH_BLOCKED;
 }
 static double AshWetnessAt(int x, int y, int z, void *user)
 {
