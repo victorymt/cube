@@ -14,7 +14,7 @@ The stages run in order because each one establishes an input for the next. Stag
 
 ## Stage 3: plant/water ecological coupling
 
-**Execution status:** planned as M4.3. The behavior and acceptance rules below
+**Execution status:** complete in M4.3. The behavior and acceptance rules below
 remain the detailed specification.
 
 ### Goal

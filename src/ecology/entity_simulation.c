@@ -332,7 +332,9 @@ static bool EntityStandHeightAt(const Entity *entity,
             continue;
         }
         *outStandY = (float)floorY + 1.0f;
-        *outLiquid = foot == BLOCK_WATER || head == BLOCK_WATER;
+        *outLiquid = foot == BLOCK_WATER || head == BLOCK_WATER ||
+            FluidGetVolumeAt(blockX, floorY + 1, blockZ) > 0u ||
+            FluidGetVolumeAt(blockX, floorY + 2, blockZ) > 0u;
         *outLava = foot == BLOCK_LAVA || head == BLOCK_LAVA;
         return true;
     }
@@ -396,8 +398,10 @@ static FaunaTerrainCandidate EntityAirCandidateAt(
         BlockType head = GetBlockAt(x, y + 1, z);
         candidate.blocked = candidate.blocked ||
             BlockBlocksEntity(x, y, z) || BlockBlocksEntity(x, y + 1, z);
-        candidate.liquid = candidate.liquid ||
-            body == BLOCK_WATER || head == BLOCK_WATER;
+        candidate.liquid = candidate.liquid || body == BLOCK_WATER ||
+            head == BLOCK_WATER ||
+            FluidGetVolumeAt(x, y, z) > 0u ||
+            FluidGetVolumeAt(x, y + 1, z) > 0u;
         candidate.lava = candidate.lava ||
             body == BLOCK_LAVA || head == BLOCK_LAVA;
     }

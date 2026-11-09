@@ -3,6 +3,7 @@
 #include "ecology/ecology.h"
 #include "space/space_state.h"
 #include "world/terrain.h"
+#include "world/fluid.h"
 #include "world/weather.h"
 #include "world/world_state.h"
 #include "world/block_edits.h"
@@ -171,7 +172,9 @@ static bool EntityValidatePassiveSpawn(EntityPassiveSpawn *spawn,
     int playerY = (int)floorf(player->position.y);
     bool playerUnderwater = GetBlockAt(
         (int)floorf(player->position.x), playerY,
-        (int)floorf(player->position.z)) == BLOCK_WATER;
+        (int)floorf(player->position.z)) == BLOCK_WATER ||
+        FluidGetVolumeAt((int)floorf(player->position.x), playerY,
+                         (int)floorf(player->position.z)) > 0u;
     if (spawn->evolvable &&
         spawn->archetype == EVOLUTION_ARCHETYPE_FLIGHT && playerUnderwater) {
         return false;

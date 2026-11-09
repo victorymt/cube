@@ -12,6 +12,7 @@
 #include "space/space_runtime.h"
 #include "space/space_state.h"
 #include "world/fluid.h"
+#include "world/chunks.h"
 #include "world/weather.h"
 #include "world/weather_impact.h"
 #include "world/world_environment.h"
@@ -228,6 +229,7 @@ void GameAdvanceSimulationStep(double simulationSeconds,
             game->debugEcologyStepMainCpuMs += elapsed;
         }
         FluidUpdate(dt);
+        ChunksAdvanceFloraFlood(dt);
     }
     if (weatherActive) {
         bool sheltered = GameEnvironmentSheltered(game->player.position) ||

@@ -110,6 +110,12 @@ typedef struct FloraHabitat {
     float burnRecovery;
 } FloraHabitat;
 
+typedef struct FloraFloodState {
+    float exposureSeconds;
+    float damage;
+    bool dead;
+} FloraFloodState;
+
 const FloraTaxon *FloraTaxonAt(FloraTaxonId id);
 const FloraTaxon *FloraTaxonCatalog(size_t *count);
 const char *FloraGrowthFormName(FloraGrowthForm form);
@@ -117,6 +123,13 @@ const char *FloraSuccessionStageName(FloraSuccessionStage stage);
 const char *FloraDisturbanceStageName(FloraDisturbanceStage stage);
 const char *FloraFloodToleranceName(FloraFloodTolerance tolerance);
 FloraFloodTolerance FloraFloodToleranceForBlock(BlockType block);
+FloraFloodTolerance FloraFloodToleranceForTaxon(FloraTaxonId id);
+float FloraFloodThresholdSeconds(FloraFloodTolerance tolerance);
+/* Advances bounded flood exposure, recovery and mortality. Water volume is
+ * scaled from 0..255; the function is deterministic and allocation-free. */
+FloraFloodState FloraFloodAdvance(FloraFloodTolerance tolerance,
+                                  unsigned waterVolume, float dtSeconds,
+                                  FloraFloodState state);
 FloraDisturbanceStage FloraDisturbanceStageForBurn(float severity,
                                                    float recovery);
 bool FloraTaxonIsTree(FloraTaxonId id);

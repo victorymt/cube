@@ -4,6 +4,7 @@
 #include "world/home_tree_shape.h"
 
 #include <limits.h>
+#include <math.h>
 
 static bool BuildFloraMeshDataWithSnapshot(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
@@ -160,6 +161,90 @@ bool ChunkFloraStructureOwnsBlock(
     return chunk && FloraStructureOwnerAt(
         chunk->floraStructures, chunk->floraStructureCount,
         worldX, y, worldZ, block) >= 0;
+}
+
+bool ChunkRemoveFloraStructure(Chunk *chunk, int structureIndex)
+{
+    if (!chunk || structureIndex < 0 ||
+        structureIndex >= chunk->floraStructureCount) return false;
+    const FloraStructureInstance structure = chunk->floraStructures[structureIndex];
+    for (int y = structure.minY; y <= structure.maxY; y++) {
+        for (int z = structure.minZ; z <= structure.maxZ; z++) {
+            for (int x = structure.minX; x <= structure.maxX; x++) {
+                BlockType expected = BLOCK_AIR;
+                if (!FloraStructureExpectedBlockAt(&structure, x, y, z,
+                                                   &expected)) continue;
+                int lx = x - chunk->cx * CHUNK_SIZE;
+                int lz = z - chunk->cz * CHUNK_SIZE;
+                if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE ||
+                    !InHeight(y) || ChunkGetLocalBlock(chunk, lx, y, lz) !=
+                        expected) continue;
+                int owner = FloraStructureOwnerAt(
+                    chunk->floraStructures, chunk->floraStructureCount,
+                    x, y, z, expected);
+                if (owner != structureIndex) continue;
+                (void)ChunkSetLocalBlock(chunk, lx, y, lz, BLOCK_AIR);
+                MarkChunkDirtyAtBlock(x, y, z);
+            }
+        }
+    }
+    memmove(&chunk->floraStructures[structureIndex],
+            &chunk->floraStructures[structureIndex + 1],
+            (size_t)(chunk->floraStructureCount - structureIndex - 1) *
+                sizeof(chunk->floraStructures[0]));
+    chunk->floraStructureCount--;
+    return true;
+}
+
+static ChunkFloraFloodStats floraFloodStats;
+
+ChunkFloraFloodStats ChunksGetFloraFloodStats(void)
+{
+    return floraFloodStats;
+}
+
+void ChunksAdvanceFloraFlood(float dtSeconds)
+{
+    floraFloodStats = (ChunkFloraFloodStats){ 0 };
+    if (!isfinite(dtSeconds) || dtSeconds <= 0.0f) return;
+    for (int chunkIndex = 0; chunkIndex < MAX_ACTIVE_CHUNKS; chunkIndex++) {
+        Chunk *chunk = &chunks[chunkIndex];
+        if (!chunk->loaded) continue;
+        for (int structureIndex = 0;
+             structureIndex < chunk->floraStructureCount;) {
+            FloraStructureInstance *structure =
+                &chunk->floraStructures[structureIndex];
+            int rootY = structure->groundY + 1;
+            int rootLocalX = structure->rootX - chunk->cx * CHUNK_SIZE;
+            int rootLocalZ = structure->rootZ - chunk->cz * CHUNK_SIZE;
+            unsigned water = 0u;
+            if (rootLocalX >= 0 && rootLocalX < CHUNK_SIZE &&
+                rootLocalZ >= 0 && rootLocalZ < CHUNK_SIZE && InHeight(rootY)) {
+                water = ChunkGetLocalWaterVolume(
+                    chunk, rootLocalX, rootY, rootLocalZ);
+            }
+            FloraFloodTolerance tolerance =
+                FloraFloodToleranceForBlock(structure->primaryBlock);
+            FloraFloodState state = {
+                structure->floodExposureSeconds,
+                structure->floodDamage,
+                structure->floodDead
+            };
+            state = FloraFloodAdvance(tolerance, water, dtSeconds, state);
+            structure->floodExposureSeconds = state.exposureSeconds;
+            structure->floodDamage = state.damage;
+            structure->floodDead = state.dead;
+            if (state.exposureSeconds > 0.0f) floraFloodStats.affected++;
+            if (state.damage > 0.0f) floraFloodStats.damaged++;
+            if (state.dead) {
+                if (ChunkRemoveFloraStructure(chunk, structureIndex)) {
+                    floraFloodStats.dead++;
+                    continue;
+                }
+            }
+            structureIndex++;
+        }
+    }
 }
 
 void CopyBlocksWithoutFloraStructures(

@@ -2,6 +2,7 @@
 
 #include "app/game_runtime.h"
 #include "world/flora_taxa.h"
+#include "world/chunks.h"
 #include "world/terrain.h"
 #include "world/weather_impact.h"
 #include "world/block_types.h"
@@ -469,6 +470,18 @@ bool GameDebugFloraDslResolve(const GameRuntime *game, const char *name,
     }
     if (strcmp(name, "flora.sample_moisture") == 0) {
         return FloraDslNumber(outValue, game->floraSampleHabitat.moisture);
+    }
+    if (strncmp(name, "flora.flood_", 12u) == 0) {
+        ChunkFloraFloodStats stats = ChunksGetFloraFloodStats();
+        if (strcmp(name, "flora.flood_affected") == 0) {
+            return FloraDslNumber(outValue, stats.affected);
+        }
+        if (strcmp(name, "flora.flood_damaged") == 0) {
+            return FloraDslNumber(outValue, stats.damaged);
+        }
+        if (strcmp(name, "flora.flood_dead") == 0) {
+            return FloraDslNumber(outValue, stats.dead);
+        }
     }
     if (strcmp(name, "flora.gallery_active") == 0) {
         return FloraDslBool(outValue, game->floraGalleryActive);

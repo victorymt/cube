@@ -80,7 +80,7 @@ The following work continues the water/plant cell model after the volume-based c
 
 | Water/plant stage | Scope | Execution | Detailed specification |
 | --- | --- | --- | --- |
-| 3 | Plant/water ecological coupling, flood tolerance, damage, and anchoring | M4.3 | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-3-plantwater-ecological-coupling) |
+| 3 | Plant/water ecological coupling, flood tolerance, damage, and anchoring | Complete in M4.3 | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-3-plantwater-ecological-coupling) |
 | 4 | Deterministic terrain, water, shoreline-plant, and rooted-plant generation order | M4.4 | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-4-deterministic-generation-order) |
 | 5 | Unified cell persistence, save validation, and DSL inspection | Complete in M3 | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-5-persistence-and-dsl) |
 

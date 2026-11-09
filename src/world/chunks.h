@@ -228,6 +228,20 @@ bool BuildChunkFloraMeshData(
     FloraVisualInstance **outInstances, int *outInstanceCount);
 bool ChunkFloraStructureOwnsBlock(
     const Chunk *chunk, int worldX, int y, int worldZ, BlockType block);
+/* Removes one generated flora structure and clears only blocks that it still
+ * owns. Water volume in those cells is preserved. */
+bool ChunkRemoveFloraStructure(Chunk *chunk, int structureIndex);
+
+typedef struct ChunkFloraFloodStats {
+    unsigned affected;
+    unsigned damaged;
+    unsigned dead;
+} ChunkFloraFloodStats;
+
+/* Advances flood exposure for loaded flora structures. The app calls this once
+ * per simulation step after fluid state has been updated. */
+void ChunksAdvanceFloraFlood(float dtSeconds);
+ChunkFloraFloodStats ChunksGetFloraFloodStats(void);
 bool ApplyFloraMeshPresenceColors(
     unsigned char *colors, const unsigned char *baseColors, int vertexCount,
     const float *targetPresence, int targetCount, float blend);

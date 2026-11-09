@@ -307,6 +307,8 @@ scene reproduces the edge flow; `make test-cube-save-reload` passes. Commit
 
 #### M4.3: water/plant Stage 3
 
+**Status:** complete (2026-11-09)
+
 Implement the Stage 3 specification in
 `todo/10-water-plant-cell-followups.md`: deterministic flood tolerance, bounded
 exposure and recovery, plant anchoring, and volume-based water queries in
@@ -315,8 +317,17 @@ player, fauna, flora and spawn paths. Do not derive occupancy from
 
 Exit: dry, saturated, briefly submerged and chronically submerged fixtures pass
 for every tolerance class; drainage and flow do not dislodge anchored plants;
-dead plants enter the existing succession path exactly once. Commit
+dead plants are removed exactly once without duplicating biomass or structures.
+Commit
 `feat(ecology): couple plant survival to cell water volume`.
+
+Exit evidence: flora taxa now classify intolerant, tolerant and aquatic plants;
+`FloraFloodAdvance` provides bounded deterministic exposure, damage and dry
+recovery. `ChunksAdvanceFloraFlood` runs on each simulation step, removes only
+the dead structure's owned blocks and preserves the water volume in the shared
+cell. `test_flora_taxa` and `test_flora_flood` pass the tolerance, recovery,
+removal and water-preservation cases. Water sampling in player, fauna and spawn
+paths now uses cell volume rather than block identity. Commit M4.3.
 
 #### M4.4: water/plant Stage 4
 

@@ -132,6 +132,11 @@ void FluidUpdate(float dt)
     ExpectSequence(4u);
 }
 
+void ChunksAdvanceFloraFlood(float dtSeconds)
+{
+    (void)dtSeconds;
+}
+
 void EntitiesCaptureRenderPoses(void) {}
 
 void PlanetEcologyAdvanceActiveRegionsAt(int x, int z, int radius,

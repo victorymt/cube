@@ -42,6 +42,9 @@ typedef struct FloraStructureInstance {
     BlockType primaryBlock;
     BlockType accentBlock;
     float windResponse;
+    float floodExposureSeconds;
+    float floodDamage;
+    bool floodDead;
 } FloraStructureInstance;
 
 #endif

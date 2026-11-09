@@ -6,7 +6,7 @@ Updated 2026-11-09. Source of the statements below: the status sections previous
 
 ## Current work
 
-**Homeworld cube-grid migration, M4.2 complete; M4.3 next.** The active sequence and gates live in the [Homeworld cube migration execution plan](docs/cube-migration-execution-plan.md). Planets remain on the legacy backend for this plan.
+**Homeworld cube-grid migration, M4.3 complete; M4.4 next.** The active sequence and gates live in the [Homeworld cube migration execution plan](docs/cube-migration-execution-plan.md). Planets remain on the legacy backend for this plan.
 
 What works today: both legacy-map and cube-grid implement one topology-neutral `SurfaceContract`; the active contract owns the only long-lived cube generation context, and policy declaration accepts independent or mixed per-surface topologies. A cube world is reachable at runtime through `surface debug cube`, which opens the runtime gate, installs Home cube plus Planets legacy, and drives streaming through the contract's physical-coverage capability. On that path the player lands and walks, block picking is cube-based, and cube edits round-trip through their own save section. Cube-grid has continuous poses, explicit cell/chunk identity, an immutable v9 base generator, shared projected geometry, physical coverage enumeration, and runtime adapters covering generation, in-memory edits, budgeted admission, mesh projection, and render bounds. M2 aligned cube mesh vertices and frustum bounds with the same section anchor frame, eliminating the remaining vertical stretch in the deterministic Hyprland wall replay.
 
@@ -22,10 +22,11 @@ What works today: both legacy-map and cube-grid implement one topology-neutral `
 
 Not the current runtime default. Both Homeworld and planets will switch to cube-grid/1 using cube base 9 plus the historical layer 11, with V30 saves requiring a new world. V30 will reject V29 and older files without migrating or deleting them. Preserving v7/v8 fingerprints is no longer a requirement. Regional ecology payload V7 and terrain generator v11 have independent version sequences. The authoritative version, identity, ownership, and capacity tables live in the [cube activation contract](docs/cube-contract.md).
 
-Next, in dependency order: complete water/plant Stage 3 in M4.3, generation order in M4.4, migrate the remaining consumers through M4.10, then close coverage/rendering acceptance in M5.
+Next, in dependency order: enforce the water/plant generation order in M4.4, migrate the remaining consumers through M4.10, then close coverage/rendering acceptance in M5.
 
 ## Verified
 
+- 2026-11-09: M4.3 completed water/plant Stage 3. Flora traits now distinguish intolerant, tolerant and aquatic plants; deterministic flood exposure, damage and dry recovery are bounded per structure. `test_flora_taxa` covers dry, saturated, partial, brief and chronic cases; `test_flora_flood` verifies dead structures are removed without deleting shared cell water. Player, fauna and spawn liquid checks now use cell water volume.
 - 2026-11-09: M4.2 enabled cube fluid through the surface contract. `test_fluid_cube` carries water across a face edge with total volume conserved, `make test-cube-fluid-face-edge-e2e` passes under Hyprland, and `make test-cube-save-reload` plus `make test-v30-cell-reload-e2e` pass. The DSL gained `surface pose` and targeted `fluid.inspect_*` diagnostics.
 - 2026-11-09: M4.1 moved fluid queue and edit buckets to opaque surface chunk handles and changed saved fluid state to FLD3 with `SurfaceAddress` plus chunk identity; FLD1/FLD2 remain readable. `test_fluid` proves equal U/V on different cube faces does not share chunk identity and round-trips the FLD3 checkpoint byte-for-byte. `make test-cube-save-reload` and the Hyprland `make test-v30-cell-reload-e2e` pass; cube fluid remains disabled for M4.2.
 - 2026-11-09: M4.0 added the shared legacy/cube consumer fixture. `tests/surface_contract_fixture.c` runs the same known/read/write, sample, opaque chunk/section, neighbour, cross-face and reload assertions against both adapters; the cube case proves two faces with the same U/V have distinct chunk identities. `./build/normal/tests/test_surface_contract` and all eight `make test-surface-cube` binaries pass.

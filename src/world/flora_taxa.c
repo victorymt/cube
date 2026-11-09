@@ -92,6 +92,22 @@ static const FloraTaxon floraCatalog[FLORA_TAXON_COUNT] = {
       BLOCK_SAGUARO, BLOCK_SAGUARO }
 };
 
+static const FloraFloodTolerance floraFloodTolerance[FLORA_TAXON_COUNT] = {
+    FLORA_FLOOD_INTOLERANT, /* oak */
+    FLORA_FLOOD_INTOLERANT, /* birch */
+    FLORA_FLOOD_INTOLERANT, /* aspen */
+    FLORA_FLOOD_INTOLERANT, /* spruce */
+    FLORA_FLOOD_INTOLERANT, /* pine */
+    FLORA_FLOOD_TOLERANT,   /* willow */
+    FLORA_FLOOD_INTOLERANT, /* big bluestem */
+    FLORA_FLOOD_TOLERANT,   /* bracken */
+    FLORA_FLOOD_AQUATIC,    /* common reed */
+    FLORA_FLOOD_AQUATIC,    /* sphagnum */
+    FLORA_FLOOD_TOLERANT,   /* heather */
+    FLORA_FLOOD_TOLERANT,   /* fireweed */
+    FLORA_FLOOD_INTOLERANT  /* saguaro */
+};
+
 static float Clamp01(float value)
 {
     if (!isfinite(value)) return 0.0f;
@@ -189,22 +205,53 @@ FloraFloodTolerance FloraFloodToleranceForBlock(BlockType block)
 {
     FloraTaxonId id = FloraTaxonIdForBlock(block);
     if (id >= FLORA_TAXON_COUNT) return FLORA_FLOOD_UNKNOWN;
-    const FloraTaxon *taxon = FloraTaxonAt(id);
-    if (!taxon) return FLORA_FLOOD_UNKNOWN;
-    switch (taxon->growthForm) {
-    case FLORA_GROWTH_REED:
-    case FLORA_GROWTH_MOSS:
-        return FLORA_FLOOD_TOLERANT;
-    case FLORA_GROWTH_FERN:
-    case FLORA_GROWTH_SHRUB:
-        return FLORA_FLOOD_TOLERANT;
-    case FLORA_GROWTH_BROADLEAF:
-    case FLORA_GROWTH_CONIFER:
-    case FLORA_GROWTH_GRASS:
-    case FLORA_GROWTH_SUCCULENT:
-    default:
-        return FLORA_FLOOD_INTOLERANT;
+    return floraFloodTolerance[id];
+}
+
+FloraFloodTolerance FloraFloodToleranceForTaxon(FloraTaxonId id)
+{
+    return id >= 0 && id < FLORA_TAXON_COUNT
+        ? floraFloodTolerance[id] : FLORA_FLOOD_UNKNOWN;
+}
+
+float FloraFloodThresholdSeconds(FloraFloodTolerance tolerance)
+{
+    switch (tolerance) {
+    case FLORA_FLOOD_INTOLERANT: return 2.0f;
+    case FLORA_FLOOD_TOLERANT: return 20.0f;
+    case FLORA_FLOOD_AQUATIC: return INFINITY;
+    case FLORA_FLOOD_UNKNOWN:
+    default: return 0.0f;
     }
+}
+
+FloraFloodState FloraFloodAdvance(FloraFloodTolerance tolerance,
+                                  unsigned waterVolume, float dtSeconds,
+                                  FloraFloodState state)
+{
+    if (!isfinite(dtSeconds) || dtSeconds < 0.0f) return state;
+    if (state.dead) return state;
+    if (waterVolume > 255u) waterVolume = 255u;
+    float wet = waterVolume > 0u
+        ? 0.25f + 0.75f * (float)waterVolume / 255.0f : 0.0f;
+    float threshold = FloraFloodThresholdSeconds(tolerance);
+    if (tolerance == FLORA_FLOOD_UNKNOWN || tolerance == FLORA_FLOOD_AQUATIC) {
+        state.exposureSeconds = 0.0f;
+        state.damage = fmaxf(0.0f, state.damage - dtSeconds * 0.08f);
+        return state;
+    }
+    if (wet > 0.0f) {
+        state.exposureSeconds += dtSeconds * wet;
+        if (state.exposureSeconds > threshold) {
+            state.damage = Clamp01(state.damage + dtSeconds * wet * 0.10f);
+        }
+    } else {
+        state.exposureSeconds = fmaxf(0.0f,
+                                      state.exposureSeconds - dtSeconds * 2.0f);
+        state.damage = fmaxf(0.0f, state.damage - dtSeconds * 0.05f);
+    }
+    state.dead = state.damage >= 1.0f;
+    return state;
 }
 
 FloraTaxonId FloraTaxonIdForBlock(BlockType block)

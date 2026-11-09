@@ -692,6 +692,9 @@ Runtime values are sampled when an expression is evaluated:
 | `flora.sample_habitat` | vec3 | Temperature in K, moisture, and usable light at the latest sample |
 | `flora.sample_temperature` | number | Temperature in K at the latest sample |
 | `flora.sample_moisture` | number | Moisture fraction at the latest sample |
+| `flora.flood_affected` | number | Loaded flora structures with active flood exposure in the latest simulation step |
+| `flora.flood_damaged` | number | Loaded flora structures currently carrying flood damage |
+| `flora.flood_dead` | number | Flora structures removed by flood mortality in the latest simulation step |
 | `flora.gallery_active` | bool | Whether a Stage 06 flora gallery was successfully placed |
 | `flora.gallery_origin` | vec3 | Origin of the latest successful flora gallery |
 | `flora.gallery_placed` | number | Blocks placed by the latest flora gallery command |

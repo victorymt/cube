@@ -651,11 +651,13 @@ static bool LiquidAt(Vector3 position, float height, float *outSurfaceY,
     int y = (int)floorf(point.y);
     int z = (int)floorf(point.z);
     BlockType block = GetBlockAt(x, y, z);
-    if (block == BLOCK_WATER && WorldIsSurfaceActive()) {
+    if (WorldIsSurfaceActive()) {
         FluidSample sample = FluidSampleAt(point);
-        if (outSurfaceY) *outSurfaceY = sample.surfaceY;
-        if (outFlow) *outFlow = sample.velocity;
-        return sample.volume > 0u && point.y < sample.surfaceY;
+        if (sample.volume > 0u && point.y < sample.surfaceY) {
+            if (outSurfaceY) *outSurfaceY = sample.surfaceY;
+            if (outFlow) *outFlow = sample.velocity;
+            return true;
+        }
     }
     if (block == BLOCK_LAVA) {
         float surfaceY = (float)y + BlockLiquidHeightAt(x, y, z);
@@ -695,12 +697,14 @@ PlayerWaterState PlayerWaterStateAt(Vector3 position)
         int sampleY = y + offset;
         if (sampleY < y) break;
         BlockType block = GetBlockAt(x, sampleY, z);
-        if (!IsLiquidBlock(block)) {
+        uint8_t volume = WorldIsSurfaceActive()
+            ? FluidGetVolumeAt(x, sampleY, z) : 0u;
+        bool liquid = IsLiquidBlock(block) || volume > 0u;
+        if (!liquid) {
             surfaceBlockY = sampleY;
             break;
         }
-        if (block == BLOCK_WATER && WorldIsSurfaceActive()) {
-            uint8_t volume = FluidGetVolumeAt(x, sampleY, z);
+        if (WorldIsSurfaceActive() && volume > 0u) {
             if (volume < FLUID_CAPACITY) {
                 state.surfaceY = (float)sampleY +
                     (float)volume / (float)FLUID_CAPACITY;

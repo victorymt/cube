@@ -166,12 +166,70 @@ static void TestDisturbanceStages(void)
                   "herb_pioneer") == 0);
 }
 
+static void TestFloodToleranceAndRecovery(void)
+{
+    assert(FloraFloodToleranceForTaxon(FLORA_TAXON_OAK) ==
+           FLORA_FLOOD_INTOLERANT);
+    assert(FloraFloodToleranceForTaxon(FLORA_TAXON_WILLOW) ==
+           FLORA_FLOOD_TOLERANT);
+    assert(FloraFloodToleranceForTaxon(FLORA_TAXON_COMMON_REED) ==
+           FLORA_FLOOD_AQUATIC);
+    assert(FloraFloodToleranceForBlock(BLOCK_STONE) ==
+           FLORA_FLOOD_UNKNOWN);
+    assert(FloraFloodThresholdSeconds(FLORA_FLOOD_INTOLERANT) == 2.0f);
+    assert(FloraFloodThresholdSeconds(FLORA_FLOOD_TOLERANT) == 20.0f);
+    assert(isinf(FloraFloodThresholdSeconds(FLORA_FLOOD_AQUATIC)));
+
+    FloraFloodState state = FloraFloodAdvance(
+        FLORA_FLOOD_INTOLERANT, 0u, 100.0f, (FloraFloodState){ 0 });
+    assert(state.exposureSeconds == 0.0f && state.damage == 0.0f &&
+           !state.dead);
+    state = FloraFloodAdvance(
+        FLORA_FLOOD_INTOLERANT, 255u, 1.0f, state);
+    assert(state.exposureSeconds == 1.0f && state.damage == 0.0f &&
+           !state.dead);
+    state = FloraFloodAdvance(
+        FLORA_FLOOD_INTOLERANT, 255u, 1.2f, state);
+    assert(state.exposureSeconds == 2.2f && state.damage > 0.0f &&
+           !state.dead);
+    for (int step = 0; step < 40; step++) {
+        state = FloraFloodAdvance(
+            FLORA_FLOOD_INTOLERANT, 255u, 1.0f, state);
+    }
+    assert(state.dead);
+
+    FloraFloodState tolerant = FloraFloodAdvance(
+        FLORA_FLOOD_TOLERANT, 255u, 5.0f, (FloraFloodState){ 0 });
+    assert(tolerant.damage == 0.0f);
+    for (int step = 0; step < 20; step++) {
+        tolerant = FloraFloodAdvance(
+            FLORA_FLOOD_TOLERANT, 255u, 1.0f, tolerant);
+    }
+    assert(tolerant.damage > 0.0f && !tolerant.dead);
+    FloraFloodState aquatic = FloraFloodAdvance(
+        FLORA_FLOOD_AQUATIC, 255u, 1000.0f, (FloraFloodState){ 0 });
+    assert(aquatic.exposureSeconds == 0.0f && aquatic.damage == 0.0f &&
+           !aquatic.dead);
+
+    FloraFloodState recovered = FloraFloodAdvance(
+        FLORA_FLOOD_INTOLERANT, 0u, 1.0f,
+        (FloraFloodState){ .exposureSeconds = 2.0f, .damage = 0.5f });
+    assert(recovered.exposureSeconds == 0.0f && recovered.damage < 0.5f &&
+           !recovered.dead);
+    FloraFloodState partial = FloraFloodAdvance(
+        FLORA_FLOOD_INTOLERANT, 32u, 1.0f, (FloraFloodState){ 0 });
+    FloraFloodState full = FloraFloodAdvance(
+        FLORA_FLOOD_INTOLERANT, 255u, 1.0f, (FloraFloodState){ 0 });
+    assert(partial.exposureSeconds < full.exposureSeconds);
+}
+
 int main(void)
 {
     TestCatalog();
     TestBlockMappingsAndVisualDimensions();
     TestSuitability();
     TestDisturbanceStages();
+    TestFloodToleranceAndRecovery();
     puts("flora taxa tests passed");
     return 0;
 }
