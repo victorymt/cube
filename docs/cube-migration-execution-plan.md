@@ -21,15 +21,25 @@ The repository has two live surface representations:
 
 The cube runtime path already supports landing, walking, picking, edits,
 physical coverage streaming, generation and rendering behind that debug entry.
-The migration is not complete:
+V30 also restores a saved cube topology in a fresh process without that debug
+entry. The migration is not complete:
 
-- the M2 baseline still drew the vertical terrain stretch above the player;
 - fluid refuses to run on cube surfaces because its queue keys do not include
   the face identity;
-- V30 is not implemented, and a cube save cannot yet start in a fresh process
-  without the debug runtime gate;
 - most ecology, generation, CGA, hydrology and sampling consumers still consume
   map-shaped coordinates or map chunk identity.
+
+Execution state:
+
+| Stage | State | Result |
+| --- | --- | --- |
+| M0 | complete | The Homeworld-only execution plan and its links are established. |
+| M1 | complete | Legacy and cube share the topology-neutral `SurfaceContract`. |
+| M2 | complete | Cube mesh vertices, transforms and bounds share the section anchor frame. |
+| M3 | complete | V30 persists topology, canonical pose and complete cell edits. |
+| M4 | next | Migrate the remaining Homeworld consumers, then switch its default. |
+| M5 | pending | Close physical coverage, visual and performance acceptance. |
+| M6 | pending | Remove Homeworld-only transition paths and close the migration. |
 
 This plan deliberately does not migrate planets. The surface interfaces and
 V30 records are body-addressed so a later planet plan can reuse them, but no
@@ -220,52 +230,212 @@ Commit M3.
 
 ### M4: close G3 consumer migration
 
-Each item below is a separately reviewable and committed substage.
+Each substage is independently reviewable, verified and committed. A substage
+starts by reproducing its actual failure with the project DSL or `--debug-*`
+diagnostics; missing diagnostics are added through the DSL and documented.
 
-1. **Fluid:** replace map chunk queue identity with a topology-neutral surface
-   chunk identity, add cross-face adjacency and enforce volume conservation.
-1. **Water/plant Stage 3:** add deterministic flood tolerance, bounded exposure
-   and recovery, plant anchoring and volume-based water queries.
-1. **Water/plant Stage 4:** enforce substrate, water, shoreline and rooted
-   generation order with deterministic worker-independent output.
-1. **Entities and ecology:** move ground queries, spawning and flora to surface
-   cell/sample operations.
-1. **CGA:** plan and clip structures in surface cells, including face edges.
-1. **Volcano/lava/ash:** migrate addresses, history search and section effects.
-1. **Hydrology and radiation:** bind regions and activity to surface regions.
-1. **Terrain sampling:** migrate remaining height, waterline and bathymetry
-   callers to one surface sampling contract.
+#### M4.0: shared consumer fixture
 
-Exit evidence: Homeworld defaults to cube-grid, planets still pass through the
-legacy adapter, consumers have no topology branches, and all Homeworld consumer
-scenarios pass. Commit after each substage and a final M4 evidence update.
+Build one contract-driven fixture whose assertions run unchanged against both
+legacy and cube surfaces. It must cover known/read/write cells, terrain and water
+samples, opaque chunk identity, horizontal and cross-face neighbours, and an
+unload/reload cycle with two cube faces that share the same U/V. This stage does
+not change production behavior.
+
+Exit: both adapters pass the same fixture; cube capability-gated operations are
+tested without introducing a topology branch into the fixture. Commit
+`test(surface): add shared consumer contract fixture`.
+
+#### M4.1: fluid chunk identity
+
+Replace the fluid queue, edit index, chunk bucket and checkpoint authority with
+`SurfaceAddress` for cells and opaque `SurfaceChunkHandle` for chunks. The legacy
+`(surfaceId, chunkX, chunkZ)` pair is no longer an identity. Keep lookup and
+state mutation in `fluid.c` under `SurfaceContract`; any runtime chunk access is
+an internal world contract operation, never a cube-key decode in fluid code.
+Cube fluid remains disabled at the end of this stage.
+
+Exit: two cube faces with the same U/V never share a bucket; legacy fluid tests
+remain green; fluid checkpoints and section unload/reload preserve face
+identity through the codec fixture. Commit
+`refactor(fluid): key queues by surface chunk handle`.
+
+#### M4.2: enable cube fluid
+
+Remove the cube early return and route cell lookup, vertical and horizontal
+neighbours, dirty marking and saved-vs-implicit section handling through the
+surface contract. Add deterministic cross-face flow and conservation tests plus
+a DSL scene that fills, drains and reloads water across a face edge. Saving,
+loading and section unload/reload must not copy water to another face.
+
+Exit: cube and legacy fluid suites pass the same conservation cases; the DSL
+scene reproduces the edge flow; `make test-cube-save-reload` passes. Commit
+`feat(fluid): run volume simulation across cube faces`.
+
+#### M4.3: water/plant Stage 3
+
+Implement the Stage 3 specification in
+`todo/10-water-plant-cell-followups.md`: deterministic flood tolerance, bounded
+exposure and recovery, plant anchoring, and volume-based water queries in
+player, fauna, flora and spawn paths. Do not derive occupancy from
+`GetBlockAt(...) == BLOCK_WATER`.
+
+Exit: dry, saturated, briefly submerged and chronically submerged fixtures pass
+for every tolerance class; drainage and flow do not dislodge anchored plants;
+dead plants enter the existing succession path exactly once. Commit
+`feat(ecology): couple plant survival to cell water volume`.
+
+#### M4.4: water/plant Stage 4
+
+Implement the Stage 4 generation order: substrate and caves, basins/oceans/lakes
+with volume, shoreline plants from the established waterline, then rooted plants
+and decorations. Writes must preserve the independent block and water fields,
+and pass order, hashes and tie-breaking must not depend on worker count or chunk
+arrival order.
+
+Exit: fixed seeds produce identical block and water-volume output with one and
+multiple workers; generated water is not erased by later passes; shoreline,
+wetland and aquatic placement satisfy their traits. Commit
+`feat(terrain): order water and flora generation deterministically`.
+
+#### M4.5: entities and ecology
+
+Move entity ground queries, spawn placement, flora updates and regional ecology
+inputs from map chunk identity to surface cell/sample/region operations. Keep
+off-screen state deterministic and avoid treating an unresolved cell as air.
+
+Exit: shared legacy/cube fixtures cover ground, blocking, spawning and flora at
+face centres and edges; no ecology consumer names a backend chunk key or
+topology enum. Commit `refactor(ecology): consume surface cells and samples`.
+
+#### M4.6: CGA
+
+Plan and clip CGA structures in surface cells, including structures that cross a
+face edge. Keep grammar versions unchanged unless grammar semantics actually
+change; adapt address transport, occupancy and clipping behind the surface
+contract.
+
+Exit: deterministic house, dungeon and classical-complex fixtures produce the
+same logical cells on legacy and cube; no block is duplicated or dropped at a
+face edge. Commit `refactor(cga): place structures in surface cells`.
+
+#### M4.7: volcano, lava and ash
+
+Migrate volcano addresses, history search and section effects to surface
+identity. Keep finite-volume lava/water displacement and persistence semantics
+unchanged while removing map chunk lookup from gameplay behavior.
+
+Exit: volcano history, mountain, overlay and water-contact suites pass on cube
+and legacy; cross-face and polar search cases return canonical surface cells.
+Commit `refactor(geology): address volcanic systems through surfaces`.
+
+#### M4.8: hydrology and radiation
+
+Bind precipitation, groundwater, runoff, radiation regions and activity to
+opaque surface region handles. A region transition must use the contract's
+semantic region operation rather than comparing backend chunk coordinates.
+
+Exit: hydrology and radiation fixtures run on both adapters with equivalent
+region results; cube face-edge regions do not leak across faces; no consumer
+branches on topology for Homeworld behavior. Commit
+`refactor(hydrology): bind activity to surface regions`.
+
+#### M4.9: terrain sampling cleanup
+
+Migrate the remaining elevation, waterline, bathymetry and biome callers to one
+surface sampling path. Remove obsolete map-only aliases from consumer modules
+and shrink `tests/surface_contract_boundary_allowlist.txt` to the exact paths
+that still require app composition or explicit diagnostics.
+
+Exit: no gameplay, ecology or presentation consumer calls map chunk lookup or a
+cube chunk key; sampling fixtures agree across adapters; architecture tests use
+the reduced allowlist. Commit `refactor(world): finish surface sampling migration`.
+
+#### M4.10: default Homeworld cube switch
+
+Change only the new-Homeworld default to cube-grid. Planets continue to select
+the legacy adapter. Keep the debug activation route temporarily for explicit
+cube tests, but normal Homeworld creation, save, load, streaming and gameplay
+must no longer require it.
+
+Exit: a fresh normal Homeworld starts as cube-grid; a planet round trip still
+uses legacy; every M4 consumer scenario passes; production consumers have no
+Homeworld topology branch. Record the final M4 evidence in this section and
+`STATUS.md`. Commit `feat(world): default Homeworld to cube-grid`.
 
 ### M5: close G4
 
-Work:
+#### M5.0: freeze the coverage evidence surface
 
-- make scheduling, admission, eviction, LOD and drawing consume one physical
-  coverage result;
-- keep the 625-slot nearest-first policy and expose saturation separately from
-  local readiness;
-- add face, corner, pole, high-altitude and render-distance acceptance scenes;
-- record repeated performance and memory measurements.
+Freeze one fixture and diagnostic schema for requested, admitted, ready,
+pending, missing, submitted, released and saturated values. Separate local
+terrain readiness from visual readiness. Commit
+`test(coverage): freeze physical coverage evidence`.
 
-Exit evidence: Homeworld graphics and performance gates pass on Hyprland. If a
-budget fails, record the measured deficit and stop rather than silently adding
-capacity. Commit M5.
+#### M5.1: unify scheduling, admission and eviction
+
+Make scheduling, admission, retention and eviction consume one physical
+coverage result while preserving the 625-slot nearest-first policy. Stale,
+duplicate and saturated requests must remain explicit and atomic. Commit
+`refactor(streaming): share one physical coverage result`.
+
+#### M5.2: align LOD and drawing readiness
+
+Make LOD selection and drawing consume the same coverage and readiness model.
+Do not report requested or admitted slots as drawn coverage, and do not hide
+saturation behind a larger distance or silent eviction. Commit
+`refactor(render): consume physical coverage readiness`.
+
+#### M5.3: run the six-face visual matrix
+
+Add deterministic Hyprland scenes for all six faces, face edges, corners, both
+poles, high altitude and multiple render distances. Each scene records camera,
+focus, requested/admitted/ready counts, saturation and screenshot artifacts.
+Commit `test(cube): cover the Homeworld visual matrix`.
+
+#### M5.4: close coverage and performance evidence
+
+Repeat frame-time, memory, queue and saturation measurements on the same machine
+and scenes. If a budget fails, record the deficit and stop rather than changing
+capacity silently. Update `STATUS.md`, record the M5 evidence here and commit the
+complete G4 closure.
 
 ### M6: close G5
 
-Work:
+#### M6.0: remove the Homeworld activation gate
 
-- remove the Homeworld debug runtime gate and dead Homeworld-only map paths;
-- keep the legacy backend only for the explicitly deferred planet migration;
-- finish architecture, DSL and documentation cleanup;
-- run the complete final gate set.
+Remove the debug-only Homeworld gate and its switch aliases once normal creation
+and V30 load both select topology directly. Keep explicit diagnostics that are
+still needed to inspect the active backend. Commit
+`refactor(cube): remove the Homeworld debug activation gate`.
 
-Exit evidence: every G1-G5 item has current-commit evidence and unknown or
-failed checks are listed explicitly. Commit M6.
+#### M6.1: enforce consumer boundaries
+
+Reduce the architecture allowlist to composition, save orchestration and
+explicit diagnostics only. Add failing fixtures for a topology enum, cube chunk
+key or map chunk lookup injected into a normal consumer. Commit
+`test(architecture): enforce surface consumer boundaries`.
+
+#### M6.2: delete Homeworld-only legacy paths
+
+Delete dead Homeworld map activation and compatibility aliases while retaining
+the legacy adapter required by the explicitly deferred planet migration. Commit
+`refactor(world): remove Homeworld legacy transition paths`.
+
+#### M6.3: finish DSL and documentation truth
+
+Remove obsolete debug commands and fields, then update the DSL reference,
+contracts, architecture overview, roadmap and `STATUS.md`. Historical records
+remain historical; only current-state pointers and broken links are corrected.
+Commit `docs(cube): close the Homeworld migration record`.
+
+#### M6.4: run the final migration gate
+
+Run the complete normal, sanitizer, header, architecture, documentation, DSL,
+V30, surface-topology, polar and Hyprland graphics gates. Record every command,
+exit status and artifact, and list unknown or failed checks explicitly. Update
+`STATUS.md` and close G1-G5. Commit
+`test(cube): verify the completed Homeworld migration`.
 
 ## 5. Deferred work
 
@@ -288,6 +458,9 @@ contract and reuse the Homeworld acceptance evidence, not fork it.
   commands to bypass the project's test surface.
 - Every stage records HEAD, commands, exit status, focused test names and
   artifact paths in its commit or linked evidence.
+- A stage is not complete until its code, tests, diagnostics, current-state
+  entry and execution-plan evidence land together. Commit each numbered
+  substage separately; do not combine adjacent M4-M6 tasks.
 - Code stages run focused tests, `make test`, `make test-architecture` and
   `make check-docs`. DSL changes additionally run `make docs-probe`,
   `make test-debug-cli` and `make test-debug-stdin-protocol`.

@@ -6,7 +6,7 @@ Updated 2026-11-09. Source of the statements below: the status sections previous
 
 ## Current work
 
-**Homeworld cube-grid migration, M3 complete; M4 next.** The active sequence and gates live in the [Homeworld cube migration execution plan](docs/cube-migration-execution-plan.md). Planets remain on the legacy backend for this plan.
+**Homeworld cube-grid migration, M3 complete; M4.0 next.** The active sequence and gates live in the [Homeworld cube migration execution plan](docs/cube-migration-execution-plan.md). Planets remain on the legacy backend for this plan.
 
 What works today: both legacy-map and cube-grid implement one topology-neutral `SurfaceContract`; the active contract owns the only long-lived cube generation context, and policy declaration accepts independent or mixed per-surface topologies. A cube world is reachable at runtime through `surface debug cube`, which opens the runtime gate, installs Home cube plus Planets legacy, and drives streaming through the contract's physical-coverage capability. On that path the player lands and walks, block picking is cube-based, and cube edits round-trip through their own save section. Cube-grid has continuous poses, explicit cell/chunk identity, an immutable v9 base generator, shared projected geometry, physical coverage enumeration, and runtime adapters covering generation, in-memory edits, budgeted admission, mesh projection, and render bounds. M2 aligned cube mesh vertices and frustum bounds with the same section anchor frame, eliminating the remaining vertical stretch in the deterministic Hyprland wall replay.
 
@@ -16,14 +16,14 @@ What works today: both legacy-map and cube-grid implement one topology-neutral `
 
 | Blocker | Symptom | Owning record |
 |---|---|---|
-| Fluid on cube surfaces | Open and suspended. The edit queue keys by `(surfaceId, chunkX, chunkZ)` and would cross faces, so fluid returns early on cube worlds | [Activation plan](docs/cube-activation-plan.md) |
+| Fluid on cube surfaces | Open and suspended. The edit queue keys by `(surfaceId, chunkX, chunkZ)` and would cross faces, so fluid returns early on cube worlds | [M4.1-M4.2](docs/cube-migration-execution-plan.md#m41-fluid-chunk-identity) |
 | Polar ground coverage | Confirmed a structural limit of the legacy lat/long grid, not an enumeration bug; only the cube migration can fix it | [Cube contract capacity table](docs/cube-contract.md) |
 
 ## Activation target
 
 Not the current runtime default. Both Homeworld and planets will switch to cube-grid/1 using cube base 9 plus the historical layer 11, with V30 saves requiring a new world. V30 will reject V29 and older files without migrating or deleting them. Preserving v7/v8 fingerprints is no longer a requirement. Regional ecology payload V7 and terrain generator v11 have independent version sequences. The authoritative version, identity, ownership, and capacity tables live in the [cube activation contract](docs/cube-contract.md).
 
-Next, in dependency order: migrate fluid and the remaining consumers for M4/G3, then close coverage/rendering acceptance in M5.
+Next, in dependency order: establish the shared consumer fixture in M4.0, migrate fluid and the remaining consumers through M4.10, then close coverage/rendering acceptance in M5.
 
 ## Verified
 

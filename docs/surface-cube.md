@@ -78,9 +78,10 @@ independent of the terrain generator version (currently 11) and the cube-key
 hash domain version. See the [activation contract](cube-contract.md) for the
 full version matrix.
 Known descriptors are distinguished from runtime support: cube-grid/1 is known,
-and is admitted only while the cube runtime gate is open. With the gate closed
-(the default) it cannot be installed or loaded. Existing map/cube key hashes are
-unchanged.
+and the debug activation path admits it only while the cube runtime gate is
+open. A V30 header may restore its saved topology during the transactional load
+path, so a fresh process does not require the debug gate. Existing map/cube key
+hashes are unchanged.
 
 Every `WorldSurfaceContext` carries its topology. The world policy contains
 Homeworld and planetary defaults; both are legacy-map/1 unless
@@ -209,9 +210,8 @@ Progress as of 2026-10-23 is marked per item; unmarked text is the original
 2. Move player/collision/raycast/fluid coordinates together. Face transitions
    must transport heading and velocity, not just positions. Round-trip edit
    lookup and save/reload must refer to the same cells at every face edge.
-   **Done for landing, walking, collision, raycast and edit storage**; fluid is
-   not converted, and a newly written cube save cannot be loaded by a fresh
-   process because the cube runtime gate starts closed.
+   **Done for landing, walking, collision, raycast, edit storage and V30
+   fresh-process restore**; fluid is not converted.
 3. Use the same neighborhood/coverage policy for scheduling, eviction, LOD
    and drawing. Derive conservative bounds from curved mesh geometry. Keep
    `surface_ready`'s existing local readiness meaning and expose separate
@@ -223,7 +223,8 @@ Progress as of 2026-10-23 is marked per item; unmarked text is the original
 4. Replay the existing temperate and dry polar scenes using geographic
    targets, then cross poles/face edges on foot, edit blocks, unload/reload,
    and save/reload. Pin the v9 output and enforce memory budgets. Complete V30
-   serialization/rejection and documentation before enabling the defaults.
+   save/reload coverage and the remaining consumer migration before enabling
+   the defaults.
    **Not started.**
 
 No Coriolis terrain bias is enabled by this repair.
@@ -325,11 +326,12 @@ test also passed ASan/UBSan with leak detection enabled; the final game rebuild
 and architecture check passed without compiler warnings. No graphics replay
 was used to claim coverage for these data/queue changes.
 
-This stage does **not** activate cube-grid in normal gameplay. The new edit store
-is in-memory only: V30 serialization, undo/redo, player interaction, fluid/ecology
-notifications, decorations and mesh/rendering conversion remain pending. V30
-still persists the legacy store; no disk persistence of cube edits is claimed.
-The stage does not change or re-certify polar visual coverage.
+At the end of this stage, cube-grid was **not** active in normal gameplay and the
+new edit store was in memory only. V30 serialization, undo/redo, player
+interaction, fluid/ecology notifications, decorations and mesh/rendering
+conversion were still pending. M3 later completed V30 persistence and undo/redo;
+the other items remain tracked by the migration execution plan. This stage did
+not change or re-certify polar visual coverage.
 
 ### Runtime stage 3: physical admission and mesh projection (2026-10-14)
 
@@ -386,8 +388,8 @@ new `cube_vertical_geometry_replay.dsl` scene captures the same flat vertical
 wall through legacy and cube under Hyprland. That route isolates vertical
 geometry and bounds; live cross-face walking and cube polar visual acceptance
 remain separate gates. Fluid, ecology/decoration, the remaining diagnostic
-consumers, V30 save/undo and the normal streaming default still require
-migration before cube-grid becomes the default.
+consumers and the normal streaming default still require migration before
+cube-grid becomes the default.
 
 Validation: the full `make -j10 test all` run passed all 120 binaries, 193
 public headers, module/game builds, CLI/protocol checks and architecture guards.

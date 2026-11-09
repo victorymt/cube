@@ -586,6 +586,8 @@
       "tier": "plan",
       "trackCode": false,
       "anchors": [
+        "src/world/fluid.c",
+        "src/world/surface_contract.h",
         "src/world/surface_types.h",
         "src/world/world_cell.h",
         "src/world/world_surface_snapshot.c"

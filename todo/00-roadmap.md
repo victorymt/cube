@@ -28,7 +28,7 @@ Which areas have implementation behind them, and where each is recorded. This is
 | Cube-grid physical admission and mesh projection | Implemented: budgeted spherical-cap admission, exact cross-face mesh halos, projected meshes and render bounds | [Runtime stage 3](../docs/surface-cube.md#runtime-stage-3-physical-admission-and-mesh-projection-2026-10-14) |
 | Cube runtime entry and player loop (2026-10-22/23) | Implemented behind `surface debug cube`: gate + policy install, coverage-driven streaming, landing, walking, cube picking, cube edit save section | [Activation plan execution log](../docs/cube-activation-plan.md) |
 | Cube mesh vertical stretch | Fixed and verified in M2; see [STATUS.md](../STATUS.md) | [Migration execution plan](../docs/cube-migration-execution-plan.md) |
-| Fluid on cube surfaces | Open — see [STATUS.md](../STATUS.md) | [Activation plan execution log](../docs/cube-activation-plan.md) |
+| Fluid on cube surfaces | Open — see [STATUS.md](../STATUS.md) | [M4.1-M4.2](../docs/cube-migration-execution-plan.md#m41-fluid-chunk-identity) |
 | Topology descriptors and V30 save boundary | Implemented: per-surface topology, canonical pose, complete `WorldCell` edits, fresh-process cube restore and explicit V29 rejection | [Topology contract](../docs/surface-cube.md#topology-and-save-contract-v30) |
 | Chinese classical courtyard complex (2026-10-20) | Implemented: grammar v7, 73x81 south-facing walled compound with gatehouse, forecourt, side halls, raised main hall, roofs, bracket bands and courtyard details; preview E2E passes | [CGA voxel grammars](../docs/architecture/19-cga-voxel-grammar.md) |
 | Coriolis terrain bias | Disabled; requires polar visual acceptance and calibrated diagnostics first | [Physics boundary](../docs/landform-planets.md) |
@@ -74,15 +74,15 @@ They do not certify later revisions or imply a full global simulation.
 | P1 | Recheck polar graphics timeout and make E2E reply attribution reliable | Complete; [full graphics and independent 600-frame polar routes passed, 2026-09-19](../docs/architecture/15-polar-e2e-reliability.md); historical timeout not reproduced, stdin reply ordering corrected |
 | P2 | Cross-system per-tick replay verification | Complete within the documented fixture/checkpoint scope; [92 regular and 92 sanitizer tests passed, 2026-09-19](../docs/architecture/14-cross-system-replay.md) |
 
-## Future water/plant cell work
+## Water/plant cell work
 
 The following work continues the water/plant cell model after the volume-based cell refactor. These local stage numbers are distinct from the long-term Stage 03 tornado record above. Current state is maintained in [STATUS.md](../STATUS.md).
 
-| Water/plant stage | Scope | Plan |
-| --- | --- | --- |
-| 3 | Plant/water ecological coupling, flood tolerance, damage, and anchoring | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-3-plantwater-ecological-coupling) |
-| 4 | Deterministic terrain, water, shoreline-plant, and rooted-plant generation order | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-4-deterministic-generation-order) |
-| 5 | Unified cell persistence, save validation, and DSL inspection | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-5-persistence-and-dsl) |
+| Water/plant stage | Scope | Execution | Detailed specification |
+| --- | --- | --- | --- |
+| 3 | Plant/water ecological coupling, flood tolerance, damage, and anchoring | M4.3 | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-3-plantwater-ecological-coupling) |
+| 4 | Deterministic terrain, water, shoreline-plant, and rooted-plant generation order | M4.4 | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-4-deterministic-generation-order) |
+| 5 | Unified cell persistence, save validation, and DSL inspection | Complete in M3 | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-5-persistence-and-dsl) |
 
 ## Shared acceptance rules
 

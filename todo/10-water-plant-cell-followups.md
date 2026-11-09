@@ -2,7 +2,7 @@
 
 > **执行状态入口（2026-11-09）**：本文件保留为详细行为规格。新的
 > [Homeworld cube migration execution plan](../docs/cube-migration-execution-plan.md)
-> 决定顺序和状态：Stage 5 归入 M3，Stage 3–4 分别归入 M4 consumer migration。
+> 决定顺序和状态：Stage 5 已随 M3 完成，Stage 3–4 分别归入 M4.3 和 M4.4。
 
 ## Purpose
 
@@ -13,6 +13,9 @@ This plan records the deferred ecological, generation-order, and persistence wor
 The stages run in order because each one establishes an input for the next. Stage 3 defines how plants respond to water occupancy, Stage 4 makes generation produce worlds that satisfy those rules, and Stage 5 stores and exposes the resulting cell state without losing either half of the cell. Implement, test, document, and commit each stage separately.
 
 ## Stage 3: plant/water ecological coupling
+
+**Execution status:** planned as M4.3. The behavior and acceptance rules below
+remain the detailed specification.
 
 ### Goal
 
@@ -49,6 +52,9 @@ Commit the complete Stage 3 behavior, tests, and runtime diagnostics as one revi
 
 ## Stage 4: deterministic generation order
 
+**Execution status:** planned as M4.4. The behavior and acceptance rules below
+remain the detailed specification.
+
 ### Goal
 
 Make plant placement consume an already completed waterline and cell state, with a single deterministic order for every terrain generator.
@@ -81,6 +87,9 @@ Make plant placement consume an already completed waterline and cell state, with
 Commit the ordered generation pipeline and its determinism fixtures as one reviewable change.
 
 ## Stage 5: persistence and DSL
+
+**Execution status:** complete in M3. This section remains the acceptance
+specification that M3 implemented.
 
 ### Goal
 
@@ -118,4 +127,4 @@ Commit the unified cell persistence and DSL changes as one reviewable change, fo
 
 ## Whole-plan completion
 
-The follow-up is complete when flooding changes plant survival according to traits, generated water and vegetation follow the fixed pass order, and every saved or edited cell round-trips both block and water volume with DSL-visible evidence. Run the focused tests after each stage, then the full test and documentation gates before closing the final stage.
+The follow-up is complete when flooding changes plant survival according to traits and generated water and vegetation follow the fixed pass order. Unified cell persistence is already complete in M3. Run focused tests after M4.3 and M4.4, then the full test and documentation gates before closing M4.
