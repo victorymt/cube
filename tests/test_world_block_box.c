@@ -1,6 +1,7 @@
 /* Cube-space collision box enumeration: every sampled point of a body box must
  * be reached, including across face edges, at corners and near both poles. */
 #include "world/world_location.h"
+#include "surface_contract_test_stub.h"
 
 #include <assert.h>
 #include <math.h>
@@ -11,6 +12,7 @@ static void ExpectCovered(uint32_t bodyId, double lon, double lat,
 {
     SurfacePose pose;
     assert(SurfacePoseFromGeographic(bodyId, lon, lat, 6.0, 0.4, 0.0, &pose));
+    assert(InstallTestSurfaceContract(bodyId));
     WorldBlockBoxQuery query;
     assert(WorldBlockBoxCollect(&pose, halfSize, &query));
     assert(!query.truncated);
@@ -152,11 +154,13 @@ static void TestInvalidInputRejected(void)
 int main(void)
 {
     TestCoverage();
+    assert(InstallTestSurfaceContract(0));
     TestExactVolume();
     TestCapacityIsRespected();
     TestNoDuplicates();
     TestRadialExtent();
     TestInvalidInputRejected();
+    assert(WorldInstallSurfaceSnapshot(NULL));
     puts("cube block box tests passed");
     return 0;
 }

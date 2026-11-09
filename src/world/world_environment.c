@@ -1,7 +1,7 @@
 #include "world/world_environment.h"
 
+#include "world/surface_contract.h"
 #include "world/terrain.h"
-#include "world/terrain_cube.h"
 #include "world/world_state.h"
 #include "world/world_surface_snapshot.h"
 
@@ -114,53 +114,25 @@ float WorldGravityScale(void)
     return snapshot->context.kind == WORLD_SURFACE_HOME ? 1.0f : 0.0f;
 }
 
-/* Cube terrain height. Sampling needs an immutable generation context, which
- * is expensive to build (atlas + mutex), so one is cached and rebuilt whenever
- * the installed world generation changes. */
-static TerrainCubeContext *heightCubeContext;
-static uint64_t heightCubeGeneration;
-
-static const TerrainCubeContext *WorldHeightCubeContext(void)
+static bool WorldSurfaceAddressAtLocalMap(int x, int z,
+                                          SurfaceAddress *outAddress)
 {
-    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
-    if (!snapshot || !snapshot->context.active ||
-        snapshot->context.topology.kind != SURFACE_TOPOLOGY_CUBE_GRID)
-        return NULL;
-    uint64_t generation = WorldCurrentGeneration();
-    if (heightCubeContext && heightCubeGeneration == generation)
-        return heightCubeContext;
-    if (heightCubeContext) TerrainCubeContextRelease(heightCubeContext);
-    heightCubeContext = TerrainCubeContextCreate(snapshot, WorldTerrainMode(),
-                                                 generation);
-    heightCubeGeneration = heightCubeContext ? generation : 0u;
-    return heightCubeContext;
-}
-
-/* Drops the cached height context. Called when a surface is torn down so a
- * replaced world does not keep its atlas alive. */
-void WorldReleaseHeightCubeContext(void)
-{
-    if (heightCubeContext) TerrainCubeContextRelease(heightCubeContext);
-    heightCubeContext = NULL;
-    heightCubeGeneration = 0u;
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    if (!outAddress || !context.active) return false;
+    *outAddress = SurfaceAddressFromMapCoordinates(
+        context.bodyId, (float)context.originX + (float)x,
+        (float)context.originZ + (float)z, 0);
+    return SurfaceAddressIsValid(*outAddress);
 }
 
 int WorldSurfaceHeightAt(int x, int z)
 {
-    if (WorldCurrentSurfaceContext().topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
-        const TerrainCubeContext *context = WorldHeightCubeContext();
-        if (!context) return 0;
-        /* Map coordinates name one column; the top of the terrain column is the
-         * ground height the caller expects. */
-        SurfaceAddress address = SurfaceAddressFromMapCoordinates(
-            WorldCurrentSurfaceId(), (float)x, (float)z, 0);
-        TerrainCubeColumn column;
-        if (!TerrainCubeSampleColumn(context, address, &column)) return 0;
-        return (int)lroundf(column.terrain.elevation);
-    }
-    return WorldCurrentSurfaceContext().kind == WORLD_SURFACE_PLANET
-        ? PlanetTerrainHeight(x, z)
-        : TerrainHeight(x, z, WorldTerrainMode());
+    SurfaceAddress address;
+    SurfaceContractSample sample;
+    if (!WorldSurfaceAddressAtLocalMap(x, z, &address) ||
+        !SurfaceContractSampleAt(WorldCurrentSurfaceContract(), address,
+                                 &sample)) return 0;
+    return (int)lroundf(sample.elevation);
 }
 
 static bool WorldProceduralOceanBathymetryAt(int x, int z,
@@ -170,9 +142,18 @@ static bool WorldProceduralOceanBathymetryAt(int x, int z,
     if (!outSample || !context.active || WorldNetherIsActive()) {
         return false;
     }
-    BathymetrySample sample = context.kind == WORLD_SURFACE_PLANET
-        ? PlanetBathymetryAt(x, z)
-        : TerrainBathymetryAt(x, z, WorldTerrainMode());
+    SurfaceAddress address;
+    SurfaceContractSample surface;
+    if (!WorldSurfaceAddressAtLocalMap(x, z, &address) ||
+        !SurfaceContractSampleAt(WorldCurrentSurfaceContract(), address,
+                                 &surface)) return false;
+    BathymetrySample sample = {
+        .seaLevel = (int)lroundf(surface.seaLevel),
+        .seabedY = surface.seabedY,
+        .waterDepth = surface.waterDepth,
+        .zone = BATHYMETRY_ZONE_LAND,
+        .material = BATHYMETRY_MATERIAL_ROCK
+    };
     if (sample.waterDepth <= 0 || sample.seaLevel < 0 ||
         sample.seabedY >= sample.seaLevel) {
         return false;

@@ -2,13 +2,13 @@
 
 The single home for what is true right now. Every other document links here instead of restating it. One physical line per entry; a stale line is a bug.
 
-Updated 2026-11-08. Source of the statements below: the status sections previously duplicated in `README.md`, `todo/00-roadmap.md`, and `docs/surface-cube.md`.
+Updated 2026-11-09. Source of the statements below: the status sections previously duplicated in `README.md`, `todo/00-roadmap.md`, and `docs/surface-cube.md`.
 
 ## Current work
 
-**Homeworld cube-grid migration, M0 complete; M1 next.** The active sequence and gates live in the [Homeworld cube migration execution plan](docs/cube-migration-execution-plan.md). Planets remain on the legacy backend for this plan.
+**Homeworld cube-grid migration, M1 complete; M2 next.** The active sequence and gates live in the [Homeworld cube migration execution plan](docs/cube-migration-execution-plan.md). Planets remain on the legacy backend for this plan.
 
-What works today: a cube world is reachable at runtime through `surface debug cube`, which opens a runtime gate, installs a cube policy, and drives streaming from cube coverage. On that path the player lands and walks, block picking is cube-based, and cube edits round-trip through their own save section. Cube-grid has continuous poses, explicit cell/chunk identity, an immutable v9 base generator, shared projected geometry, physical coverage enumeration, and runtime adapters covering generation, in-memory edits, budgeted admission, mesh projection, and render bounds.
+What works today: both legacy-map and cube-grid implement one topology-neutral `SurfaceContract`; the active contract owns the only long-lived cube generation context, and policy declaration accepts independent or mixed per-surface topologies. A cube world is reachable at runtime through `surface debug cube`, which opens the runtime gate, installs Home cube plus Planets legacy, and drives streaming through the contract's physical-coverage capability. On that path the player lands and walks, block picking is cube-based, and cube edits round-trip through their own save section. Cube-grid has continuous poses, explicit cell/chunk identity, an immutable v9 base generator, shared projected geometry, physical coverage enumeration, and runtime adapters covering generation, in-memory edits, budgeted admission, mesh projection, and render bounds.
 
 **The default runtime still uses the legacy map grid with V29 saves.** Cube-grid is reachable only through that debug entry point and is not a shipping mode. The current save format remains V29.
 
@@ -24,9 +24,11 @@ What works today: a cube world is reachable at runtime through `surface debug cu
 
 Not the current runtime default. Both Homeworld and planets will switch to cube-grid/1 using cube base 9 plus the historical layer 11, with V30 saves requiring a new world. V30 will reject V29 and older files without migrating or deleting them. Preserving v7/v8 fingerprints is no longer a requirement. Regional ecology payload V7 and terrain generator v11 have independent version sequences. The authoritative version, identity, ownership, and capacity tables live in the [cube activation contract](docs/cube-contract.md).
 
-Next, in dependency order: establish the topology-neutral surface contract, close the cube mesh vertical stretch for G1, implement Homeworld V30 for G2, then migrate fluid and the remaining consumers for G3.
+Next, in dependency order: close the cube mesh vertical stretch for M2/G1, implement Homeworld V30 for M3/G2, then migrate fluid and the remaining consumers for M4/G3.
 
 ## Verified
+
+- 2026-11-09: M1 froze the topology-neutral surface contract. `test_surface_contract` passes shared legacy/cube assertions for identity, known/read/write cells, opaque handles, adjacency, samples, regions, coverage and transactional installation; `test_world_surface_snapshot`, `test_save_format`, `test_surface_coverage`, `test_world_environment`, `test_player_collision`, `test_world_block_box`, `test_world_block_landing`, `test_cube_generation`, `make test-headers` (222 headers) and `make test-architecture` pass. The boundary gate permits only exact existing debt entries in `tests/surface_contract_boundary_allowlist.txt`.
 
 - 2026-11-08: water volume is now authoritative per `WorldCell`; air and plant cells can carry water without a legacy `BLOCK_WATER` block, rendering and exposure tests use volume, and `make test` passed 132 binaries with `make docs-probe` resolving 287 fields.
 - 2026-10-24: `make test` passed 126 binaries with 0 failures, and the trailing architecture and clean-build guards passed.

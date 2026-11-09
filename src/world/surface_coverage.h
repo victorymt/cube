@@ -1,26 +1,27 @@
 #ifndef VOXELCRAFT_SURFACE_COVERAGE_H
 #define VOXELCRAFT_SURFACE_COVERAGE_H
 
+#include "world/surface_cube.h"
 #include "world/surface_pose.h"
 
 #define SURFACE_COVERAGE_MAX_RADIUS 208.0
 #define SURFACE_COVERAGE_MAX_CANDIDATES 4096u
 
-typedef struct SurfaceCoverageCandidate {
+typedef struct SurfaceCubeCoverageCandidate {
     SurfaceCubeChunkKey key;
     double centerDistance;
     double minimumDistance; // Conservative lower bound, in physical blocks.
-} SurfaceCoverageCandidate;
+} SurfaceCubeCoverageCandidate;
 
-typedef struct SurfaceCoverageResult {
+typedef struct SurfaceCubeCoverageResult {
     unsigned requested;
     unsigned admitted;
     bool saturated;
-} SurfaceCoverageResult;
+} SurfaceCubeCoverageResult;
 
 // The same physical metric used for admission and draw-distance checks.
 bool SurfaceCubeChunkDistance(SurfaceCubeChunkKey key, SurfaceVector focus,
-                               SurfaceCoverageCandidate *outCandidate);
+                               SurfaceCubeCoverageCandidate *outCandidate);
 
 // Conservative sphere enclosing the ENTIRE curved patch and radial interval.
 bool SurfaceCubeChunkBounds(SurfaceCubeChunkKey key, double minRadial, double maxRadial,
@@ -31,7 +32,7 @@ bool SurfaceCubeChunkBounds(SurfaceCubeChunkKey key, double minRadial, double ma
 // focus is body-centered; its altitude does not alter the reference surface
 // metric. This is ground coverage, not a promise to fill a high-altitude view.
 bool SurfaceCoverageCollect(uint32_t bodyId, SurfaceVector focus, double radius,
-                             SurfaceCoverageCandidate *out, unsigned capacity,
-                             SurfaceCoverageResult *outResult);
+                             SurfaceCubeCoverageCandidate *out, unsigned capacity,
+                             SurfaceCubeCoverageResult *outResult);
 
 #endif

@@ -1,7 +1,6 @@
 #ifndef VOXELCRAFT_WORLD_LOCATION_H
 #define VOXELCRAFT_WORLD_LOCATION_H
 
-#include "world/surface_cube.h"
 #include "world/surface_pose.h"
 #include "world/surface_topology.h"
 

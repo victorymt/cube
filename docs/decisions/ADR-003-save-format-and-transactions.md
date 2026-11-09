@@ -18,9 +18,9 @@
 
 游戏存档只写 V29、只读 V29，读到其它版本直接拒绝，不做迁移；写入用“临时文件 + fsync + 备份 + rename”原子替换，读取用“checkpoint + 失败重放”的事务。
 
-`WorldSaveReadHeader` 先比对 `VOXELCRAFT_SAVE_V29` 这个 19 字节 magic，不匹配就返回 `"Load failed: unsupported save format. V28 and older are retired; start a new world."`。magic 之后是 24 字节的 `TOPOL001` 块，记录 home 与 planets 两条表面拓扑的 kind 和 version；先按 wire 整数范围校验，再转成枚举，避免把越界整数直接当枚举值用。cube 拓扑还要求 `WorldCubeRuntimeEnabled()` 为真，否则返回 `"Load failed: cube-grid topology is not supported by this runtime."`。
+`WorldSaveReadHeader` 先比对 `VOXELCRAFT_SAVE_V29` 这个 19 字节 magic，不匹配就返回 `"Load failed: unsupported save format. V28 and older are retired; start a new world."`。magic 之后是 24 字节的 `TOPOL001` 块，记录 home 与 planets 两条表面拓扑的 kind 和 version；先按 wire 整数范围校验，再转成枚举，避免把越界整数直接当枚举值用。mixed policy 是合法输入；只要任一表面是 cube，仍要求 `WorldCubeRuntimeEnabled()` 为真，否则返回 `"Load failed: cube-grid topology is not supported by this runtime."`。
 
-写头部的 `WorldSaveWriteHeader` 只要求拓扑可表达：home 与 planets 必须同为 legacy 或同为 cube，不允许混用。这里刻意不查运行时支持，因为运行时拒绝安装 cube 策略，却仍需要能把 cube 世界写进文件；拒绝的权利归读端。
+写头部的 `WorldSaveWriteHeader` 只要求策略可表达：home 与 planets 可以各自 legacy 或 cube，也可以混用。这里刻意不查运行时门控，因为写档必须忠实记录当前策略；门控属于读档与安装边界。
 
 `SaveIoWriteAtomic` 在目标路径旁 `mkstemp` 出 `<path>.tmp.XXXXXX`，写完后 `fflush`、`fsync`、`fclose`，再用同样方式把旧文件复制成备份，最后 `rename` 临时文件到目标并 `fsync` 父目录。`SaveIoWriteAtomic(path, backupPath, writer, context)` 的 writer 回调是 `GameSaveWriteFile`，`SaveIoReadTransactional(source, checkpointWriter, reader, context)` 的 checkpoint 就是同一个 writer。
 
@@ -57,7 +57,7 @@
 
 ## 证据
 - `src/world/save_format.h`：`WorldSaveFormat` 枚举、`WORLD_SAVE_FORMAT_V29`、`WorldSaveFormatRead` 上方关于历史枚举值的注释
-- `src/world/save_format.c`：`SAVE_MAGIC_V29`、`SAVE_MAGIC_LENGTH`、`WorldSaveFormatRead`、`WorldSaveFormatWriteCurrent`、`WorldSaveWriteHeader` 的 bothLegacy/bothCube 检查、`WorldSaveReadHeader` 的 `TOPOL001` 校验与 `WorldCubeRuntimeEnabled()` 门控、错误字符串
+- `src/world/save_format.c`：`SAVE_MAGIC_V29`、`SAVE_MAGIC_LENGTH`、`WorldSaveFormatRead`、`WorldSaveFormatWriteCurrent`、`WorldSaveWriteHeader` 的 `WorldSurfaceTopologyPolicyIsSupported` 检查、`WorldSaveReadHeader` 的 `TOPOL001` 校验与 `WorldCubeRuntimeEnabled()` 门控、错误字符串
 - `src/core/save_io.h`：`SaveIoWriter`、`SaveIoReader`、`SaveIoTransactionResult`、两个函数注释
 - `src/core/save_io.c`：`SyncParentDirectory`、`CopyFileAtomic`、`SaveIoWriteAtomic`、`SaveIoReadTransactional`
 - `src/app/game_save.c`：`SAVE_FILE_BAK`、`SAVE_MAX_FILE_BYTES`、`GameSaveMap`、`GameSaveWriteFile`、`GameSaveCheckpoint`、`GameLoadApplyFile` 里的 `const WorldSaveFormat format = WORLD_SAVE_FORMAT_V29`、`GameLoadMap`

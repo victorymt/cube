@@ -180,8 +180,8 @@ bool ChunksUpdateCubeCoverage(TerrainCubeContext *context, SurfaceVector focus,
     const WorldSurfaceSnapshot *snapshot = TerrainCubeContextSnapshot(context);
     SurfaceAddress cell;
     SurfaceCubeChunkKey focusKey;
-    SurfaceCoverageCandidate candidates[MAX_ACTIVE_CHUNKS];
-    SurfaceCoverageResult coverage;
+    SurfaceCubeCoverageCandidate candidates[MAX_ACTIVE_CHUNKS];
+    SurfaceCubeCoverageResult coverage;
     if (!out || !snapshot || !SurfaceCellFromPoint(snapshot->context.bodyId, focus, &cell) ||
         !SurfaceCubeChunkAt(cell, &focusKey) || !ContextMatches(context, focusKey) ||
         cell.radial < TERRAIN_CUBE_MIN_RADIAL || cell.radial >= SURFACE_MAX_Y_EXCLUSIVE ||

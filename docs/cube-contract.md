@@ -19,7 +19,7 @@
 | 地形生成 | **11** | `TERRAIN_GENERATION_CURRENT`（terrain_generation.h:7） | 新世界基底生成算法；11 = 叠加历史火山地形层 | 算法或默认参数改变即递增 |
 | cube 基础生成 | **9** | `TERRAIN_GENERATION_CUBE`（terrain_cube.h:8） | cube 专用采样原语的名义版本；**不代表运行时已启用** | cube 采样语义改变即递增 |
 | 世界存档 | **V29** | `WORLD_SAVE_FORMAT_V29`（save_format.h:22） | 整世界序列化格式；只接受 V29 | 拓扑或字段布局改变即升到 V30 |
-| 表面拓扑 | **legacy-map/1** | `WORLD_SURFACE_TOPOLOGY_DEFAULT`（surface_topology_version.h:26） | Home 与行星均 legacy-map；cube-grid/1 **被运行时拒绝** | 激活 cube 时切到 cube-grid/1 |
+| 表面拓扑 | **legacy-map/1** | `WORLD_SURFACE_TOPOLOGY_DEFAULT`（surface_topology_version.h:26） | 默认 Home 与行星均 legacy-map；cube-grid/1 已实现，安装仍受运行时门控限制；策略允许逐表面混合 | 激活 cube 时切到 cube-grid/1 |
 | CGA 语法 | 5 / 2 / 3 / 4 / 7 | `cga_voxel.h` | 按结构类型分别编号，与地形版本无关 | 单类语法改变只递增该类 |
 
 **关键澄清：**
@@ -28,6 +28,7 @@
 - “cube 基础 9”是原语命名版本，**不表示**运行时使用 cube。
 - 地形版本与存档版本**可独立演进**；V29 中保存的地形版本字段是 2..CURRENT 的值，不是存档格式版本。
 - 存档 trailer 中的 face address **不是** cube 体素证明；V29 的球面 trailer 与 cube 地址是不同概念。
+- 普通消费者不得读取 `SurfaceTopologyKind` 来路由行为；identity、cell、pose、chunk、sample、neighbour、region 和 coverage 都走 `SurfaceContract`。
 
 ## 2. 身份契约（I 表）
 
@@ -53,11 +54,13 @@
 | 状态 | 所有者 | 生命周期 | 消费者不得 |
 |---|---|---|---|
 | 表面快照 `WorldSurfaceSnapshot` | app 组合根 | 世界切换前排空并安装 | world 直接查 space 高层状态 |
-| cube 生成上下文 `TerrainCubeContext` | 创建方持有引用 | 引用计数；工作队列保留 | worker 持有即可变世界指针 |
+| cube 生成上下文 `TerrainCubeContext` | 活动 `SurfaceContract` | 引用计数；合同释放后工作队列仍保留自己的引用 | worker 持有即可变世界指针，或 app 另建第二份长期上下文 |
 | cube 编辑存储 | world（主线程） | 进程内，**当前不落盘** | 在工作线程写入 |
 | 区块槽位池 | world | 全局固定 625 槽 | 隐藏饱和或静默驱逐 |
 | 存档事务 | app | 每次保存/载入 | 失败后留下半写文件 |
 | 覆盖策略 | world | 每帧调用一次 | 用局部就绪冒充全视锥就绪 |
+
+活动 `SurfaceContract` 由 world snapshot 模块在成功事务交换后持有；失败安装时调用者仍拥有新 contract，旧 contract 和旧快照完全不变。legacy adapter 只保存快照与采样模式，cube adapter 保存该 surface 唯一的长期 `TerrainCubeContext`。
 
 **生成上下文的版本捕获**（易错点，W0.2）：
 

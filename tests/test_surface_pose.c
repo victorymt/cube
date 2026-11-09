@@ -1,5 +1,6 @@
 #include "world/surface_pose.h"
 #include "world/world_location.h"
+#include "surface_contract_test_stub.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -134,7 +135,9 @@ static void TestInvalid(void)
 
 int main(void)
 {
+    assert(InstallTestSurfaceContract(99));
     TestProjection(); TestTransport(); TestMotion(); TestAddresses(); TestInvalid();
+    assert(WorldInstallSurfaceSnapshot(NULL));
     puts("surface pose and block address tests passed");
     return 0;
 }

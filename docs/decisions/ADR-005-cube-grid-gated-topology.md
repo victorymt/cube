@@ -10,7 +10,7 @@
 legacy 表面网格把每一圈纬度固定成同样多的区块，`docs/cube-contract.md` 第 4.1 节按 `SURFACE_EQUATOR_BLOCKS` 与 `SURFACE_RADIUS_BLOCKS` 算出：距极点越近，整圈物理周长越短，单个区块越窄；渲染距离 12 时极点得到的是 0.23 块宽、400 块高的窄条，槽位却只有 `MAX_ACTIVE_CHUNKS`（渲染距离 12 时为 625）。放大渲染距离不解决问题：覆盖宽度随距离线性增长，槽位随平方增长。`docs/cube-activation-plan.md` 的 W1a 因此被实测否决，极点窄条不是枚举 bug，而是经纬网格无法表示极点附近地面的结构性缺陷。另一条约束是切换代价：两套网格给同一位置不同身份，切换只能重建世界而不能重新解释数据，所以任何半迁移都会让同一方块在画面、碰撞和存档里解析成不同身份。
 
 ## 决策
-把 cube-grid 做成一条独立的拓扑序列 `SURFACE_TOPOLOGY_CUBE_GRID`（版本 `SURFACE_CUBE_TOPOLOGY_VERSION` 为 `1u`），与地形生成版本、存档版本互不共用编号；默认策略 `WORLD_SURFACE_TOPOLOGY_DEFAULT` 仍是两边 `SURFACE_TOPOLOGY_MAP_V1`。运行时门控 `WorldCubeRuntimeEnabled` 默认关闭，关闭时 `SurfaceTopologyIsRuntimeSupported` 只接受非 cube 的已知拓扑，`WorldSurfaceTopologyPolicyIsSupported` 只接受两边都 legacy，`save_format.c` 的 `WorldSaveReadHeader` 拒绝 cube 策略，`CubeSwitchBegin` 返回假并把进度置为 `CUBE_SWITCH_ROLLED_BACK`。打开门控不会自动切换策略，它只解除对显式 cube 策略与快照的硬拒绝；切换本身由 `cube_switch.h` 的状态机排序（排空 worker、建上下文、清依赖状态、落地、按覆盖提交或回滚），未到 `CUBE_SWITCH_COMMITTED` 之前旧世界仍是已提交的那个。
+把 cube-grid 做成一条独立的拓扑序列 `SURFACE_TOPOLOGY_CUBE_GRID`（版本 `SURFACE_CUBE_TOPOLOGY_VERSION` 为 `1u`），与地形生成版本、存档版本互不共用编号；默认策略 `WORLD_SURFACE_TOPOLOGY_DEFAULT` 仍是两边 `SURFACE_TOPOLOGY_MAP_V1`。运行时门控 `WorldCubeRuntimeEnabled` 默认关闭。`SurfaceTopologyIsRuntimeSupported` 描述 backend 是否存在，因此承认已知 legacy 与 cube；`WorldSurfaceTopologyPolicyIsSupported` 也接受逐表面独立或混合的策略。门控属于安装与读档边界：关闭时 cube snapshot/contract 不能安装，`WorldSaveReadHeader` 拒绝含 cube 的存档，`CubeSwitchBegin` 返回假并把进度置为 `CUBE_SWITCH_ROLLED_BACK`。打开门控不会自动切换策略，也不会改变默认 legacy policy。切换本身由 `cube_switch.h` 的状态机排序（排空 worker、建上下文、清依赖状态、落地、按覆盖提交或回滚），未到 `CUBE_SWITCH_COMMITTED` 之前旧世界仍是已提交的那个。M1 后活动 `SurfaceContract` 是唯一长期 cube context 所有者，事务安装成功后 world 才释放旧 contract。
 
 ## 备选方案
 ### 备选 1：直接切换默认拓扑到 cube-grid，一次改完所有消费者
@@ -29,10 +29,10 @@ legacy 表面网格把每一圈纬度固定成同样多的区块，`docs/cube-co
 - 未采用原因：计划书明确不采用长期双轨并存，门控期是过渡而不是终态；目标仍是 cube-grid 全量迁移、旧网格下线。
 
 ## 后果
-- 门控关闭时的行为与引入前一致：`WorldSurfaceTopologyPolicyIsSupported` 的注释写明这条兼容要求，`tests/test_world_surface_snapshot.c` 断言门控关闭时 cube 快照被拒且状态不变，`tests/test_save_format.c` 的 `TestTopologyHeader` 断言 cube 策略在门控关闭时被读档拒绝。
-- 拒绝是显式且原子的：`WorldInstallSurfaceSnapshot` 在安装前校验拓扑与策略是否一致，`WorldSaveReadHeader` 先只读校验再赋值 `outPolicy`，失败时快照、策略与世界代次都不改变。
+- 门控关闭时策略仍可声明，但 cube 不能安装：`tests/test_world_surface_snapshot.c` 断言 gate 关闭时 cube snapshot 被拒且代次、快照与旧 contract 不变；`tests/test_save_format.c` 的 `TestTopologyHeader` 断言 mixed/cube 头可写，但读档在 gate 关闭时拒绝。
+- 拒绝是显式且原子的：`WorldInstallSurfaceSnapshotWithContract` 在交换前校验拓扑、body 和 contract，失败时快照、策略、世界代次与旧 contract 都不改变；`WorldSaveReadHeader` 先只读校验再赋值 `outPolicy`。
 - 契约边界：`SurfaceCubeCellNeighbor` 与 `SurfaceCubeChunkNeighbor` 用整数边折叠而不是浮点投影取整，跨面一步可逆；`SurfaceCubeNeighborhood` 按图距离枚举，半径 12 的最坏容量由 `SURFACE_CUBE_NEIGHBORHOOD_CAPACITY` 给出，容量不足时拒绝而不是返回误导性的部分结果；图距离不等于物理块距离。
-- 代价：门控把“能力存在”与“能力默认开启”拆成两个问题，读代码时必须同时看 `WorldCubeRuntimeEnabled()` 与 `WorldCurrentTopologyPolicy()` 才知道实际拓扑；`GameDebugEnterCubeWorld` 是唯一打开门控的生产路径，它失败时要把门控关回去并 `WorldResetTopologyPolicy`。
+- 代价：门控把“能力存在”与“能力默认开启”拆成两个问题；`GameDebugEnterCubeWorld` 是唯一打开门控的生产路径，它设置 Home cube + Planets legacy，失败时精确恢复旧门控和旧 policy。普通消费者通过 `SurfaceContractSupportsPhysicalCoverage/Raycast/Pose` 查询能力，不读 topology kind。
 - 代价：存档头记录的是策略而不是证明，`TOPOL001` 之后的四个 uint32 只说明世界用哪套网格，存档 trailer 里的 face 地址不能被重新解释成 cube 体素；门控关闭的进程读一份 cube 策略的档会被 `WorldSaveReadHeader` 拒绝，所以门控开与不开对同一份档给出不同结论。
 - 代价：覆盖预算仍然紧张，`SURFACE_COVERAGE_MAX_RADIUS` 为 208 块而 `SURFACE_COVERAGE_MAX_CANDIDATES` 是 4096，实测请求峰值会超过 `MAX_ACTIVE_CHUNKS`，饱和因此是一等状态而不是错误，任何报告都不得把饱和结果标成完整覆盖。
 - 验证方式：`make test-surface-cube`、`make build/normal/tests/test_world_surface_snapshot`、`make build/normal/tests/test_cube_switch`、`make build/normal/tests/test_save_format`、`make test-surface-topology-e2e`。
@@ -40,16 +40,19 @@ legacy 表面网格把每一圈纬度固定成同样多的区块，`docs/cube-co
 
 ## 证据
 - `src/world/surface_topology_version.h`：`SurfaceTopologyKind`、`SURFACE_TOPOLOGY_CUBE_GRID`、`SURFACE_TOPOLOGY_MAP_V1`、`WORLD_SURFACE_TOPOLOGY_DEFAULT`
-- `src/world/surface_topology_version.c`：`SurfaceTopologyIsKnown`、`SurfaceTopologyIsRuntimeSupported`、`WorldSurfaceTopologyPolicyIsSupported`
+- `src/world/surface_topology_version.c`：`SurfaceTopologyIsKnown`、两类 backend 均存在的 runtime support、允许 mixed policy 的 `WorldSurfaceTopologyPolicyIsSupported`
+- `src/world/surface_contract.h` / `surface_contract.c`：消费者中性 address/cell/handle/sample/neighbor/region/coverage 操作
+- `src/world/surface_legacy_contract.c` / `surface_cube_contract.c`：两套 adapter；cube adapter 是长期 context 的唯一所有者
+- `tests/test_surface_contract.c`：共享 adapter 语义与事务安装
 - `src/world/world_surface_snapshot.h`：`WorldCubeRuntimeEnabled`、`WorldSetCubeRuntimeEnabled`、`WorldInstallTopologyPolicy`
-- `src/world/world_surface_snapshot.c`：门控默认值、`WorldInstallSurfaceSnapshot` 的校验分支、`WorldInstallTopologyPolicy` 的 cube 分支
+- `src/world/world_surface_snapshot.c`：门控默认值、`WorldNextSurfaceGeneration`、事务化 `WorldInstallSurfaceSnapshotWithContract`、活动 contract 所有权
 - `src/world/surface_cube.h`：`SURFACE_CUBE_TOPOLOGY_VERSION`、`SURFACE_CUBE_NEIGHBORHOOD_RADIUS_MAX`、`SurfaceCubeCellNeighbor`、`SurfaceCubeNeighborhood`
 - `src/world/surface_types.h`：`SURFACE_FACE_BLOCKS`、`SURFACE_EQUATOR_BLOCKS`、`SURFACE_RADIUS_BLOCKS`
 - `src/world/surface_coverage.h`：`SURFACE_COVERAGE_MAX_RADIUS`、`SURFACE_COVERAGE_MAX_CANDIDATES`、`SurfaceCoverageCollect`
 - `src/world/cube_switch.h`：`CubeSwitchStage`、`CubeSwitchBegin`、`CubeSwitchReportCoverage`
 - `src/world/cube_switch.c`：`CubeSwitchPermitted` 读门控、`CubeSwitchBegin` 的门控拒绝
-- `src/world/save_format.c`：`WorldSaveWriteHeader`、`WorldSaveReadHeader` 的 `TOPOL001` 头与门控拒绝
-- `src/app/game_debug_topology.c`：`GameDebugEnterCubeWorld`、`GameDebugTopologyDslResolve` 的 `world.surface_topology` 字段
+- `src/world/save_format.c`：`WorldSaveWriteHeader` 接受 mixed policy，`WorldSaveReadHeader` 在 gate 关闭时拒绝含 cube 的头
+- `src/app/game_debug_topology.c`：`GameDebugEnterCubeWorld` 安装 Home cube + Planets legacy，并精确恢复失败的旧 gate/policy；`GameDebugTopologyDslResolve` 提供诊断字段
 - `tests/test_world_surface_snapshot.c`：门控默认值与开启后的安装行为
 - `tests/test_save_format.c`：`TestTopologyHeader`
 - `tests/test_cube_switch.c`：门控关闭时状态机回滚、覆盖不足时的有界回滚

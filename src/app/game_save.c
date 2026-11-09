@@ -110,13 +110,12 @@ static bool GameSaveWriteEdits(FILE *file)
     return true;
 }
 
-/* Cube edit payloads are written only when the whole active policy is cube
- * grid. Under the current legacy policy the section is skipped entirely, so a
- * V29 file never carries cube data that the runtime would reject. */
+/* A mixed policy can still have a cube Homeworld. Write its cube edit payload;
+ * the per-surface topology record identifies which backend owns it. */
 static bool GameSavePolicyUsesCubeGrid(void)
 {
     WorldSurfaceTopologyPolicy policy = WorldCurrentTopologyPolicy();
-    return policy.home.kind == SURFACE_TOPOLOGY_CUBE_GRID &&
+    return policy.home.kind == SURFACE_TOPOLOGY_CUBE_GRID ||
            policy.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID;
 }
 

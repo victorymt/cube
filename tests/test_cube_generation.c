@@ -6,6 +6,7 @@
 #include "world/cube_address_save.h"
 #include "presentation/surface_render_transform.h"
 #include "world/surface_geometry.h"
+#include "surface_contract_test_stub.h"
 
 #include <assert.h>
 #include <unistd.h>
@@ -417,6 +418,7 @@ static void TestCubeEditIndex(void)
 static void TestCubeRuntimeReload(void)
 {
     Reset();
+    assert(InstallTestSurfaceContract(0));
     TerrainCubeContext *context = Context();
     SurfaceCubeChunkKey key = {0, SURFACE_FACE_POS_Y, 255, 0};
     assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_READY);

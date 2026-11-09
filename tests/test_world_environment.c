@@ -1,6 +1,7 @@
 #include "world/world_environment.h"
 #include "world/terrain_cube.h"
 #include "world/terrain.h"
+#include "world/surface_contract_internal.h"
 #include "world/world_surface_snapshot.h"
 
 #include <assert.h>
@@ -52,6 +53,75 @@ BathymetrySample PlanetBathymetryAt(int x, int z)
     };
 }
 
+
+static int cubeSampleHeight = 42;
+static bool cubeSampleOk = true;
+
+static bool FakeContractSample(const SurfaceContract *contract,
+                               SurfaceAddress address,
+                               SurfaceContractSample *out)
+{
+    if (!contract || !out) return false;
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    SurfaceMapCell cell;
+    if (!SurfaceAddressCanonicalMapCell(address, &cell)) return false;
+    cell.x -= context.originX;
+    cell.z -= context.originZ;
+    if (context.topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        if (!cubeSampleOk) return false;
+        *out = (SurfaceContractSample){
+            .elevation = (float)cubeSampleHeight, .seaLevel = 80.0f,
+            .seabedY = 30, .waterDepth = 50, .biome = BIOME_PLAINS
+        };
+        return true;
+    }
+    if (context.kind == WORLD_SURFACE_PLANET) {
+        *out = (SurfaceContractSample){
+            .elevation = (float)(100 + cell.x - cell.z),
+            .seaLevel = 80.0f, .waterSurface = 81.0f,
+            .seabedY = 30, .waterDepth = 50, .biome = BIOME_DESERT
+        };
+        return true;
+    }
+    bool flat = terrainMode == TERRAIN_FLAT;
+    *out = (SurfaceContractSample){
+        .elevation = (float)(cell.x + cell.z + (int)terrainMode),
+        .seaLevel = flat ? -1.0f : (float)HOME_SEA_LEVEL,
+        .waterSurface = flat ? -1.0f : 81.0f,
+        .seabedY = 20, .waterDepth = flat ? 0 : HOME_SEA_LEVEL - 20,
+        .biome = BIOME_PLAINS
+    };
+    return true;
+}
+
+static void FakeContractRelease(SurfaceContract *contract)
+{
+    (void)contract;
+}
+
+static const SurfaceContractOps fakeOps = {
+    .sample_at = FakeContractSample,
+    .release = FakeContractRelease
+};
+static SurfaceContract fakeContracts[32];
+static unsigned fakeContractCount;
+
+static SurfaceContract *NextFakeContract(const WorldSurfaceSnapshot *snapshot)
+{
+    if (!snapshot->context.active) return NULL;
+    if (fakeContractCount >= sizeof(fakeContracts) / sizeof(fakeContracts[0])) {
+        return NULL;
+    }
+    SurfaceContract *contract = &fakeContracts[fakeContractCount++];
+    *contract = (SurfaceContract){
+        .ops = &fakeOps,
+        .implementation = &fakeContracts[fakeContractCount - 1],
+        .topology = snapshot->context.topology,
+        .bodyId = snapshot->context.bodyId
+    };
+    return contract;
+}
+
 static void SetEnvironment(WorldSurfaceKind kind, float gravityScale,
                            uint32_t bodyId, uint32_t seed,
                            int originX, int originZ)
@@ -73,7 +143,8 @@ static void SetEnvironment(WorldSurfaceKind kind, float gravityScale,
             .hasSolidSurface = true
         }
     };
-    assert(WorldInstallSurfaceSnapshot(&snapshot));
+    assert(WorldInstallSurfaceSnapshotWithContract(
+        &snapshot, NextFakeContract(&snapshot)));
     WorldSetNetherActive(false);
 }
 
@@ -254,9 +325,6 @@ static void TestSurfacePoseRebaseEvents(void)
 
 /* Cube terrain stubs. This fixture replaces the terrain layer wholesale, so the
  * height routing is what is under test here, not cube sampling itself. */
-static int cubeSampleHeight = 42;
-static bool cubeSampleOk = true;
-
 TerrainCubeContext *TerrainCubeContextCreate(const WorldSurfaceSnapshot *s,
                                              TerrainMode mode, uint64_t generation)
 {
@@ -298,7 +366,8 @@ static void TestCubeHeightRoutesToCubeSampling(void)
     snapshot.context.kind = WORLD_SURFACE_HOME;
     snapshot.context.topology = cubePolicy.home;
     snapshot.context.seed = 7u;
-    assert(WorldInstallSurfaceSnapshot(&snapshot));
+    assert(WorldInstallSurfaceSnapshotWithContract(
+        &snapshot, NextFakeContract(&snapshot)));
 
     assert(WorldSurfaceHeightAt(3, 4) == 321);
 
@@ -306,7 +375,7 @@ static void TestCubeHeightRoutesToCubeSampling(void)
     cubeSampleOk = false;
     assert(WorldSurfaceHeightAt(3, 4) == 0);
 
-    WorldReleaseHeightCubeContext();
+    assert(WorldCurrentSurfaceContract() != NULL);
     assert(WorldInstallSurfaceSnapshot(NULL));
     WorldSetCubeRuntimeEnabled(false);
     WorldResetTopologyPolicy();

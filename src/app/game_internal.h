@@ -82,7 +82,6 @@ void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed);
 void GameInstallWeatherSurfaceLightProvider(void);
 int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive);
 /* Releases the owned cube generation input on surface teardown. */
-void GameReleaseCubeContext(GameRuntime *game);
 void GameUpdateFrameEnvironment(GameRuntime *game, GameFrameView *frame);
 void GameCaptureScreenshot(GameRuntime *game, const GameFrameView *frame);
 struct ShipHudState;

@@ -5,8 +5,12 @@
 #include "world/block_types.h"
 #include "world/block_edits.h"
 #include "world/world_environment.h"
+#include "world/surface_contract_internal.h"
+#include "world/surface_cube.h"
+#include "world/world_surface_snapshot.h"
 
 #include <assert.h>
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -125,6 +129,89 @@ bool WorldCubeBlockAt(WorldBlockAddress address, BlockType *outType)
     *outType = address.at.surface.radial <= cubeGroundRadial
         ? BLOCK_STONE : BLOCK_AIR;
     return true;
+}
+
+static bool TestPlayerContractCellRead(const SurfaceContract *contract,
+                                       SurfaceAddress address,
+                                       WorldCell *outCell)
+{
+    BlockType block;
+    if (!contract || !outCell || address.bodyId != contract->bodyId ||
+        !WorldCubeBlockAt((WorldBlockAddress){
+            .dimension = WORLD_DIMENSION_HOME, .at.surface = address },
+            &block)) return false;
+    *outCell = WorldCellFromLegacyBlock(block);
+    return true;
+}
+
+static bool TestPlayerContractNeighbor(
+    const SurfaceContract *contract, SurfaceAddress address,
+    SurfaceDirection direction, SurfaceAddress *outAddress,
+    SurfaceDirection *outReturnDirection)
+{
+    if (!contract || !outAddress || address.bodyId != contract->bodyId) {
+        return false;
+    }
+    SurfaceAddress next = address;
+    if (direction <= SURFACE_DIRECTION_V_PLUS) {
+        SurfaceCubeEdge back;
+        if (!SurfaceCubeCellNeighbor(address, (SurfaceCubeEdge)direction,
+                                     &next, &back)) return false;
+        if (outReturnDirection) *outReturnDirection = (SurfaceDirection)back;
+    } else if (direction == SURFACE_DIRECTION_RADIAL_MINUS) {
+        if (address.radial == INT_MIN) return false;
+        next.radial--;
+        if (outReturnDirection) *outReturnDirection =
+            SURFACE_DIRECTION_RADIAL_PLUS;
+    } else if (direction == SURFACE_DIRECTION_RADIAL_PLUS) {
+        if (address.radial == INT_MAX) return false;
+        next.radial++;
+        if (outReturnDirection) *outReturnDirection =
+            SURFACE_DIRECTION_RADIAL_MINUS;
+    } else {
+        return false;
+    }
+    *outAddress = next;
+    return true;
+}
+
+static void TestPlayerContractRelease(SurfaceContract *contract)
+{
+    (void)contract;
+}
+
+static const SurfaceContractOps playerContractOps = {
+    .cell_read = TestPlayerContractCellRead,
+    .neighbor = TestPlayerContractNeighbor,
+    .supports_physical_pose = true,
+    .release = TestPlayerContractRelease
+};
+static SurfaceContract playerContract;
+
+static void InstallPlayerCubeContract(void)
+{
+    WorldSetCubeRuntimeEnabled(true);
+    WorldSurfaceTopologyPolicy policy = {
+        { SURFACE_TOPOLOGY_CUBE_GRID, 1u },
+        { SURFACE_TOPOLOGY_CUBE_GRID, 1u }
+    };
+    assert(WorldInstallTopologyPolicy(policy));
+    WorldSurfaceSnapshot snapshot = {
+        .context = {
+            .active = true,
+            .kind = WORLD_SURFACE_HOME,
+            .topology = policy.home,
+            .bodyId = 0u,
+            .seed = 1234u
+        }
+    };
+    playerContract = (SurfaceContract){
+        .ops = &playerContractOps,
+        .implementation = &playerContract,
+        .topology = policy.home,
+        .bodyId = 0u
+    };
+    assert(WorldInstallSurfaceSnapshotWithContract(&snapshot, &playerContract));
 }
 int WorldSurfaceMapOriginX(void) { return 0; }
 int WorldSurfaceMapOriginZ(void) { return 0; }
@@ -614,10 +701,14 @@ int main(void)
     TestRuntimeStateIsPerPlayer();
     TestRuntimeStateReset();
     TestWaterStateUsesActualColumnSurface();
+    InstallPlayerCubeContract();
     TestCubeOverlapBranch();
     TestCubeGroundedPlayerWalks();
     TestCubeHeightSurvivesMovement();
     TestCubeMoveIsPhysical();
+    assert(WorldInstallSurfaceSnapshot(NULL));
+    WorldSetCubeRuntimeEnabled(false);
+    WorldResetTopologyPolicy();
     TestSwimmingSpeedAndAscent();
     puts("player collision tests passed");
     return 0;

@@ -1,5 +1,8 @@
 #include "world/world_surface_snapshot.h"
+#include "world/surface_contract_internal.h"
 #include "world/terrain_generation.h"
+
+#include <stddef.h>
 
 static uint32_t terrainGenerationVersion = TERRAIN_GENERATION_CURRENT;
 
@@ -18,6 +21,7 @@ bool TerrainGenerationSetVersion(uint32_t version)
 }
 
 static WorldSurfaceSnapshot currentSurfaceSnapshot = { 0 };
+static SurfaceContract *currentSurfaceContract;
 static uint64_t currentWorldGeneration;
 static WorldSurfaceTopologyPolicy currentTopologyPolicy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
 /* Off by default; see the header contract. */
@@ -33,26 +37,54 @@ void WorldSetCubeRuntimeEnabled(bool enabled)
     cubeRuntimeEnabled = enabled;
 }
 
-bool WorldInstallSurfaceSnapshot(const WorldSurfaceSnapshot *snapshot)
+static bool SurfaceSnapshotIsValid(const WorldSurfaceSnapshot *snapshot)
 {
-    if (snapshot) {
-        const WorldSurfaceContext *context = &snapshot->context;
-        if (context->kind < WORLD_SURFACE_NONE || context->kind > WORLD_SURFACE_PLANET ||
-            context->active != (context->kind != WORLD_SURFACE_NONE) ||
-            !(SurfaceTopologyIsRuntimeSupported(context->topology) ||
-              (cubeRuntimeEnabled &&
-               SurfaceTopologyIsKnown(context->topology))) ||
-            (context->active && context->topology.kind == SURFACE_TOPOLOGY_NONE) ||
-            (!context->active && context->topology.kind != SURFACE_TOPOLOGY_NONE)) return false;
-        SurfaceTopologyVersion expected = WorldTopologyForSurface(context->kind);
-        if (context->topology.kind != expected.kind ||
-            context->topology.version != expected.version) return false;
+    if (!snapshot) return true;
+    const WorldSurfaceContext *context = &snapshot->context;
+    if (context->kind < WORLD_SURFACE_NONE ||
+        context->kind > WORLD_SURFACE_PLANET ||
+        context->active != (context->kind != WORLD_SURFACE_NONE) ||
+        !SurfaceTopologyIsRuntimeSupported(context->topology) ||
+        (context->active && context->topology.kind == SURFACE_TOPOLOGY_NONE) ||
+        (!context->active &&
+         context->topology.kind != SURFACE_TOPOLOGY_NONE)) return false;
+    if (context->active && context->topology.kind ==
+            SURFACE_TOPOLOGY_CUBE_GRID && !cubeRuntimeEnabled) return false;
+    SurfaceTopologyVersion expected = WorldTopologyForSurface(context->kind);
+    return context->topology.kind == expected.kind &&
+           context->topology.version == expected.version;
+}
+
+bool WorldInstallSurfaceSnapshotWithContract(
+    const WorldSurfaceSnapshot *snapshot, SurfaceContract *contract)
+{
+    if (!SurfaceSnapshotIsValid(snapshot)) return false;
+    if (contract) {
+        if (!snapshot || currentSurfaceContract == contract ||
+            !SurfaceContractIsValid(contract) ||
+            !SurfaceContractMatchesTopology(
+                contract, snapshot->context.topology,
+                snapshot->context.bodyId)) return false;
     }
-    currentWorldGeneration++;
-    if (currentWorldGeneration == 0u) currentWorldGeneration = 1u;
+    SurfaceContract *previousContract = currentSurfaceContract;
     currentSurfaceSnapshot = snapshot
         ? *snapshot : (WorldSurfaceSnapshot){ 0 };
+    currentSurfaceContract = contract;
+    currentWorldGeneration++;
+    if (currentWorldGeneration == 0u) currentWorldGeneration = 1u;
+    SurfaceContractRelease(previousContract);
     return true;
+}
+
+bool WorldInstallSurfaceSnapshot(const WorldSurfaceSnapshot *snapshot)
+{
+    return WorldInstallSurfaceSnapshotWithContract(snapshot, NULL);
+}
+
+uint64_t WorldNextSurfaceGeneration(void)
+{
+    uint64_t next = currentWorldGeneration + 1u;
+    return next == 0u ? 1u : next;
 }
 
 WorldSurfaceTopologyPolicy WorldCurrentTopologyPolicy(void)
@@ -62,21 +94,9 @@ WorldSurfaceTopologyPolicy WorldCurrentTopologyPolicy(void)
 
 bool WorldInstallTopologyPolicy(WorldSurfaceTopologyPolicy policy)
 {
-    if (WorldSurfaceTopologyPolicyIsSupported(policy)) {
-        currentTopologyPolicy = policy;
-        return true;
-    }
-    /* The pure policy check only accepts the legacy grid. An explicitly
-     * enabled cube runtime additionally admits a fully-known cube policy. */
-    if (cubeRuntimeEnabled &&
-        SurfaceTopologyIsKnown(policy.home) &&
-        SurfaceTopologyIsKnown(policy.planets) &&
-        policy.home.kind == SURFACE_TOPOLOGY_CUBE_GRID &&
-        policy.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
-        currentTopologyPolicy = policy;
-        return true;
-    }
-    return false;
+    if (!WorldSurfaceTopologyPolicyIsSupported(policy)) return false;
+    currentTopologyPolicy = policy;
+    return true;
 }
 
 void WorldResetTopologyPolicy(void)
@@ -94,6 +114,11 @@ SurfaceTopologyVersion WorldTopologyForSurface(WorldSurfaceKind kind)
 const WorldSurfaceSnapshot *WorldCurrentSurfaceSnapshot(void)
 {
     return &currentSurfaceSnapshot;
+}
+
+const SurfaceContract *WorldCurrentSurfaceContract(void)
+{
+    return currentSurfaceContract;
 }
 
 uint64_t WorldCurrentGeneration(void)

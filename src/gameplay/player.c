@@ -3,7 +3,6 @@
 #include "core/game_effects.h"
 #include "raymath.h"
 #include "world/chunks.h"
-#include "world/world_cube.h"
 #include "world/world_location.h"
 #include "world/fluid.h"
 #include "world/block_types.h"
@@ -12,7 +11,9 @@
 #include "gameplay/ship.h"
 #include "space/space_chunks.h"
 #include "space/space_query.h"
+#include "world/surface_contract.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include <limits.h>
 #include <math.h>
@@ -195,10 +196,12 @@ static bool TryStepUp(Player *player, Vector3 next)
 static bool PlayerCubeSolid(const WorldBlockBoxQuery *box, void *user)
 {
     (void)user;
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
     for (unsigned i = 0; i < box->count; i++) {
-        BlockType type = BLOCK_AIR;
-        if (!WorldCubeBlockAt(box->cells[i], &type)) continue;
-        if (type != BLOCK_AIR && type != BLOCK_WATER) return true;
+        WorldCell cell;
+        if (!SurfaceContractCellRead(contract, box->cells[i].at.surface,
+                                     &cell)) continue;
+        if (cell.block != BLOCK_AIR && cell.block != BLOCK_WATER) return true;
     }
     return false;
 }
@@ -206,9 +209,11 @@ static bool PlayerCubeSolid(const WorldBlockBoxQuery *box, void *user)
 static bool PlayerCubeKnown(const WorldBlockBoxQuery *box, void *user)
 {
     (void)user;
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
     for (unsigned i = 0; i < box->count; i++) {
-        BlockType type = BLOCK_AIR;
-        if (!WorldCubeBlockAt(box->cells[i], &type)) return false;
+        WorldCell cell;
+        if (!SurfaceContractCellRead(contract, box->cells[i].at.surface,
+                                     &cell)) return false;
     }
     return true;
 }
@@ -249,8 +254,9 @@ bool PlayerOverlapsWorld(Vector3 position)
     /* On a cube surface the body is not a map-cell box; route to the cube test
      * so collision, picking and rendering agree on the same cells. */
     if (WorldIsSurfaceActive() &&
-        WorldCurrentSurfaceContext().topology.kind == SURFACE_TOPOLOGY_CUBE_GRID)
+        SurfaceContractSupportsPhysicalPose(WorldCurrentSurfaceContract())) {
         return PlayerOverlapsCubeWorld(position);
+    }
 
     PlayerCollisionBounds bounds;
     if (!PlayerCollisionBoundsAt(position, &bounds)) return true;
@@ -467,7 +473,7 @@ void MovePlayer(Player *player, Vector3 delta)
     /* A cube surface moves by physical displacement; the per-axis cell stepper
      * below assumes map cells have stable width, which a cube grid does not. */
     if (WorldIsSurfaceActive() &&
-        WorldCurrentSurfaceContext().topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        SurfaceContractSupportsPhysicalPose(WorldCurrentSurfaceContract())) {
         /* Clear the flag first: PlayerCubeDisplace sets it only on a blocked
          * downward move, so a player walking off a ledge correctly falls. */
         if (delta.y < 0.0f) player->onGround = false;

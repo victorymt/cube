@@ -2,6 +2,7 @@
  * and every occupied body cell must be known and clear. Unknown terrain is
  * never treated as air. */
 #include "world/world_location.h"
+#include "surface_contract_test_stub.h"
 
 #include <assert.h>
 #include <math.h>
@@ -139,6 +140,7 @@ static void TestMapCellsMapToDistinctCubeCells(void)
 
 int main(void)
 {
+    assert(InstallTestSurfaceContract(0));
     TestStandingOnGroundIsClear();
     TestFloatingIsNotClear();
     TestUnknownTerrainRejected();
@@ -147,6 +149,7 @@ int main(void)
     TestInvalidArgumentsRejected();
     TestPolarLandingIsClear();
     TestMapCellsMapToDistinctCubeCells();
+    assert(WorldInstallSurfaceSnapshot(NULL));
     puts("cube landing clearance tests passed");
     return 0;
 }

@@ -127,6 +127,8 @@ Exit evidence: `make check-docs` passed on 2026-11-09 with 73 documents,
 
 ### M1: freeze the topology-neutral surface contract
 
+**Status:** complete (2026-11-09)
+
 Work:
 
 - define cell read/write/known, terrain/water/biome sample, adjacency, opaque
@@ -145,8 +147,17 @@ Public interface changes:
   `SurfaceCubeChunkKey` use by consumers;
 - no consumer-facing API accepts map `(x,z)` as a generic surface identity.
 
-Exit evidence: both adapters pass the shared contract tests, and the
-architecture gate rejects topology-aware consumer code. Commit M1.
+Exit evidence: both adapters pass `test_surface_contract`; the legacy and cube
+tests cover identity, known/read/write cells, opaque chunk/section handles,
+horizontal and cross-face adjacency, sampling, region identity, physical
+coverage and transactional installation. `test_world_surface_snapshot`,
+`test_save_format`, `test_surface_coverage`, `test_world_environment`,
+`test_player_collision`, `test_world_block_box` and `test_world_block_landing`
+also pass. `make test-headers` compiled 222 public headers, and
+`make test-architecture` rejects any new backend token outside the exact
+`tests/surface_contract_boundary_allowlist.txt` debt list. M1 uses the
+topology-neutral contract as the sole owner of the active cube context. Commit
+M1.
 
 ### M2: close G1 core cube loop
 

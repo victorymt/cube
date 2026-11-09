@@ -1,7 +1,11 @@
 #include "world/world_location.h"
 
+#include "world/surface_contract.h"
+#include "world/world_surface_snapshot.h"
+
 #include <limits.h>
 #include <math.h>
+#include <stddef.h>
 
 static bool IsSurface(WorldDimension dimension)
 {
@@ -27,22 +31,21 @@ bool WorldBlockAddressEqual(WorldBlockAddress a, WorldBlockAddress b)
 
 uint32_t WorldBlockAddressHash(WorldBlockAddress address)
 {
-    uint32_t hash = 2166136261u;
-    uint32_t fields[7] = {SURFACE_CUBE_TOPOLOGY_VERSION, (uint32_t)address.dimension};
+    uint32_t dimensionHash = (uint32_t)address.dimension;
     if (IsSurface(address.dimension)) {
-        fields[2] = address.at.surface.bodyId;
-        fields[3] = (uint32_t)address.at.surface.face;
-        fields[4] = (uint32_t)address.at.surface.u;
-        fields[5] = (uint32_t)address.at.surface.v;
-        fields[6] = (uint32_t)address.at.surface.radial;
-    } else {
-        fields[2] = (uint32_t)address.at.cartesian.x;
-        fields[3] = (uint32_t)address.at.cartesian.y;
-        fields[4] = (uint32_t)address.at.cartesian.z;
+        return SurfaceContractAddressHash(address.at.surface) ^
+               (dimensionHash * 16777619u);
     }
-    for (unsigned int i = 0; i < 7; i++)
-        for (unsigned int shift = 0; shift < 32; shift += 8)
+    uint32_t fields[4] = {
+        dimensionHash, (uint32_t)address.at.cartesian.x,
+        (uint32_t)address.at.cartesian.y, (uint32_t)address.at.cartesian.z
+    };
+    uint32_t hash = 2166136261u;
+    for (unsigned i = 0; i < 4; i++) {
+        for (unsigned shift = 0; shift < 32; shift += 8) {
             hash = (hash ^ ((fields[i] >> shift) & 255u)) * 16777619u;
+        }
+    }
     return hash;
 }
 
@@ -95,19 +98,18 @@ bool WorldBlockBoxCollect(const SurfacePose *pose, Vector3 halfSize,
     /* The frontier lives in the same fixed buffer as the result, so its bound
      * is that capacity, not a larger magic number. An overflow here would
      * silently drop candidates and under-report collisions. */
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
     for (unsigned head = 0; head < candidates.count; head++) {
         SurfaceAddress current = candidates.cells[head].at.surface;
-        for (int edge = 0; edge < 4; edge++) {
+        for (int direction = SURFACE_DIRECTION_U_MINUS;
+             direction <= SURFACE_DIRECTION_RADIAL_PLUS; direction++) {
             SurfaceAddress next;
-            SurfaceCubeEdge back;
-            if (SurfaceCubeCellNeighbor(current, (SurfaceCubeEdge)edge, &next, &back))
+            if (SurfaceContractNeighbor(contract, current,
+                                        (SurfaceDirection)direction, &next,
+                                        NULL)) {
                 BoxPush(&candidates, dimension, next);
+            }
         }
-        SurfaceAddress up = current, down = current;
-        if (up.radial < INT_MAX) up.radial++;
-        if (down.radial > INT_MIN) down.radial--;
-        if (SurfaceAddressIsValid(up)) BoxPush(&candidates, dimension, up);
-        if (SurfaceAddressIsValid(down)) BoxPush(&candidates, dimension, down);
         if (candidates.truncated) break;
     }
 
@@ -198,11 +200,13 @@ bool WorldBlockNeighbor(WorldBlockAddress address, WorldBlockSide side,
         return false;
     WorldBlockAddress next = address;
     WorldBlockSide back = (WorldBlockSide)(side ^ 1);
-    if (IsSurface(address.dimension) && side < WORLD_BLOCK_DOWN) {
-        SurfaceCubeEdge edge;
-        if (!SurfaceCubeCellNeighbor(address.at.surface, (SurfaceCubeEdge)side,
-                                      &next.at.surface, &edge)) return false;
-        back = (WorldBlockSide)edge;
+    if (IsSurface(address.dimension)) {
+        SurfaceDirection returned;
+        if (!SurfaceContractNeighbor(WorldCurrentSurfaceContract(),
+                                     address.at.surface,
+                                     (SurfaceDirection)side, &next.at.surface,
+                                     &returned)) return false;
+        back = (WorldBlockSide)returned;
     } else {
         int *coordinate = IsSurface(address.dimension) ? &next.at.surface.radial
             : side < WORLD_BLOCK_V_MINUS ? &next.at.cartesian.x

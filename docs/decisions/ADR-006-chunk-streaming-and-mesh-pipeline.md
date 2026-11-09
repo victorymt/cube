@@ -86,3 +86,8 @@ worker 池的实现是 `src/world/chunks_streaming.c` 的 `ChunkGenWorker`，线
 - `docs/terrain-performance.md`：带日期的基准样本与度量范围
 - `docs/architecture/09-performance-optimization.md`：三个性能提交建立的边界（规范块索引、优先级队列、worker 本地缓冲）
 - `docs/cube-contract.md`：容量契约（625 槽位、饱和是合法状态）
+M1 keeps mesh chunks on their existing concrete storage path, but the public
+contract now returns opaque chunk handles and renamed cube-only coverage values
+(`SurfaceCubeCoverageCandidate` / `SurfaceCubeCoverageResult`). Consumers must
+not infer admission identity from `SurfaceChunkKey` or `SurfaceCubeChunkKey`;
+streaming and draw-distance integration move through the active contract.

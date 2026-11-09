@@ -192,3 +192,8 @@ puts("volcano history: deterministic eruptions, cooled deposits, foot, ledgers a
 - [ ] `make test` 通过，且新增检查在故意破坏时确实会失败（变异验证一次）。
 - [ ] 若改的是门禁脚本，失败信息里包含"怎么修"。
 - [ ] 若测试覆盖的行为变了，同步 `STATUS.md` 或对应 `docs/architecture/NN-*.md`。
+
+M1 adds a mandatory architecture sweep via
+`tests/test_surface_contract_boundaries.sh`. When a test or production change
+touches surface consumers, run it with `make test-architecture`; new backend
+tokens must use `SurfaceContract`, not extend the exact allowlist casually.

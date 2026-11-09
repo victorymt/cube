@@ -110,3 +110,8 @@ make test-architecture         # 边界与归属
 - 只改代码不改 `docs/debug-dsl.md`。
 - 在 `game_debug.c` 里继续堆到超过 2100 行再想怎么拆。 <!-- volatile-counts:allow -->
 - 改 `DEBUG_CONTROL`/`DEBUG_SCRIPT` 的既有回复格式而不检查 `scripts/run-scene.sh` 和 `voxelcraft_run` 是否在解析它——`run-scene.sh` 依赖 `^DEBUG_CONTROL capture ok ` 和 `^DEBUG_SCRIPT error` 两个前缀，`voxelcraft_run` 依赖 `manifest.txt` 的字段。
+
+M1 note: `stream.cube.*` remains an explicit backend diagnostic namespace. It
+may read cube coverage internals for debugging, but ordinary gameplay and
+presentation code must use `SurfaceContract` capabilities instead of branching
+on the topology kind.

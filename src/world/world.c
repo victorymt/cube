@@ -1154,6 +1154,7 @@ bool WorldGetBlockEditForCurrentDimensionAt(int x, int y, int z,
 
 void WorldCleanup(void)
 {
+    (void)WorldInstallSurfaceSnapshot(NULL);
     WorldCubeClearEdits();
     WorldExtensionCleanup();
     free(blockEditIndex);

@@ -1847,3 +1847,12 @@ exit 0
 * `use the DSL exit statement instead of quit`: replace `quit` with `exit N`.
 * `code=syntax` at EOF or a brace: send the complete `repeat` block, including
   its closing `}`, in one stdin sequence. Keep `exit` last at top level.
+
+## Surface contract boundary
+
+`stream.cube.*` is a backend-specific diagnostic surface. It is intentionally
+allowed to inspect cube coverage internals, but it is not a routing API for
+gameplay or presentation. Runtime behavior should query the active
+`SurfaceContract` capability (`physical coverage`, `physical raycast`, or
+`physical pose`) and use the contract's opaque chunk handle when it needs a
+backend-independent identity.

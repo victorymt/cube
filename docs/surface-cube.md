@@ -373,9 +373,14 @@ halo transitions, six-face mesh projection, renderer/collision top diagonals,
 render transforms and conservative bounds, and stale mesh rejection. These are
 CPU tests of the production pipeline, not an in-game polar visual acceptance.
 
-Player coordinates/collision/raycast, fluid and ecology/decoration consumers,
-V30 save/undo, live-context lifecycle, coverage diagnostics in the DSL and the
-normal streaming switch remain required before enabling cube-grid defaults.
+M1 now supplies one topology-neutral `SurfaceContract` for legacy and cube,
+with opaque chunk/section handles, complete `WorldCell` I/O, semantic
+neighbours, samples, regions and physical coverage. The active contract is the
+single long-lived `TerrainCubeContext` owner; player collision and main
+streaming use contract capabilities instead of topology branches. Fluid,
+ecology/decoration, the remaining diagnostic consumers, V30 save/undo and the
+normal streaming default still require migration before cube-grid becomes the
+default.
 
 Validation: the full `make -j10 test all` run passed all 120 binaries, 193
 public headers, module/game builds, CLI/protocol checks and architecture guards.

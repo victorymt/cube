@@ -1,0 +1,21 @@
+# Exact consumer files that may still name a concrete surface backend while
+# M2-M4 migrate the remaining legacy-only diagnostics, geology and picking paths.
+# Format: path|token. Keep each entry exact; module-wide exemptions are forbidden.
+src/gameplay/interaction.c|WorldToChunkLocal
+src/presentation/render_scene.c|WorldToChunkLocal
+src/app/game.c|FindChunk
+src/app/game.c|WorldToChunkLocal
+src/app/game_debug.c|world/chunks_cube.h
+src/app/game_debug_lod.c|world/chunks_cube.h
+src/app/game_debug_status.c|FindChunk
+src/app/game_debug_status.c|WorldToChunkLocal
+src/app/game_debug_topology.c|SURFACE_TOPOLOGY_CUBE_GRID
+src/app/game_debug_topology.c|world/surface_cube.h
+src/app/game_debug_trace.c|FindChunk
+src/app/game_debug_trace.c|WorldToChunkLocal
+src/app/game_geology.c|FindChunk
+src/app/game_geology.c|WorldToChunkLocal
+src/app/game_save.c|SURFACE_TOPOLOGY_CUBE_GRID
+src/app/game_stream_audit.c|FindChunk
+src/app/game_stream_audit.c|WorldToChunkLocal
+src/app/game_debug_topology.c|WorldCube

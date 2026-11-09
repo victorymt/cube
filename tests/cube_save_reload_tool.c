@@ -6,6 +6,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "world/cube_address_save.h"
 #include "world/world_cube.h"
+#include "world/surface_contract.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -19,6 +20,7 @@ bool IsValidBlockType(BlockType type)
     return (int)type > 0 && type <= BLOCK_BUILTIN_END;
 }
 uint64_t WorldCurrentGeneration(void) { return 1u; }
+const SurfaceContract *WorldCurrentSurfaceContract(void) { return NULL; }
 void MarkGeneratedSectionAndNeighborsDirty(void *chunk, int sectionY)
 {
     (void)chunk;

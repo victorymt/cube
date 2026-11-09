@@ -5,13 +5,13 @@
 
 static void TestCoverage(void)
 {
-    SurfaceCoverageCandidate all[SURFACE_COVERAGE_MAX_CANDIDATES], bounded[625];
+    SurfaceCubeCoverageCandidate all[SURFACE_COVERAGE_MAX_CANDIDATES], bounded[625];
     const double positions[] = {0, 2048, 4096};
     unsigned maximum = 0;
     for (int face = 0; face < 6; face++) for (int u = 0; u < 3; u++) for (int v = 0; v < 3; v++) {
         SurfaceVector focus;
         assert(SurfacePointFromCoordinates((SurfaceCoordinates){(SurfaceFace)face, positions[u], positions[v], 100}, &focus));
-        SurfaceCoverageResult full, small;
+        SurfaceCubeCoverageResult full, small;
         assert(SurfaceCoverageCollect(9, focus, 208, all, SURFACE_COVERAGE_MAX_CANDIDATES, &full));
         assert(!full.saturated && full.admitted == full.requested && full.admitted > 200);
         assert(SurfaceCoverageCollect(9, focus, 208, bounded, 625, &small));
@@ -21,7 +21,7 @@ static void TestCoverage(void)
         for (unsigned i = 0; i < full.admitted; i++) {
             assert(all[i].key.bodyId == 9 && SurfaceCubeChunkKeyIsValid(all[i].key));
             assert(all[i].minimumDistance <= 208.000001);
-            SurfaceCoverageCandidate distance;
+            SurfaceCubeCoverageCandidate distance;
             assert(SurfaceCubeChunkDistance(all[i].key, focus, &distance));
             assert(fabs(distance.minimumDistance - all[i].minimumDistance) < 1e-8);
             assert(fabs(distance.centerDistance - all[i].centerDistance) < 1e-8);

@@ -135,19 +135,9 @@ static uint32_t ReadU32LE(const unsigned char *bytes)
 
 bool WorldSaveWriteHeader(FILE *file, WorldSurfaceTopologyPolicy policy)
 {
-    /* Writing only needs the policy to be representable. Requiring runtime
-     * support here made a cube world unable to save at all, because the runtime
-     * gate refuses to *install* a cube policy while still being able to record
-     * one in a header. Rejection of unsupported policies belongs to the reader. */
-    /* A world always has one grid for every surface, so a header may record
-     * both-legacy or both-cube but never a mix. */
-    if (!file || !SurfaceTopologyIsKnown(policy.home) ||
-        !SurfaceTopologyIsKnown(policy.planets)) return false;
-    bool bothLegacy = policy.home.kind == SURFACE_TOPOLOGY_LEGACY_MAP &&
-                      policy.planets.kind == SURFACE_TOPOLOGY_LEGACY_MAP;
-    bool bothCube = policy.home.kind == SURFACE_TOPOLOGY_CUBE_GRID &&
-                    policy.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID;
-    if (!bothLegacy && !bothCube) return false;
+    /* Writing records what is installed; it does not open the runtime gate.
+     * A mixed Home/planets policy is valid for the staged migration. */
+    if (!file || !WorldSurfaceTopologyPolicyIsSupported(policy)) return false;
     unsigned char bytes[24] = { 0 };
     memcpy(bytes, "TOPOL001", 8);
     WriteU32LE(bytes + 8, (uint32_t)policy.home.kind);
@@ -180,15 +170,17 @@ const char *WorldSaveReadHeader(FILE *file, WorldSurfaceTopologyPolicy *outPolic
         .home = { (SurfaceTopologyKind)homeKind, ReadU32LE(bytes + 12) },
         .planets = { (SurfaceTopologyKind)planetKind, ReadU32LE(bytes + 20) }
     };
-    if (!SurfaceTopologyIsKnown(policy.home) || !SurfaceTopologyIsKnown(policy.planets)) {
+    if (!SurfaceTopologyIsKnown(policy.home) ||
+        !SurfaceTopologyIsKnown(policy.planets)) {
         return "Load failed: unknown surface topology version.";
     }
-    /* Accept a cube policy only while the cube runtime gate is open; otherwise
-     * the file describes a world this runtime cannot serve. */
+    if (!WorldSurfaceTopologyPolicyIsSupported(policy)) {
+        return "Load failed: surface topology policy is not installable.";
+    }
+    /* The gate belongs to runtime installation/load, not to policy syntax. */
     bool cubePolicy = policy.home.kind == SURFACE_TOPOLOGY_CUBE_GRID ||
                       policy.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID;
-    if (cubePolicy ? !WorldCubeRuntimeEnabled()
-                   : !WorldSurfaceTopologyPolicyIsSupported(policy)) {
+    if (cubePolicy && !WorldCubeRuntimeEnabled()) {
         return "Load failed: cube-grid topology is not supported by this runtime.";
     }
     *outPolicy = policy;

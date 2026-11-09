@@ -64,20 +64,20 @@ static bool MarkSeen(unsigned char *bits, SurfaceCubeChunkKey key)
     return seen;
 }
 
-static SurfaceCoverageCandidate Candidate(SurfaceCubeChunkKey key, SurfaceVector focus)
+static SurfaceCubeCoverageCandidate Candidate(SurfaceCubeChunkKey key, SurfaceVector focus)
 {
     SurfaceVector direction;
     double patchAngle;
     // Every caller supplies a validated key from the exact neighbor primitive.
-    if (!Footprint(key, &direction, &patchAngle)) return (SurfaceCoverageCandidate){.key = key, .minimumDistance = INFINITY};
+    if (!Footprint(key, &direction, &patchAngle)) return (SurfaceCubeCoverageCandidate){.key = key, .minimumDistance = INFINITY};
     double angle = Angle(direction, focus);
-    return (SurfaceCoverageCandidate){key, angle*SURFACE_RADIUS_BLOCKS,
+    return (SurfaceCubeCoverageCandidate){key, angle*SURFACE_RADIUS_BLOCKS,
         fmax(0, angle - patchAngle)*SURFACE_RADIUS_BLOCKS};
 }
 
 static int CompareCandidates(const void *left, const void *right)
 {
-    const SurfaceCoverageCandidate *a = left, *b = right;
+    const SurfaceCubeCoverageCandidate *a = left, *b = right;
     if (a->centerDistance != b->centerDistance) return a->centerDistance < b->centerDistance ? -1 : 1;
     if (a->key.face != b->key.face) return a->key.face < b->key.face ? -1 : 1;
     if (a->key.u != b->key.u) return a->key.u < b->key.u ? -1 : 1;
@@ -85,19 +85,19 @@ static int CompareCandidates(const void *left, const void *right)
 }
 
 bool SurfaceCubeChunkDistance(SurfaceCubeChunkKey key, SurfaceVector focus,
-                               SurfaceCoverageCandidate *out)
+                               SurfaceCubeCoverageCandidate *out)
 {
     if (!out || !SurfaceCubeChunkKeyIsValid(key) || !SurfaceVectorIsFinite(focus) ||
         SurfaceVectorLength(focus) == 0) return false;
-    SurfaceCoverageCandidate candidate = Candidate(key, SurfaceVectorNormalize(focus));
+    SurfaceCubeCoverageCandidate candidate = Candidate(key, SurfaceVectorNormalize(focus));
     if (!isfinite(candidate.minimumDistance)) return false;
     *out = candidate;
     return true;
 }
 
 bool SurfaceCoverageCollect(uint32_t bodyId, SurfaceVector focus, double radius,
-                             SurfaceCoverageCandidate *out, unsigned capacity,
-                             SurfaceCoverageResult *outResult)
+                             SurfaceCubeCoverageCandidate *out, unsigned capacity,
+                             SurfaceCubeCoverageResult *outResult)
 {
     if (!out || !outResult || !capacity || !isfinite(radius) || radius < 0 ||
         radius > SURFACE_COVERAGE_MAX_RADIUS || !SurfaceVectorIsFinite(focus) ||
@@ -107,7 +107,7 @@ bool SurfaceCoverageCollect(uint32_t bodyId, SurfaceVector focus, double radius,
     SurfaceCubeChunkKey first;
     if (!SurfaceCellFromPoint(bodyId, SurfaceVectorScale(focus, SURFACE_RADIUS_BLOCKS), &cell) ||
         !SurfaceCubeChunkAt(cell, &first)) return false;
-    SurfaceCoverageCandidate *queue = malloc(sizeof(*queue)*SURFACE_COVERAGE_MAX_CANDIDATES);
+    SurfaceCubeCoverageCandidate *queue = malloc(sizeof(*queue)*SURFACE_COVERAGE_MAX_CANDIDATES);
     unsigned char seen[(SURFACE_FACE_COUNT*SURFACE_FACE_CHUNKS*SURFACE_FACE_CHUNKS + 7)/8] = {0};
     if (!queue) return false;
     unsigned count = 1;
@@ -117,7 +117,7 @@ bool SurfaceCoverageCollect(uint32_t bodyId, SurfaceVector focus, double radius,
         SurfaceCubeChunkKey next;
         if (!SurfaceCubeChunkNeighbor(queue[head].key, (SurfaceCubeEdge)edge, &next, NULL)) { free(queue); return false; }
         if (MarkSeen(seen, next)) continue;
-        SurfaceCoverageCandidate candidate = Candidate(next, focus);
+        SurfaceCubeCoverageCandidate candidate = Candidate(next, focus);
         if (candidate.minimumDistance > radius + 1e-7) continue;
         if (count == SURFACE_COVERAGE_MAX_CANDIDATES) { free(queue); return false; }
         queue[count++] = candidate;
@@ -125,7 +125,7 @@ bool SurfaceCoverageCollect(uint32_t bodyId, SurfaceVector focus, double radius,
     qsort(queue, count, sizeof(*queue), CompareCandidates);
     unsigned admitted = count < capacity ? count : capacity;
     memcpy(out, queue, admitted*sizeof(*out));
-    *outResult = (SurfaceCoverageResult){count, admitted, admitted < count};
+    *outResult = (SurfaceCubeCoverageResult){count, admitted, admitted < count};
     free(queue);
     return true;
 }

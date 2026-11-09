@@ -913,7 +913,7 @@ bool ChunkWithinDrawDistance(const Chunk *chunk, Vector3 cameraPosition, int eff
         Vector3 direction = SurfaceDirectionFromMapCoordinates(
             WorldSurfaceMapOriginX() + cameraPosition.x,
             WorldSurfaceMapOriginZ() + cameraPosition.z);
-        SurfaceCoverageCandidate distance;
+        SurfaceCubeCoverageCandidate distance;
         return SurfaceCubeChunkDistance(chunk->cubeKey,
             (SurfaceVector){direction.x, direction.y, direction.z}, &distance) &&
             distance.minimumDistance <= effectiveRenderDistance * (double)CHUNK_SIZE + 1e-7;

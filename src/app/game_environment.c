@@ -25,6 +25,7 @@
 #include "world/world_state.h"
 #include "world/block_types.h"
 #include "world/block_edits.h"
+#include "world/surface_contract_factory.h"
 #include "world/world_surface_snapshot.h"
 
 #include "raymath.h"
@@ -68,16 +69,22 @@ void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed)
         TraceLog(LOG_ERROR, "Unable to allocate immutable landform atlas");
         abort();
     }
-    if (!WorldInstallSurfaceSnapshot(&snapshot)) {
+    SurfaceContract *contract = snapshot.context.active
+        ? SurfaceContractCreate(&snapshot, WorldTerrainMode(),
+                                WorldNextSurfaceGeneration())
+        : NULL;
+    if (snapshot.context.active && !contract) {
+        TraceLog(LOG_ERROR, "Unable to create surface contract backend");
+        abort();
+    }
+    if (!WorldInstallSurfaceSnapshotWithContract(&snapshot, contract)) {
+        SurfaceContractRelease(contract);
         TraceLog(LOG_ERROR, "Unable to install unsupported surface topology");
         abort();
     }
-    /* Selection follows the installed grid: a cube surface has no Cartesian
-     * cell grid to walk, so the hook takes over; every other topology keeps
-     * the legacy walker untouched. */
     InteractionSetCubeRaycastHook(
-        snapshot.context.topology.kind == SURFACE_TOPOLOGY_CUBE_GRID
-            ? InteractionCubeRaycast : NULL);
+        SurfaceContractSupportsPhysicalRaycast(
+            WorldCurrentSurfaceContract()) ? InteractionCubeRaycast : NULL);
 }
 
 static bool GameWeatherSurfaceLightAt(

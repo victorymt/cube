@@ -15,6 +15,7 @@
 #include "world/block_lighting.h"
 #include "world/block_edits.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include "raymath.h"
 
@@ -23,8 +24,6 @@
 
 static void GameWorldTransitionUnloadSurfaceData(void)
 {
-    /* Drop cached per-surface sampling inputs before the world is replaced. */
-    WorldReleaseHeightCubeContext();
     DrainChunkGen();
     UnloadAllChunks();
     UnloadAllSpaceChunks();
@@ -234,8 +233,8 @@ bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
     int groundY = 0;
     /* A cube world's origin can sit in deep ocean, so the search must reach
      * far enough to find a coast. */
-    bool cubeWorld = WorldCurrentSurfaceContext().topology.kind ==
-                     SURFACE_TOPOLOGY_CUBE_GRID;
+    bool cubeWorld = SurfaceContractSupportsPhysicalPose(
+        WorldCurrentSurfaceContract());
     int searchRadius = cubeWorld ? 512 : 128;
     if (!FindSafeSurfaceLanding(landingX, landingZ, searchRadius, 2,
                                 &landingX, &landingZ, &groundY)) {

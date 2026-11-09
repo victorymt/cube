@@ -1,3 +1,4 @@
+#include "world/world_surface_snapshot.h"
 #include "world/save_format.h"
 
 #include <assert.h>
@@ -195,10 +196,24 @@ static void TestTopologyHeader(void)
         assert(WorldSaveReadHeader(file, &loaded));
         fclose(file);
     }
+    /* Mixed policies are representable. The gate applies when loading, not
+     * when writing the header. */
     policy.planets = (SurfaceTopologyVersion){ SURFACE_TOPOLOGY_CUBE_GRID, 1 };
     file = tmpfile();
-    assert(file && !WorldSaveWriteHeader(file, policy) && ftell(file) == 0);
+    assert(file && WorldSaveWriteHeader(file, policy));
+    rewind(file);
+    const char *mixedError = WorldSaveReadHeader(file, &loaded);
+    assert(mixedError && strstr(mixedError, "cube-grid"));
     fclose(file);
+    WorldSetCubeRuntimeEnabled(true);
+    file = tmpfile();
+    assert(file && WorldSaveWriteHeader(file, policy));
+    rewind(file);
+    assert(WorldSaveReadHeader(file, &loaded) == NULL);
+    assert(loaded.home.kind == SURFACE_TOPOLOGY_LEGACY_MAP);
+    assert(loaded.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID);
+    fclose(file);
+    WorldSetCubeRuntimeEnabled(false);
     assert(!WorldSaveWriteHeader(NULL, policy));
     assert(WorldSaveReadHeader(NULL, &loaded));
 }

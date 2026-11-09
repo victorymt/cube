@@ -229,24 +229,24 @@ bool GameDebugTopologyDslResolve(const GameRuntime *game, const char *name,
 bool GameDebugEnterCubeWorld(struct GameRuntime *game)
 {
     if (!game) return false;
+    bool previousGate = WorldCubeRuntimeEnabled();
+    WorldSurfaceTopologyPolicy previousPolicy = WorldCurrentTopologyPolicy();
     WorldSetCubeRuntimeEnabled(true);
-    WorldSurfaceTopologyPolicy cubePolicy = {
+    WorldSurfaceTopologyPolicy mixedPolicy = {
         { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION },
-        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION }
+        SURFACE_TOPOLOGY_MAP_V1
     };
-    if (!WorldInstallTopologyPolicy(cubePolicy)) {
-        WorldSetCubeRuntimeEnabled(false);
+    if (!WorldInstallTopologyPolicy(mixedPolicy)) {
+        WorldSetCubeRuntimeEnabled(previousGate);
         return false;
     }
-    GameReleaseCubeContext(game);
     HomeWorldMapClose();
     if (!GameWorldTransitionDebugSurface(
             &game->player, true, SOLAR_STYLE_TEMPERATE,
             game->debugControl.surfaceDebugSeed)) {
-        /* Roll back so a failed activation cannot strand the runtime on a grid
-         * it is not serving. */
-        WorldSetCubeRuntimeEnabled(false);
-        WorldResetTopologyPolicy();
+        /* Restore the exact policy this debug command replaced. */
+        (void)WorldInstallTopologyPolicy(previousPolicy);
+        WorldSetCubeRuntimeEnabled(previousGate);
         return false;
     }
     game->landingTransition = (LandingTransition){ 0 };

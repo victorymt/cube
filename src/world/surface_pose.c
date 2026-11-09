@@ -1,4 +1,5 @@
 #include "world/surface_pose.h"
+#include "world/surface_cube.h"
 
 #include <limits.h>
 #include <math.h>

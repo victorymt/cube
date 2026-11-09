@@ -63,8 +63,6 @@ int WorldSurfaceMaxYExclusive(void);
 bool WorldCanAccessBlockY(int y);
 float WorldGravityScale(void);
 int WorldSurfaceHeightAt(int x, int z);
-/* Releases the cached cube height context on surface teardown. */
-void WorldReleaseHeightCubeContext(void);
 bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY);
 bool WorldIsProceduralOceanWaterAt(int x, int y, int z);
 uint32_t WorldCurrentSurfaceId(void);

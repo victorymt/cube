@@ -64,3 +64,7 @@ failed to link. Anyone who "verified" performance in that window was measuring
 nothing. See
 [record 09](architecture/09-performance-optimization.md#architecture-chunk-performance-and-runtime-verification)
 for the boundary that owns that gate.
+
+M1 does not change the measured mesh path or benchmark closure. The new
+`test_surface_contract` joins the normal `make test` sweep; the benchmark
+invariants and its source closure remain unchanged.

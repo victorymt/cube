@@ -27,7 +27,8 @@
 1. 只允许单向。`core` 不 include 任何上层组件的头；只有 `app` 可以 include `app/` 头；`gameplay` 不 include `presentation/`；`presentation` 不 include `app/`。
 2. 局部 include 必须带模块前缀。`#include "world/chunks.h"` 合格，`#include "chunks.h"` 会被拒绝，`raylib.h`、`raymath.h`、`rlgl.h` 除外。
 3. 跨域只走窄接口。`world` 读表面状态走 `world/world_surface_snapshot.h`，不直接调 `space` 的高层 getter；`space` 需要 `ecology`、`gameplay` 时只能经过 `space/space_dependencies.h` 这个显式汇聚点；`world` 消费生态运行时只能经过 `world/ecology_hooks.h` 的回调。`world/chunk_types.h`、`world/world_environment.h`、`world/world_extension.h`、`world/world_persistence.h`、`world/chunks.h`、`world/nether.h`、`world/weather_model.h`、`world/weather_impact.h` 不得 include `space/` 或 `ecology/`；`world/chunks.h`、`world/nether.h`、`space/space.h` 不得 include `presentation/`。`world/terrain.h` 内嵌 `PlanetSurfaceSample`，是这条规则的已知例外，也是 `world ↔ space` 值类型循环的来源。
-4. 公共头不暴露可变全局。`src/**/*.h`（`*_internal.h` 除外）中禁止出现可写的 `extern` 变量声明。
+4. 表面消费者只走 `world/surface_contract.h`。identity 用 `SurfaceAddress`，值用 `WorldCell`，连续状态用 `SurfacePose`，chunk/section 用 opaque handle；不得在 ecology、gameplay、presentation 或普通 app 逻辑中按 `SURFACE_TOPOLOGY_CUBE_GRID` 分支或直接调用 legacy map/cube chunk API。`tests/test_surface_contract_boundaries.sh` 校验精确文件 allowlist。
+5. 公共头不暴露可变全局。`src/**/*.h`（`*_internal.h` 除外）中禁止出现可写的 `extern` 变量声明。
 
 实测依赖矩阵与头文件扇入用下面的命令查，不要记数字：
 

@@ -652,6 +652,7 @@ render_frame_lines=$(printf '%s\n' "$render_frame_body" | wc -l)
 [ "$render_frame_lines" -le 25 ] ||
     fail "GameRenderFrame must remain a render-stage coordinator"
 
+sh tests/test_surface_contract_boundaries.sh
 sh tests/test_clean_build.sh
 
 echo "architecture checks passed"

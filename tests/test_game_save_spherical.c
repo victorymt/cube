@@ -3,11 +3,17 @@
 #include "world/surface_cube.h"
 #include "world/cube_address_save.h"
 #include "world/chunks.h"
+#include "world/surface_contract.h"
 
 /* The production accessor returns the policy installed from the save header.
  * This fixture can switch to a cube policy so the cube section is actually
  * exercised; a permanently-legacy stub hid a write/read ordering bug. */
 static bool testCubePolicy = false;
+
+const SurfaceContract *WorldCurrentSurfaceContract(void)
+{
+    return NULL;
+}
 
 WorldSurfaceTopologyPolicy WorldCurrentTopologyPolicy(void)
 {
