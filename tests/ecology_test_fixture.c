@@ -5,12 +5,14 @@
 #include "world/block_texture.h"
 #include "world/block_edit_types.h"
 #include "world/terrain.h"
+#include "world/surface_contract_internal.h"
 #include "world/weather.h"
 #include "world/world_surface_snapshot.h"
 
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static uint32_t propertyWorldSeed = DEFAULT_WORLD_SEED;
@@ -19,6 +21,59 @@ static int propertyBlockEditCount = 0;
 static uint64_t propertyBlockEditRevision = 1u;
 static int propertyBlockEditReadCount = 0;
 TerrainMode terrainMode = TERRAIN_VARIED;
+
+static bool EcologyFixtureChunkFromAddress(
+    const SurfaceContract *contract, SurfaceAddress address,
+    SurfaceChunkHandle *outChunk)
+{
+    if (!contract || !outChunk || address.bodyId != contract->bodyId ||
+        !SurfaceContractAddressIsValid(address)) return false;
+    if (contract->topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        *outChunk = (SurfaceChunkHandle){ .opaque = {
+            UINT64_C(0x4355424545434f4c), address.bodyId,
+            (uint64_t)address.face, (uint64_t)FloorDivInt(address.u, CHUNK_SIZE),
+            (uint64_t)FloorDivInt(address.v, CHUNK_SIZE)
+        } };
+        return true;
+    }
+    SurfaceMapCell canonical;
+    if (contract->topology.kind != SURFACE_TOPOLOGY_LEGACY_MAP ||
+        !SurfaceAddressCanonicalMapCell(address, &canonical)) return false;
+    *outChunk = (SurfaceChunkHandle){ .opaque = {
+        UINT64_C(0x4c45474143594f4c), address.bodyId,
+        (uint64_t)(int64_t)FloorDivInt(canonical.x, CHUNK_SIZE),
+        (uint64_t)(int64_t)FloorDivInt(canonical.z, CHUNK_SIZE), 0u
+    } };
+    return true;
+}
+
+static bool EcologyFixtureChunkIsValid(const SurfaceContract *contract,
+                                       SurfaceChunkHandle chunk)
+{
+    return contract && chunk.opaque[0] != 0u &&
+           chunk.opaque[1] == contract->bodyId;
+}
+
+static bool EcologyFixtureChunkEqual(const SurfaceContract *contract,
+                                     SurfaceChunkHandle a,
+                                     SurfaceChunkHandle b)
+{
+    return EcologyFixtureChunkIsValid(contract, a) &&
+           EcologyFixtureChunkIsValid(contract, b) &&
+           memcmp(a.opaque, b.opaque, sizeof(a.opaque)) == 0;
+}
+
+static void EcologyFixtureReleaseContract(SurfaceContract *contract)
+{
+    free(contract);
+}
+
+static const SurfaceContractOps ecologyFixtureContractOps = {
+    .chunk_from_address = EcologyFixtureChunkFromAddress,
+    .chunk_is_valid = EcologyFixtureChunkIsValid,
+    .chunk_equal = EcologyFixtureChunkEqual,
+    .release = EcologyFixtureReleaseContract
+};
 
 static bool EcologyFixtureFloraCapacityAt(
     int x, int z, float *outCapacity, void *userData)
@@ -110,7 +165,19 @@ void EcologyTestSyncWorldSnapshot(void)
     } else {
         snapshot.context.seed = propertyWorldSeed;
     }
-    assert(WorldInstallSurfaceSnapshot(&snapshot));
+    if (!snapshot.context.active) {
+        assert(WorldInstallSurfaceSnapshot(&snapshot));
+        return;
+    }
+    SurfaceContract *contract = calloc(1, sizeof(*contract));
+    assert(contract);
+    *contract = (SurfaceContract){
+        .ops = &ecologyFixtureContractOps,
+        .implementation = contract,
+        .topology = snapshot.context.topology,
+        .bodyId = snapshot.context.bodyId
+    };
+    assert(WorldInstallSurfaceSnapshotWithContract(&snapshot, contract));
 }
 
 __attribute__((weak)) bool WorldIsSurfaceActive(void)
@@ -125,7 +192,7 @@ __attribute__((weak)) bool WorldNetherIsActive(void)
 
 __attribute__((weak)) uint32_t WorldCurrentSurfaceId(void)
 {
-    return 0u;
+    return WorldCurrentSurfaceSnapshot()->context.bodyId;
 }
 
 __attribute__((weak)) int WorldSurfaceMapOriginX(void)

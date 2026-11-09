@@ -6,8 +6,8 @@
 # A `#ifdef *_TESTING` block inside a public header is how this repo exposes
 # internals to a test without making them part of the production API. That is a
 # deliberate trade, not an accident, and each one costs a conditional in the
-# contract a consumer reads. Fifteen headers carry one today. Nothing stopped a
-# sixteenth from appearing silently, which is what this test does: it pins the
+# contract a consumer reads. Sixteen headers carry one today. Nothing stopped a
+# seventeenth from appearing silently, which is what this test does: it pins the
 # current set, so adding a seam requires editing this list and saying why.
 #
 # Test seams were also recently moved out of `terrain.h` into `terrain_test.h`
@@ -33,6 +33,7 @@ presentation/render.h:RENDER_PLANETS_TESTING
 presentation/world_renderer.h:WORLD_RENDERER_TESTING
 world/cga_voxel.h:TERRAIN_TESTING
 world/chunks.h:CHUNKS_TESTING
+world/fluid_test.h:VOXELCRAFT_FLUID_TESTING
 world/terrain_test.h:TERRAIN_TESTING
 world/volcano_deposition_model.h:VOLCANO_DEPOSITION_TESTING
 world/world_cube.h:CHUNKS_TESTING'

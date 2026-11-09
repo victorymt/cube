@@ -639,7 +639,7 @@ int main(void)
                               alterations[index][0]);
     }
 
-    /* FLD2 persists volumes, not the active work queue. Loading the same live
+    /* FLD3 persists volumes, not the active work queue. Loading the same live
      * volume checkpoint twice must nevertheless rebuild the same continuation. */
     LoadCheckpoint(&checkpoint, &resumed);
     assert(FluidSetVolumeAt(3, sceneGround + 4, 3, 55));

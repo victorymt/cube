@@ -258,6 +258,8 @@ changed.
 
 #### M4.1: fluid chunk identity
 
+**Status:** complete (2026-11-09)
+
 Replace the fluid queue, edit index, chunk bucket and checkpoint authority with
 `SurfaceAddress` for cells and opaque `SurfaceChunkHandle` for chunks. The legacy
 `(surfaceId, chunkX, chunkZ)` pair is no longer an identity. Keep lookup and
@@ -268,6 +270,16 @@ Cube fluid remains disabled at the end of this stage.
 Exit: two cube faces with the same U/V never share a bucket; legacy fluid tests
 remain green; fluid checkpoints and section unload/reload preserve face
 identity through the codec fixture. Commit
+`refactor(fluid): key queues by surface chunk handle`.
+
+Exit evidence: fluid queue cells and edit records carry canonical
+`SurfaceAddress` identity, and queue buckets are keyed only by opaque
+`SurfaceChunkHandle`. FLD3 persists the address, chunk handle and legacy
+coordinate alias, while FLD1/FLD2 remain readable. `test_fluid` proves two cube
+faces with equal U/V have different chunk identities, and its FLD3 checkpoint
+round trip is byte-identical. `make test-cube-save-reload` and
+`make test-v30-cell-reload-e2e` pass, and all legacy fluid cases remain green.
+Cube simulation is still disabled pending M4.2. Commit
 `refactor(fluid): key queues by surface chunk handle`.
 
 #### M4.2: enable cube fluid

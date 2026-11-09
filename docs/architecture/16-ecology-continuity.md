@@ -67,6 +67,6 @@ simulate the whole planet.
   placed after the EOF-checked spherical trailer; moving it before the trailer
   fixed the round trip. Failure artifacts are retained by the harness.
 
-The fluid solver retains its existing work budget and FLD2 checkpoint limits.
+The fluid solver retains its existing work budget and FLD3 checkpoint limits.
 Fixed application scheduling alone does not persist its active work queue or
 make asynchronous chunk availability independent of rendering.

@@ -2,7 +2,9 @@
 
 #include "world/chunks_internal.h"
 #include "world/block_edits.h"
+#include "world/surface_contract.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include <limits.h>
 #include <math.h>
@@ -24,14 +26,16 @@ typedef struct FluidQueueCell {
     int x;
     int y;
     int z;
-    uint32_t surfaceId;
+    SurfaceAddress address;
+    SurfaceChunkHandle chunk;
 } FluidQueueCell;
 
 typedef struct FluidEdit {
     int x;
     int y;
     int z;
-    uint32_t surfaceId;
+    SurfaceAddress address;
+    SurfaceChunkHandle chunk;
     uint8_t volume;
     uint8_t baseline;
     bool baselineKnown;
@@ -39,10 +43,10 @@ typedef struct FluidEdit {
 } FluidEdit;
 
 typedef struct FluidEditIndex {
+    SurfaceAddress address;
     int x;
     int y;
     int z;
-    uint32_t surfaceId;
     uint32_t editIndex;
     bool used;
 } FluidEditIndex;
@@ -55,9 +59,7 @@ typedef struct FluidMutation {
 } FluidMutation;
 
 typedef struct FluidChunkEditBucket {
-    int cx;
-    int cz;
-    uint32_t surfaceId;
+    SurfaceChunkHandle chunk;
     uint32_t *editIndices;
     uint32_t count;
     uint32_t capacity;
@@ -117,6 +119,51 @@ static FluidMutation FluidCanonicalMutation(FluidMutation mutation)
     return mutation;
 }
 
+static bool FluidAddressFromXYZ(int x, int y, int z,
+                                SurfaceAddress *outAddress)
+{
+    if (!outAddress || !InHeight(y)) return false;
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        WorldCurrentSurfaceId(),
+        (float)WorldSurfaceMapOriginX() + (float)x,
+        (float)WorldSurfaceMapOriginZ() + (float)z, y);
+    if (!SurfaceContractAddressIsValid(address)) return false;
+    *outAddress = address;
+    return true;
+}
+
+static bool FluidChunkFromAddress(SurfaceAddress address,
+                                  SurfaceChunkHandle *outChunk)
+{
+    return outChunk && SurfaceContractChunkFromAddress(
+        WorldCurrentSurfaceContract(), address, outChunk);
+}
+
+static bool FluidChunkFromStorageChunk(const Chunk *chunk,
+                                       SurfaceChunkHandle *outChunk)
+{
+    return chunk && SurfaceContractAddressIsValid(chunk->surfaceAddress) &&
+           FluidChunkFromAddress(chunk->surfaceAddress, outChunk);
+}
+
+static bool FluidChunkEqual(SurfaceChunkHandle a, SurfaceChunkHandle b)
+{
+    return SurfaceContractChunkEqual(WorldCurrentSurfaceContract(), a, b);
+}
+
+#ifdef VOXELCRAFT_FLUID_TESTING
+bool FluidTestAddressesShareChunk(SurfaceAddress a, SurfaceAddress b,
+                                  bool *outShare)
+{
+    SurfaceChunkHandle ac;
+    SurfaceChunkHandle bc;
+    if (!outShare || !FluidChunkFromAddress(a, &ac) ||
+        !FluidChunkFromAddress(b, &bc)) return false;
+    *outShare = FluidChunkEqual(ac, bc);
+    return true;
+}
+#endif
+
 static bool FluidBlockCanHoldWater(BlockType block)
 {
     return block == BLOCK_WATER || WorldCellCanContainWater(block);
@@ -127,26 +174,15 @@ static int FluidCellIndex(int lx, int ly, int lz)
     return (lx * SURFACE_SECTION_HEIGHT + ly) * CHUNK_SIZE + lz;
 }
 
-static uint32_t FluidHash(uint32_t surfaceId, int x, int y, int z)
+static uint32_t FluidHash(SurfaceAddress address)
 {
-    uint32_t hash = surfaceId ^ 0x9e3779b9u;
-    hash ^= (uint32_t)x * 0x85ebca6bu;
-    hash = (hash << 13) | (hash >> 19);
-    hash ^= (uint32_t)y * 0xc2b2ae35u;
-    hash = (hash << 11) | (hash >> 21);
-    hash ^= (uint32_t)z * 0x27d4eb2du;
-    hash ^= hash >> 16;
-    return hash;
+    return SurfaceContractAddressHash(address) ^ 0x9e3779b9u;
 }
 
-static uint32_t FluidChunkHash(uint32_t surfaceId, int cx, int cz)
+static uint32_t FluidChunkHash(SurfaceChunkHandle chunk)
 {
-    uint32_t hash = surfaceId ^ 0x517cc1b7u;
-    hash ^= (uint32_t)cx * 0x9e3779b9u;
-    hash = (hash << 13) | (hash >> 19);
-    hash ^= (uint32_t)cz * 0x85ebca6bu;
-    hash ^= hash >> 16;
-    return hash;
+    return SurfaceContractChunkHash(WorldCurrentSurfaceContract(), chunk) ^
+           0x517cc1b7u;
 }
 
 static void FluidFreeChunkEditIndex(FluidChunkEditBucket *index,
@@ -161,17 +197,16 @@ static void FluidFreeChunkEditIndex(FluidChunkEditBucket *index,
     free(index);
 }
 
-static int FluidFindChunkEditBucket(uint32_t surfaceId, int cx, int cz)
+static int FluidFindChunkEditBucket(SurfaceChunkHandle chunk)
 {
     if (!fluidChunkEditIndex || fluidChunkEditIndexCapacity == 0u) return -1;
-    uint32_t slot = FluidChunkHash(surfaceId, cx, cz) &
+    uint32_t slot = FluidChunkHash(chunk) &
                     (fluidChunkEditIndexCapacity - 1u);
     uint32_t start = slot;
     while (fluidChunkEditIndex[slot].state != FLUID_CHUNK_BUCKET_EMPTY) {
         const FluidChunkEditBucket *bucket = &fluidChunkEditIndex[slot];
         if (bucket->state == FLUID_CHUNK_BUCKET_USED &&
-            bucket->surfaceId == surfaceId && bucket->cx == cx &&
-            bucket->cz == cz) {
+            FluidChunkEqual(bucket->chunk, chunk)) {
             return (int)slot;
         }
         slot = (slot + 1u) & (fluidChunkEditIndexCapacity - 1u);
@@ -180,10 +215,9 @@ static int FluidFindChunkEditBucket(uint32_t surfaceId, int cx, int cz)
     return -1;
 }
 
-static uint32_t FluidFindChunkEditInsertSlot(uint32_t surfaceId, int cx,
-                                             int cz)
+static uint32_t FluidFindChunkEditInsertSlot(SurfaceChunkHandle chunk)
 {
-    uint32_t slot = FluidChunkHash(surfaceId, cx, cz) &
+    uint32_t slot = FluidChunkHash(chunk) &
                     (fluidChunkEditIndexCapacity - 1u);
     uint32_t firstDeleted = UINT32_MAX;
     for (;;) {
@@ -195,8 +229,7 @@ static uint32_t FluidFindChunkEditInsertSlot(uint32_t surfaceId, int cx,
             firstDeleted == UINT32_MAX) {
             firstDeleted = slot;
         } else if (bucket->state == FLUID_CHUNK_BUCKET_USED &&
-                   bucket->surfaceId == surfaceId && bucket->cx == cx &&
-                   bucket->cz == cz) {
+                   FluidChunkEqual(bucket->chunk, chunk)) {
             return slot;
         }
         slot = (slot + 1u) & (fluidChunkEditIndexCapacity - 1u);
@@ -217,7 +250,7 @@ static bool FluidRebuildChunkEditIndex(uint32_t capacity)
             FluidChunkEditBucket *bucket = &previous[slot];
             if (bucket->state != FLUID_CHUNK_BUCKET_USED) continue;
             uint32_t destination = FluidFindChunkEditInsertSlot(
-                bucket->surfaceId, bucket->cx, bucket->cz);
+                bucket->chunk);
             fluidChunkEditIndex[destination] = *bucket;
         }
         free(previous);
@@ -236,22 +269,23 @@ static bool FluidEnsureChunkEditIndex(void)
     return FluidRebuildChunkEditIndex(capacity);
 }
 
-static bool FluidReserveChunkEditCapacity(uint32_t surfaceId, int cx, int cz,
+static bool FluidReserveChunkEditCapacity(SurfaceChunkHandle chunk,
                                           uint32_t wanted)
 {
-    int existing = FluidFindChunkEditBucket(surfaceId, cx, cz);
+    if (!SurfaceContractChunkIsValid(WorldCurrentSurfaceContract(), chunk)) {
+        return false;
+    }
+    int existing = FluidFindChunkEditBucket(chunk);
     if (existing < 0 && !FluidEnsureChunkEditIndex()) return false;
     uint32_t slot = existing >= 0 ? (uint32_t)existing :
-        FluidFindChunkEditInsertSlot(surfaceId, cx, cz);
+        FluidFindChunkEditInsertSlot(chunk);
     FluidChunkEditBucket *bucket = &fluidChunkEditIndex[slot];
     if (bucket->state != FLUID_CHUNK_BUCKET_USED) {
         if (bucket->state == FLUID_CHUNK_BUCKET_DELETED) {
             fluidChunkEditDeleted--;
         }
         *bucket = (FluidChunkEditBucket){
-            .cx = cx,
-            .cz = cz,
-            .surfaceId = surfaceId,
+            .chunk = chunk,
             .state = FLUID_CHUNK_BUCKET_USED
         };
         fluidChunkEditCount++;
@@ -278,15 +312,11 @@ static bool FluidReserveChunkEditCapacity(uint32_t surfaceId, int cx, int cz,
 static bool FluidAppendChunkEdit(uint32_t editIndex)
 {
     FluidEdit *edit = &fluidEdits[editIndex];
-    int cx = FloorDivInt(edit->x, CHUNK_SIZE);
-    int cz = FloorDivInt(edit->z, CHUNK_SIZE);
-    int existing = FluidFindChunkEditBucket(edit->surfaceId, cx, cz);
+    int existing = FluidFindChunkEditBucket(edit->chunk);
     uint32_t wanted = existing >= 0
         ? fluidChunkEditIndex[existing].count + 1u : 1u;
-    if (!FluidReserveChunkEditCapacity(
-            edit->surfaceId, cx, cz, wanted)) return false;
-    uint32_t slot = (uint32_t)FluidFindChunkEditBucket(
-        edit->surfaceId, cx, cz);
+    if (!FluidReserveChunkEditCapacity(edit->chunk, wanted)) return false;
+    uint32_t slot = (uint32_t)FluidFindChunkEditBucket(edit->chunk);
     FluidChunkEditBucket *bucket = &fluidChunkEditIndex[slot];
     edit->chunkListIndex = bucket->count;
     bucket->editIndices[bucket->count++] = editIndex;
@@ -296,9 +326,7 @@ static bool FluidAppendChunkEdit(uint32_t editIndex)
 static void FluidRemoveChunkEdit(uint32_t editIndex)
 {
     FluidEdit *edit = &fluidEdits[editIndex];
-    int cx = FloorDivInt(edit->x, CHUNK_SIZE);
-    int cz = FloorDivInt(edit->z, CHUNK_SIZE);
-    int slot = FluidFindChunkEditBucket(edit->surfaceId, cx, cz);
+    int slot = FluidFindChunkEditBucket(edit->chunk);
     if (slot < 0) return;
     FluidChunkEditBucket *bucket = &fluidChunkEditIndex[slot];
     uint32_t listIndex = edit->chunkListIndex;
@@ -452,28 +480,33 @@ static bool FluidRebuildEditIndex(uint32_t wantedCapacity)
     }
     for (uint32_t index = 0; index < fluidEditCount; index++) {
         const FluidEdit *edit = &fluidEdits[index];
-        uint32_t slot = FluidHash(edit->surfaceId, edit->x, edit->y, edit->z) &
+        uint32_t slot = FluidHash(edit->address) &
                         (fluidEditIndexCapacity - 1u);
         while (fluidEditIndex[slot].used) {
             slot = (slot + 1u) & (fluidEditIndexCapacity - 1u);
         }
         fluidEditIndex[slot] = (FluidEditIndex){
-            edit->x, edit->y, edit->z, edit->surfaceId, index, true
+            .address = edit->address,
+            .x = edit->x,
+            .y = edit->y,
+            .z = edit->z,
+            .editIndex = index,
+            .used = true
         };
     }
     return true;
 }
 
-static int FluidFindEditSlot(uint32_t surfaceId, int x, int y, int z)
+static int FluidFindEditSlot(SurfaceAddress address, int x, int y, int z)
 {
     if (!fluidEditIndex || fluidEditIndexCapacity == 0u) return -1;
-    uint32_t slot = FluidHash(surfaceId, x, y, z) &
+    uint32_t slot = FluidHash(address) &
                     (fluidEditIndexCapacity - 1u);
     uint32_t start = slot;
     while (fluidEditIndex[slot].used) {
         const FluidEditIndex *entry = &fluidEditIndex[slot];
-        if (entry->surfaceId == surfaceId && entry->x == x && entry->y == y &&
-            entry->z == z) {
+        if (SurfaceContractAddressEqual(entry->address, address) &&
+            entry->x == x && entry->y == y && entry->z == z) {
             return (int)slot;
         }
         slot = (slot + 1u) & (fluidEditIndexCapacity - 1u);
@@ -482,11 +515,18 @@ static int FluidFindEditSlot(uint32_t surfaceId, int x, int y, int z)
     return -1;
 }
 
-static int FluidFindEdit(uint32_t surfaceId, int x, int y, int z)
+static int FluidFindEdit(SurfaceAddress address, int x, int y, int z)
+{
+    int slot = FluidFindEditSlot(address, x, y, z);
+    return slot >= 0 ? (int)fluidEditIndex[slot].editIndex : -1;
+}
+
+static int FluidFindEditAtXYZ(int x, int y, int z)
 {
     FluidCanonicalizeXZ(&x, &z);
-    int slot = FluidFindEditSlot(surfaceId, x, y, z);
-    return slot >= 0 ? (int)fluidEditIndex[slot].editIndex : -1;
+    SurfaceAddress address;
+    return FluidAddressFromXYZ(x, y, z, &address)
+        ? FluidFindEdit(address, x, y, z) : -1;
 }
 
 static void FluidEraseEditIndexSlot(uint32_t slot)
@@ -496,8 +536,7 @@ static void FluidEraseEditIndexSlot(uint32_t slot)
     uint32_t next = (hole + 1u) & mask;
     while (fluidEditIndex[next].used) {
         const FluidEditIndex *entry = &fluidEditIndex[next];
-        uint32_t ideal = FluidHash(
-            entry->surfaceId, entry->x, entry->y, entry->z) & mask;
+        uint32_t ideal = FluidHash(entry->address) & mask;
         uint32_t holeDistance = (hole - ideal) & mask;
         uint32_t nextDistance = (next - ideal) & mask;
         if (holeDistance < nextDistance) {
@@ -514,7 +553,7 @@ static void FluidRemoveEdit(uint32_t editIndex)
     if (editIndex >= fluidEditCount) return;
     FluidEdit removed = fluidEdits[editIndex];
     int slot = FluidFindEditSlot(
-        removed.surfaceId, removed.x, removed.y, removed.z);
+        removed.address, removed.x, removed.y, removed.z);
     if (slot < 0) return;
 
     FluidRemoveChunkEdit(editIndex);
@@ -524,14 +563,11 @@ static void FluidRemoveEdit(uint32_t editIndex)
         fluidEdits[editIndex] = fluidEdits[last];
         FluidEdit *moved = &fluidEdits[editIndex];
         int movedSlot = FluidFindEditSlot(
-            moved->surfaceId, moved->x, moved->y, moved->z);
+            moved->address, moved->x, moved->y, moved->z);
         if (movedSlot >= 0) {
             fluidEditIndex[movedSlot].editIndex = editIndex;
         }
-        int cx = FloorDivInt(moved->x, CHUNK_SIZE);
-        int cz = FloorDivInt(moved->z, CHUNK_SIZE);
-        int bucketSlot = FluidFindChunkEditBucket(
-            moved->surfaceId, cx, cz);
+        int bucketSlot = FluidFindChunkEditBucket(moved->chunk);
         if (bucketSlot >= 0) {
             FluidChunkEditBucket *bucket = &fluidChunkEditIndex[bucketSlot];
             if (moved->chunkListIndex < bucket->count) {
@@ -568,10 +604,11 @@ static bool FluidEnsureEditCapacity(uint32_t wanted)
     return FluidRebuildEditIndex(wanted);
 }
 
-static bool FluidRememberEdit(uint32_t surfaceId, int x, int y, int z,
-                              uint8_t volume, uint8_t baseline)
+static bool FluidRememberEdit(SurfaceAddress address, SurfaceChunkHandle chunk,
+                              int x, int y, int z, uint8_t volume,
+                              uint8_t baseline)
 {
-    int existing = FluidFindEdit(surfaceId, x, y, z);
+    int existing = FluidFindEdit(address, x, y, z);
     if (existing >= 0) {
         if (fluidEdits[existing].baselineKnown &&
             volume == fluidEdits[existing].baseline) {
@@ -588,18 +625,24 @@ static bool FluidRememberEdit(uint32_t surfaceId, int x, int y, int z,
         .x = x,
         .y = y,
         .z = z,
-        .surfaceId = surfaceId,
+        .address = address,
+        .chunk = chunk,
         .volume = volume,
         .baseline = baseline,
         .baselineKnown = true
     };
-    uint32_t slot = FluidHash(surfaceId, x, y, z) &
+    uint32_t slot = FluidHash(address) &
                     (fluidEditIndexCapacity - 1u);
     while (fluidEditIndex[slot].used) {
         slot = (slot + 1u) & (fluidEditIndexCapacity - 1u);
     }
     fluidEditIndex[slot] = (FluidEditIndex){
-        x, y, z, surfaceId, index, true
+        .address = address,
+        .x = x,
+        .y = y,
+        .z = z,
+        .editIndex = index,
+        .used = true
     };
     if (!FluidAppendChunkEdit(index)) {
         FluidEraseEditIndexSlot(slot);
@@ -613,16 +656,22 @@ static bool FluidRememberEdit(uint32_t surfaceId, int x, int y, int z,
 static bool FluidPrepareMutations(const FluidMutation *mutations, int count)
 {
     if (!mutations || count <= 0 || !WorldIsSurfaceActive()) return false;
-    uint32_t surfaceId = WorldCurrentSurfaceId();
     uint32_t newEdits = 0u;
     for (int mutationIndex = 0; mutationIndex < count; mutationIndex++) {
         FluidMutation mutation = FluidCanonicalMutation(
             mutations[mutationIndex]);
+        SurfaceAddress address;
+        SurfaceChunkHandle handle;
+        if (!FluidAddressFromXYZ(mutation.x, mutation.y, mutation.z,
+                                 &address)) {
+            return false;
+        }
         Chunk *chunk = NULL;
         ChunkSection *section = NULL;
         BlockType block = BLOCK_AIR;
         if (!FluidLocateCell(mutation.x, mutation.y, mutation.z, &chunk,
                              &section, NULL, &block) ||
+            !FluidChunkFromStorageChunk(chunk, &handle) ||
             (mutation.volume > 0u &&
              (!FluidBlockCanHoldWater(block) ||
               !FluidBlockCanHoldWater(
@@ -635,16 +684,19 @@ static bool FluidPrepareMutations(const FluidMutation *mutations, int count)
         }
         if (!section || !FluidEnsureVolumes(section)) return false;
 
-        if (FluidFindEdit(surfaceId, mutation.x, mutation.y,
-                          mutation.z) >= 0) {
+        if (FluidFindEdit(address, mutation.x, mutation.y, mutation.z) >= 0) {
             continue;
         }
         bool duplicate = false;
         for (int previous = 0; previous < mutationIndex; previous++) {
             FluidMutation prior = FluidCanonicalMutation(
                 mutations[previous]);
-            duplicate = prior.x == mutation.x && prior.y == mutation.y &&
-                        prior.z == mutation.z;
+            SurfaceAddress priorAddress;
+            duplicate = FluidAddressFromXYZ(
+                prior.x, prior.y, prior.z, &priorAddress) &&
+                SurfaceContractAddressEqual(priorAddress, address) &&
+                prior.x == mutation.x && prior.y == mutation.y &&
+                prior.z == mutation.z;
             if (duplicate) break;
         }
         if (!duplicate) newEdits++;
@@ -653,8 +705,17 @@ static bool FluidPrepareMutations(const FluidMutation *mutations, int count)
     for (int mutationIndex = 0; mutationIndex < count; mutationIndex++) {
         FluidMutation mutation = FluidCanonicalMutation(
             mutations[mutationIndex]);
-        if (FluidFindEdit(surfaceId, mutation.x, mutation.y,
-                          mutation.z) >= 0 ||
+        SurfaceAddress address;
+        SurfaceChunkHandle handle;
+        Chunk *chunk = NULL;
+        if (!FluidAddressFromXYZ(mutation.x, mutation.y, mutation.z,
+                                 &address) ||
+            !FluidLocateCell(mutation.x, mutation.y, mutation.z, &chunk,
+                             NULL, NULL, NULL) ||
+            !FluidChunkFromStorageChunk(chunk, &handle)) {
+            return false;
+        }
+        if (FluidFindEdit(address, mutation.x, mutation.y, mutation.z) >= 0 ||
             FluidGetVolumeAt(mutation.x, mutation.y, mutation.z) ==
                 mutation.volume) {
             continue;
@@ -663,7 +724,11 @@ static bool FluidPrepareMutations(const FluidMutation *mutations, int count)
         for (int previous = 0; previous < mutationIndex; previous++) {
             FluidMutation prior = FluidCanonicalMutation(
                 mutations[previous]);
-            if (prior.x == mutation.x && prior.y == mutation.y &&
+            SurfaceAddress priorAddress;
+            if (FluidAddressFromXYZ(
+                    prior.x, prior.y, prior.z, &priorAddress) &&
+                SurfaceContractAddressEqual(priorAddress, address) &&
+                prior.x == mutation.x && prior.y == mutation.y &&
                 prior.z == mutation.z) {
                 duplicate = true;
                 break;
@@ -671,22 +736,26 @@ static bool FluidPrepareMutations(const FluidMutation *mutations, int count)
         }
         if (duplicate) continue;
 
-        int cx = FloorDivInt(mutation.x, CHUNK_SIZE);
-        int cz = FloorDivInt(mutation.z, CHUNK_SIZE);
         uint32_t additions = 1u;
         for (int previous = 0; previous < mutationIndex; previous++) {
             FluidMutation prior = FluidCanonicalMutation(
                 mutations[previous]);
-            if (FloorDivInt(prior.x, CHUNK_SIZE) == cx &&
-                FloorDivInt(prior.z, CHUNK_SIZE) == cz) {
+            SurfaceAddress priorAddress;
+            SurfaceChunkHandle priorHandle;
+            Chunk *priorChunk = NULL;
+            if (FluidAddressFromXYZ(
+                    prior.x, prior.y, prior.z, &priorAddress) &&
+                FluidLocateCell(prior.x, prior.y, prior.z, &priorChunk,
+                                NULL, NULL, NULL) &&
+                FluidChunkFromStorageChunk(priorChunk, &priorHandle) &&
+                FluidChunkEqual(priorHandle, handle)) {
                 additions++;
             }
         }
-        int bucketSlot = FluidFindChunkEditBucket(surfaceId, cx, cz);
+        int bucketSlot = FluidFindChunkEditBucket(handle);
         uint32_t current = bucketSlot >= 0
             ? fluidChunkEditIndex[bucketSlot].count : 0u;
-        if (!FluidReserveChunkEditCapacity(
-                surfaceId, cx, cz, current + additions)) {
+        if (!FluidReserveChunkEditCapacity(handle, current + additions)) {
             return false;
         }
     }
@@ -755,9 +824,14 @@ static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
     }
     if (previous == volume) return true;
     if (!section || !FluidEnsureVolumes(section)) return false;
-    if (remember && !FluidRememberEdit(
-            WorldCurrentSurfaceId(), x, y, z, volume, previous)) {
-        return false;
+    if (remember) {
+        SurfaceAddress address;
+        SurfaceChunkHandle handle;
+        if (!FluidAddressFromXYZ(x, y, z, &address) ||
+            !FluidChunkFromStorageChunk(chunk, &handle) ||
+            !FluidRememberEdit(address, handle, x, y, z, volume, previous)) {
+            return false;
+        }
     }
     section->waterVolumes[index] = volume;
     int cx = 0;
@@ -803,11 +877,10 @@ bool FluidTryEvaporateAt(int x, int y, int z, uint8_t expected, uint8_t amount,
     return true;
 }
 
-/* Fluid bookkeeping keys edits by (surfaceId, chunkX, chunkZ). A cube world has
- * several faces per planet, and two faces can share a (chunkX, chunkZ) pair, so
- * the same key would gather edits from different faces and apply them to the
- * wrong chunk. Until the queue carries cube chunk identity, a cube surface must
- * not run fluid rather than corrupt it. */
+/* Fluid bookkeeping now keys chunks by opaque surface handles, but cube section
+ * lookup and cross-face simulation are still part of M4.2. Keep cube fluid
+ * disabled until the runtime locator and neighbour transport use the contract
+ * end to end. */
 static bool FluidSurfaceSupported(void)
 {
     WorldSurfaceContext context = WorldCurrentSurfaceContext();
@@ -820,9 +893,10 @@ void FluidWakeCell(int x, int y, int z)
     if (!WorldIsSurfaceActive() || !InHeight(y)) return;
     if (!FluidSurfaceSupported()) return;
     FluidCanonicalizeXZ(&x, &z);
+    Chunk *chunk = NULL;
     ChunkSection *section = NULL;
     int index = 0;
-    if (!FluidLocateCell(x, y, z, NULL, &section, &index, NULL)) return;
+    if (!FluidLocateCell(x, y, z, &chunk, &section, &index, NULL)) return;
     if (!section) return;
     if (!FluidEnsureQueuedBits(section) || FluidQueuedBit(section, index) ||
         FluidDeferredBit(section, index)) {
@@ -835,9 +909,12 @@ void FluidWakeCell(int x, int y, int z)
         return;
     }
     uint32_t tail = (fluidQueueHead + fluidQueueCount) % FLUID_QUEUE_CAPACITY;
-    fluidQueue[tail] = (FluidQueueCell){
-        x, y, z, WorldCurrentSurfaceId()
-    };
+    FluidQueueCell queued = { .x = x, .y = y, .z = z };
+    if (!FluidAddressFromXYZ(x, y, z, &queued.address) ||
+        !FluidChunkFromStorageChunk(chunk, &queued.chunk)) {
+        return;
+    }
+    fluidQueue[tail] = queued;
     fluidQueueCount++;
     FluidSetQueuedBit(section, index, true);
     fluidStats.activeCells = fluidQueueCount;
@@ -870,12 +947,18 @@ static void FluidRefillDeferredQueue(void)
                         if (FluidQueuedBit(section, index)) continue;
                         uint32_t tail = (fluidQueueHead + fluidQueueCount) %
                                         FLUID_QUEUE_CAPACITY;
-                        fluidQueue[tail] = (FluidQueueCell){
-                            chunk->cx * CHUNK_SIZE + lx,
-                            sectionY * SURFACE_SECTION_HEIGHT + ly,
-                            chunk->cz * CHUNK_SIZE + lz,
-                            WorldCurrentSurfaceId()
+                        FluidQueueCell queued = {
+                            .x = chunk->cx * CHUNK_SIZE + lx,
+                            .y = sectionY * SURFACE_SECTION_HEIGHT + ly,
+                            .z = chunk->cz * CHUNK_SIZE + lz
                         };
+                        if (!FluidAddressFromXYZ(queued.x, queued.y, queued.z,
+                                                 &queued.address) ||
+                            !FluidChunkFromStorageChunk(chunk,
+                                                        &queued.chunk)) {
+                            continue;
+                        }
+                        fluidQueue[tail] = queued;
                         fluidQueueCount++;
                         FluidSetQueuedBit(section, index, true);
                     }
@@ -977,7 +1060,7 @@ static bool FluidEqualize(int x, int y, int z, int nx, int nz)
 
 static void FluidProcessCell(const FluidQueueCell *cell)
 {
-    if (!cell || cell->surfaceId != WorldCurrentSurfaceId()) return;
+    if (!cell || cell->address.bodyId != WorldCurrentSurfaceId()) return;
     ChunkSection *section = NULL;
     int index = 0;
     if (!FluidLocateCell(cell->x, cell->y, cell->z, NULL, &section, &index,
@@ -1017,8 +1100,8 @@ static void FluidProcessCell(const FluidQueueCell *cell)
     static const int directions[4][2] = {
         { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }
     };
-    unsigned start = FluidHash(cell->surfaceId, cell->x, cell->y,
-                               cell->z) + (uint32_t)fluidStats.ticks;
+    unsigned start = FluidHash(cell->address) +
+                     (uint32_t)fluidStats.ticks;
     for (unsigned offset = 0; offset < 4u; offset++) {
         unsigned direction = (start + offset) & 3u;
         FluidEqualize(cell->x, cell->y, cell->z,
@@ -1141,7 +1224,13 @@ static int FluidCollectCandidates(int x, int y, int z,
     int head = 0;
     int count = 1;
     *outVolume = 0u;
-    cells[0] = (FluidQueueCell){ x, y, z, WorldCurrentSurfaceId() };
+    cells[0] = (FluidQueueCell){ .x = x, .y = y, .z = z };
+    Chunk *chunk = NULL;
+    if (!FluidAddressFromXYZ(x, y, z, &cells[0].address) ||
+        !FluidLocateCell(x, y, z, &chunk, NULL, NULL, NULL) ||
+        !FluidChunkFromStorageChunk(chunk, &cells[0].chunk)) {
+        return 0;
+    }
     static const int offsets[6][3] = {
         { 0, -1, 0 }, { -1, 0, 0 }, { 1, 0, 0 },
         { 0, 0, -1 }, { 0, 0, 1 }, { 0, 1, 0 }
@@ -1153,20 +1242,26 @@ static int FluidCollectCandidates(int x, int y, int z,
         *outVolume += volume;
         for (int direction = 0; direction < 6 && count < capacity; direction++) {
             FluidQueueCell candidate = {
-                current.x + offsets[direction][0],
-                current.y + offsets[direction][1],
-                current.z + offsets[direction][2],
-                current.surfaceId
+                .x = current.x + offsets[direction][0],
+                .y = current.y + offsets[direction][1],
+                .z = current.z + offsets[direction][2]
             };
             FluidCanonicalizeXZ(&candidate.x, &candidate.z);
+            chunk = NULL;
+            if (!FluidAddressFromXYZ(candidate.x, candidate.y, candidate.z,
+                                     &candidate.address) ||
+                !FluidLocateCell(candidate.x, candidate.y, candidate.z, &chunk,
+                                 NULL, NULL, NULL) ||
+                !FluidChunkFromStorageChunk(chunk, &candidate.chunk)) {
+                continue;
+            }
             if (FluidGetVolumeAt(candidate.x, candidate.y, candidate.z) == 0u) {
                 continue;
             }
             bool seen = false;
             for (int index = 0; index < count; index++) {
-                if (cells[index].x == candidate.x &&
-                    cells[index].y == candidate.y &&
-                    cells[index].z == candidate.z) {
+                if (SurfaceContractAddressEqual(cells[index].address,
+                                                candidate.address)) {
                     seen = true;
                     break;
                 }
@@ -1293,9 +1388,9 @@ bool FluidTryDisplaceForBlockTracked(int x, int y, int z,
         for (int index = 0; index < mutationCount; index++) {
             uint8_t before = FluidGetVolumeAt(
                 mutations[index].x, mutations[index].y, mutations[index].z);
-            int existing = FluidFindEdit(
-                WorldCurrentSurfaceId(), mutations[index].x,
-                mutations[index].y, mutations[index].z);
+            int existing = FluidFindEditAtXYZ(
+                mutations[index].x, mutations[index].y,
+                mutations[index].z);
             bool baselineKnown = existing < 0 ||
                 fluidEdits[existing].baselineKnown;
             uint8_t baseline = existing >= 0
@@ -1365,9 +1460,10 @@ void FluidOnBlockChanged(int x, int y, int z, BlockType previous,
 
 static void FluidPruneReservoirDeficitsInSection(Chunk *chunk, int sectionY)
 {
+    SurfaceChunkHandle handle;
+    if (!FluidChunkFromStorageChunk(chunk, &handle)) return;
     uint32_t surfaceId = WorldCurrentSurfaceId();
-    int bucketSlot = FluidFindChunkEditBucket(
-        surfaceId, chunk->cx, chunk->cz);
+    int bucketSlot = FluidFindChunkEditBucket(handle);
     uint32_t listIndex = 0u;
     while (bucketSlot >= 0) {
         FluidChunkEditBucket *bucket = &fluidChunkEditIndex[bucketSlot];
@@ -1379,7 +1475,7 @@ static void FluidPruneReservoirDeficitsInSection(Chunk *chunk, int sectionY)
         }
         FluidEdit edit = fluidEdits[editIndex];
         bool staleReservoirDeficit =
-            edit.surfaceId == surfaceId && edit.baselineKnown &&
+            edit.address.bodyId == surfaceId && edit.baselineKnown &&
             edit.baseline == FLUID_CAPACITY &&
             edit.volume < FLUID_CAPACITY && InHeight(edit.y) &&
             SurfaceSectionYFromBlockY(edit.y) == sectionY &&
@@ -1389,8 +1485,7 @@ static void FluidPruneReservoirDeficitsInSection(Chunk *chunk, int sectionY)
             continue;
         }
         FluidRemoveEdit(editIndex);
-        bucketSlot = FluidFindChunkEditBucket(
-            surfaceId, chunk->cx, chunk->cz);
+        bucketSlot = FluidFindChunkEditBucket(handle);
     }
 }
 
@@ -1401,9 +1496,9 @@ void FluidApplyEditsToChunkSection(Chunk *chunk, int sectionY)
     ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
     if (!section && !FluidImplicitSectionIsKnown(chunk, sectionY)) return;
     FluidPruneReservoirDeficitsInSection(chunk, sectionY);
-    uint32_t surfaceId = WorldCurrentSurfaceId();
-    int bucketSlot = FluidFindChunkEditBucket(
-        surfaceId, chunk->cx, chunk->cz);
+    SurfaceChunkHandle handle;
+    if (!FluidChunkFromStorageChunk(chunk, &handle)) return;
+    int bucketSlot = FluidFindChunkEditBucket(handle);
     if (bucketSlot < 0) return;
     const FluidChunkEditBucket *bucket = &fluidChunkEditIndex[bucketSlot];
     for (uint32_t listIndex = 0u; listIndex < bucket->count; listIndex++) {
@@ -1459,9 +1554,8 @@ void FluidApplyEditsToChunk(Chunk *chunk)
 static void FluidWakeLoadedBoundaryPair(int ax, int ay, int az,
                                         int bx, int by, int bz)
 {
-    uint32_t surfaceId = WorldCurrentSurfaceId();
-    if (FluidFindEdit(surfaceId, ax, ay, az) < 0 &&
-        FluidFindEdit(surfaceId, bx, by, bz) < 0) {
+    if (FluidFindEditAtXYZ(ax, ay, az) < 0 &&
+        FluidFindEditAtXYZ(bx, by, bz) < 0) {
         return;
     }
     BlockType aBlock = BLOCK_AIR;
@@ -1566,12 +1660,11 @@ void FluidOnChunkLoaded(Chunk *chunk)
 }
 
 static bool FluidQueueCellMatchesSection(
-    const FluidQueueCell *cell, const Chunk *chunk, int sectionY,
-    uint32_t surfaceId)
+    const FluidQueueCell *cell, const Chunk *chunk, int sectionY)
 {
-    return cell && chunk && cell->surfaceId == surfaceId &&
-           FloorDivInt(cell->x, CHUNK_SIZE) == chunk->cx &&
-           FloorDivInt(cell->z, CHUNK_SIZE) == chunk->cz &&
+    SurfaceChunkHandle handle;
+    return cell && chunk && FluidChunkFromStorageChunk(chunk, &handle) &&
+           FluidChunkEqual(cell->chunk, handle) &&
            SurfaceSectionYFromBlockY(cell->y) == sectionY;
 }
 
@@ -1584,12 +1677,10 @@ bool FluidPrepareChunkSectionUnload(Chunk *chunk, int sectionY)
 
     uint32_t previousCount = fluidQueueCount;
     uint32_t kept = 0u;
-    uint32_t surfaceId = WorldCurrentSurfaceId();
     for (uint32_t read = 0u; read < previousCount; read++) {
         uint32_t source = (fluidQueueHead + read) % FLUID_QUEUE_CAPACITY;
         FluidQueueCell cell = fluidQueue[source];
-        if (FluidQueueCellMatchesSection(
-                &cell, chunk, sectionY, surfaceId)) {
+        if (FluidQueueCellMatchesSection(&cell, chunk, sectionY)) {
             continue;
         }
         uint32_t destination =
@@ -1641,18 +1732,28 @@ FluidStats FluidGetStats(void)
 
 bool FluidSaveState(FILE *file)
 {
-    static const char magic[4] = { 'F', 'L', 'D', '2' };
+    static const char magic[4] = { 'F', 'L', 'D', '3' };
     if (!file || fwrite(magic, 1, sizeof(magic), file) != sizeof(magic) ||
         fwrite(&fluidEditCount, sizeof(fluidEditCount), 1, file) != 1) {
         return false;
     }
     for (uint32_t index = 0u; index < fluidEditCount; index++) {
         const FluidEdit *edit = &fluidEdits[index];
+        uint32_t bodyId = edit->address.bodyId;
+        uint32_t face = (uint32_t)edit->address.face;
+        int u = edit->address.u;
+        int v = edit->address.v;
+        int radial = edit->address.radial;
         uint8_t flags = edit->baselineKnown ? 1u : 0u;
-        if (fwrite(&edit->x, sizeof(edit->x), 1, file) != 1 ||
+        if (fwrite(&bodyId, sizeof(bodyId), 1, file) != 1 ||
+            fwrite(&face, sizeof(face), 1, file) != 1 ||
+            fwrite(&u, sizeof(u), 1, file) != 1 ||
+            fwrite(&v, sizeof(v), 1, file) != 1 ||
+            fwrite(&radial, sizeof(radial), 1, file) != 1 ||
+            fwrite(edit->chunk.opaque, sizeof(edit->chunk.opaque), 1, file) != 1 ||
+            fwrite(&edit->x, sizeof(edit->x), 1, file) != 1 ||
             fwrite(&edit->y, sizeof(edit->y), 1, file) != 1 ||
             fwrite(&edit->z, sizeof(edit->z), 1, file) != 1 ||
-            fwrite(&edit->surfaceId, sizeof(edit->surfaceId), 1, file) != 1 ||
             fwrite(&edit->volume, sizeof(edit->volume), 1, file) != 1 ||
             fwrite(&edit->baseline, sizeof(edit->baseline), 1, file) != 1 ||
             fwrite(&flags, sizeof(flags), 1, file) != 1) {
@@ -1665,14 +1766,17 @@ bool FluidSaveState(FILE *file)
 bool FluidLoadState(FILE *file)
 {
     static const char legacyMagic[4] = { 'F', 'L', 'D', '1' };
-    static const char currentMagic[4] = { 'F', 'L', 'D', '2' };
+    static const char addressMagic[4] = { 'F', 'L', 'D', '2' };
+    static const char currentMagic[4] = { 'F', 'L', 'D', '3' };
     char magic[4] = { 0 };
     uint32_t count = 0u;
     if (!file || fread(magic, 1, sizeof(magic), file) != sizeof(magic)) {
         return false;
     }
     bool legacy = memcmp(magic, legacyMagic, sizeof(magic)) == 0;
-    if ((!legacy && memcmp(magic, currentMagic, sizeof(magic)) != 0) ||
+    bool addressFormat = memcmp(magic, addressMagic, sizeof(magic)) == 0;
+    bool current = memcmp(magic, currentMagic, sizeof(magic)) == 0;
+    if ((!legacy && !addressFormat && !current) ||
         fread(&count, sizeof(count), 1, file) != 1 ||
         count > FLUID_MAX_EDIT_COUNT) {
         return false;
@@ -1684,21 +1788,64 @@ bool FluidLoadState(FILE *file)
         FluidEdit *edit = &loaded[index];
         *edit = (FluidEdit){ 0 };
         uint8_t flags = 0u;
-        if (fread(&edit->x, sizeof(edit->x), 1, file) != 1 ||
-            fread(&edit->y, sizeof(edit->y), 1, file) != 1 ||
-            fread(&edit->z, sizeof(edit->z), 1, file) != 1 ||
-            fread(&edit->surfaceId, sizeof(edit->surfaceId), 1, file) != 1 ||
-            fread(&edit->volume, sizeof(edit->volume), 1, file) != 1 ||
-            (!legacy &&
-             (fread(&edit->baseline, sizeof(edit->baseline), 1, file) != 1 ||
-              fread(&flags, sizeof(flags), 1, file) != 1 || flags > 1u)) ||
-            !InHeight(edit->y)) {
+        if (current) {
+            uint32_t bodyId = 0u;
+            uint32_t face = 0u;
+            int u = 0;
+            int v = 0;
+            int radial = 0;
+            if (fread(&bodyId, sizeof(bodyId), 1, file) != 1 ||
+                fread(&face, sizeof(face), 1, file) != 1 ||
+                fread(&u, sizeof(u), 1, file) != 1 ||
+                fread(&v, sizeof(v), 1, file) != 1 ||
+                fread(&radial, sizeof(radial), 1, file) != 1 ||
+                fread(edit->chunk.opaque, sizeof(edit->chunk.opaque), 1,
+                      file) != 1 ||
+                fread(&edit->x, sizeof(edit->x), 1, file) != 1 ||
+                fread(&edit->y, sizeof(edit->y), 1, file) != 1 ||
+                fread(&edit->z, sizeof(edit->z), 1, file) != 1 ||
+                fread(&edit->volume, sizeof(edit->volume), 1, file) != 1 ||
+                fread(&edit->baseline, sizeof(edit->baseline), 1, file) != 1 ||
+                fread(&flags, sizeof(flags), 1, file) != 1 || flags > 1u) {
+                free(loaded);
+                return false;
+            }
+            edit->address = (SurfaceAddress){
+                bodyId, (SurfaceFace)face, u, v, radial
+            };
+            if (!SurfaceContractAddressIsValid(edit->address) ||
+                edit->address.radial != edit->y || !InHeight(edit->y) ||
+                bodyId != WorldCurrentSurfaceId() ||
+                !SurfaceContractChunkIsValid(
+                    WorldCurrentSurfaceContract(), edit->chunk)) {
+                free(loaded);
+                return false;
+            }
+        } else {
+            uint32_t surfaceId = 0u;
+            if (fread(&edit->x, sizeof(edit->x), 1, file) != 1 ||
+                fread(&edit->y, sizeof(edit->y), 1, file) != 1 ||
+                fread(&edit->z, sizeof(edit->z), 1, file) != 1 ||
+                fread(&surfaceId, sizeof(surfaceId), 1, file) != 1 ||
+                fread(&edit->volume, sizeof(edit->volume), 1, file) != 1 ||
+                (!legacy &&
+                 (fread(&edit->baseline, sizeof(edit->baseline), 1, file) != 1 ||
+                  fread(&flags, sizeof(flags), 1, file) != 1 || flags > 1u)) ||
+                surfaceId != WorldCurrentSurfaceId() ||
+                !FluidAddressFromXYZ(edit->x, edit->y, edit->z,
+                                     &edit->address)) {
+                free(loaded);
+                return false;
+            }
+            if (legacy) edit->baseline = edit->volume;
+            FluidCanonicalizeXZ(&edit->x, &edit->z);
+        }
+        edit->baselineKnown = !legacy && flags != 0u;
+        if (!InHeight(edit->y) ||
+            (!current && !FluidChunkFromAddress(edit->address, &edit->chunk))) {
             free(loaded);
             return false;
         }
-        edit->baselineKnown = !legacy && flags != 0u;
-        if (legacy) edit->baseline = edit->volume;
-        FluidCanonicalizeXZ(&edit->x, &edit->z);
     }
     uint32_t indexCapacity = FLUID_INITIAL_EDIT_CAPACITY;
     while (indexCapacity < count * 2u && indexCapacity < (1u << 30)) {
@@ -1711,12 +1858,13 @@ bool FluidLoadState(FILE *file)
     }
     for (uint32_t index = 0u; index < count; index++) {
         FluidEdit *edit = &loaded[index];
-        uint32_t slot = FluidHash(edit->surfaceId, edit->x, edit->y, edit->z) &
+        uint32_t slot = FluidHash(edit->address) &
                         (indexCapacity - 1u);
         while (loadedIndex[slot].used) {
             const FluidEditIndex *entry = &loadedIndex[slot];
-            if (entry->surfaceId == edit->surfaceId && entry->x == edit->x &&
-                entry->y == edit->y && entry->z == edit->z) {
+            if (SurfaceContractAddressEqual(entry->address, edit->address) &&
+                entry->x == edit->x && entry->y == edit->y &&
+                entry->z == edit->z) {
                 free(loadedIndex);
                 free(loaded);
                 return false;
@@ -1724,7 +1872,12 @@ bool FluidLoadState(FILE *file)
             slot = (slot + 1u) & (indexCapacity - 1u);
         }
         loadedIndex[slot] = (FluidEditIndex){
-            edit->x, edit->y, edit->z, edit->surfaceId, index, true
+            .address = edit->address,
+            .x = edit->x,
+            .y = edit->y,
+            .z = edit->z,
+            .editIndex = index,
+            .used = true
         };
     }
 

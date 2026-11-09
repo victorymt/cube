@@ -165,7 +165,7 @@ $(eval $(call define_test,FAUNA_POSE_TEST_TARGET,test_fauna_pose,src/ecology/fau
 $(eval $(call define_test,CREATURE_POSE_TEST_TARGET,test_creature_pose,src/presentation/creature_pose.c src/ecology/fauna_pose.c src/ecology/evolution.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,EVOLUTION_TEST_TARGET,test_evolution,src/ecology/evolution.c src/ecology/creature_visual.c,,,, -lm,,))
 $(eval $(call define_test,EVOLUTION_CATALOG_TEST_TARGET,test_evolution_catalog,src/ecology/evolution_catalog.c src/ecology/evolution.c,,,, -lm,,))
-$(eval $(call define_test,FLUID_TEST_TARGET,test_fluid,src/world/fluid.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,FLUID_TEST_TARGET,test_fluid,src/world/fluid.c src/world/surface_contract.c src/world/surface_topology.c src/world/surface_topology_version.c,,-DVOXELCRAFT_FLUID_TESTING,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,HYDROLOGY_MODEL_TEST_TARGET,test_hydrology_model,src/world/hydrology_model.c,,,, -lm,,))
 $(eval $(call define_test,HYDROLOGY_RUNTIME_TEST_TARGET,test_hydrology_runtime,src/world/hydrology_runtime.c src/world/hydrology_model.c,,,, -lm,,))
 $(eval $(call define_test,BLOCK_MATERIAL_TEST_TARGET,test_block_material,,,,,,$(RAYLIB_CFLAGS),))

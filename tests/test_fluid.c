@@ -1,8 +1,11 @@
 #include "world/fluid.h"
+#include "world/fluid_test.h"
 
 #include "world/chunks.h"
 #include "world/block_edits.h"
+#include "world/surface_contract_internal.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -13,6 +16,66 @@ Chunk chunks[MAX_ACTIVE_CHUNKS];
 
 static bool proceduralOceanEnabled = false;
 static bool lavaOverlay = false;
+static bool cubeTopology = false;
+
+static bool TestContractChunkFromAddress(const SurfaceContract *contract,
+                                         SurfaceAddress address,
+                                         SurfaceChunkHandle *outChunk)
+{
+    if (!contract || !outChunk || address.bodyId != contract->bodyId ||
+        !SurfaceContractAddressIsValid(address)) return false;
+    if (cubeTopology) {
+        *outChunk = (SurfaceChunkHandle){ .opaque = {
+            UINT64_C(0x4355424554455354), address.bodyId,
+            (uint64_t)address.face, (uint64_t)FloorDivInt(address.u, CHUNK_SIZE),
+            (uint64_t)FloorDivInt(address.v, CHUNK_SIZE)
+        } };
+        return true;
+    }
+    SurfaceMapCell canonical;
+    if (!SurfaceAddressCanonicalMapCell(address, &canonical)) return false;
+    *outChunk = (SurfaceChunkHandle){ .opaque = {
+        UINT64_C(0x4c45474143595453), address.bodyId,
+        (uint64_t)(int64_t)FloorDivInt(canonical.x, CHUNK_SIZE),
+        (uint64_t)(int64_t)FloorDivInt(canonical.z, CHUNK_SIZE), 0u
+    } };
+    return true;
+}
+
+static bool TestContractChunkIsValid(const SurfaceContract *contract,
+                                     SurfaceChunkHandle chunk)
+{
+    return contract && chunk.opaque[0] != 0u &&
+           chunk.opaque[1] == contract->bodyId;
+}
+
+static bool TestContractChunkEqual(const SurfaceContract *contract,
+                                   SurfaceChunkHandle a, SurfaceChunkHandle b)
+{
+    return TestContractChunkIsValid(contract, a) &&
+           TestContractChunkIsValid(contract, b) &&
+           memcmp(a.opaque, b.opaque, sizeof(a.opaque)) == 0;
+}
+
+static const SurfaceContractOps testSurfaceContractOps = {
+    .chunk_from_address = TestContractChunkFromAddress,
+    .chunk_is_valid = TestContractChunkIsValid,
+    .chunk_equal = TestContractChunkEqual
+};
+
+static SurfaceContract testSurfaceContract = {
+    .ops = &testSurfaceContractOps,
+    .implementation = &testSurfaceContract,
+    .bodyId = 0u
+};
+
+const SurfaceContract *WorldCurrentSurfaceContract(void)
+{
+    testSurfaceContract.topology = cubeTopology
+        ? (SurfaceTopologyVersion){ SURFACE_TOPOLOGY_CUBE_GRID, 1u }
+        : (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1;
+    return &testSurfaceContract;
+}
 
 BlockType GetBlockAt(int x, int y, int z)
 {
@@ -264,9 +327,6 @@ uint32_t WorldCurrentSurfaceId(void)
     return 0u;
 }
 
-/* Legacy by default so every existing case is unchanged. */
-static bool cubeTopology = false;
-
 WorldSurfaceContext WorldCurrentSurfaceContext(void)
 {
     return (WorldSurfaceContext){
@@ -329,7 +389,15 @@ static void ClearChunks(void)
 static Chunk *CreateChunk(int slot, int cx, int cz)
 {
     Chunk *chunk = &chunks[slot];
-    *chunk = (Chunk){ .loaded = true, .cx = cx, .cz = cz };
+    *chunk = (Chunk){
+        .loaded = true,
+        .cx = cx,
+        .cz = cz,
+        .surfaceAddress = SurfaceAddressFromMapCoordinates(
+            WorldCurrentSurfaceId(),
+            ((float)cx + 0.5f) * (float)CHUNK_SIZE,
+            ((float)cz + 0.5f) * (float)CHUNK_SIZE, 0)
+    };
     /* Existing scenes use a generated, empty column unless marked pending. */
     for (int sectionY = 0; sectionY < SURFACE_GENERATION_SECTION_COUNT;
          sectionY++) {
@@ -361,6 +429,7 @@ static void ResetWorld(void)
     ClearChunks();
     proceduralOceanEnabled = false;
     surfaceKind = WORLD_SURFACE_HOME;
+    cubeTopology = false;
 }
 
 static void TestGravityAndConservation(void)
@@ -965,6 +1034,30 @@ static void WriteFluidEditV2(FILE *file, int x, int y, int z,
     assert(fwrite(&flags, sizeof(flags), 1, file) == 1);
 }
 
+static void WriteFluidEditV3(FILE *file, SurfaceAddress address,
+                             SurfaceChunkHandle chunk, int x, int y, int z,
+                             uint8_t volume, uint8_t baseline)
+{
+    uint32_t bodyId = address.bodyId;
+    uint32_t face = (uint32_t)address.face;
+    int u = address.u;
+    int v = address.v;
+    int radial = address.radial;
+    uint8_t flags = 1u;
+    assert(fwrite(&bodyId, sizeof(bodyId), 1, file) == 1);
+    assert(fwrite(&face, sizeof(face), 1, file) == 1);
+    assert(fwrite(&u, sizeof(u), 1, file) == 1);
+    assert(fwrite(&v, sizeof(v), 1, file) == 1);
+    assert(fwrite(&radial, sizeof(radial), 1, file) == 1);
+    assert(fwrite(chunk.opaque, sizeof(chunk.opaque), 1, file) == 1);
+    assert(fwrite(&x, sizeof(x), 1, file) == 1);
+    assert(fwrite(&y, sizeof(y), 1, file) == 1);
+    assert(fwrite(&z, sizeof(z), 1, file) == 1);
+    assert(fwrite(&volume, sizeof(volume), 1, file) == 1);
+    assert(fwrite(&baseline, sizeof(baseline), 1, file) == 1);
+    assert(fwrite(&flags, sizeof(flags), 1, file) == 1);
+}
+
 static void TestLoadPrunesOceanReservoirDeficits(void)
 {
     ResetWorld();
@@ -1077,9 +1170,8 @@ static void TestEvaporationTransactions(void)
     assert(FluidGetVolumeAt(2, 2, 2) == FLUID_CAPACITY);
 }
 
-/* A cube surface must not run fluid yet: the queue keys chunks by
- * (surfaceId, chunkX, chunkZ), and two faces can share that pair, which would
- * apply one face's edits to another face's chunk. */
+/* Cube fluid stays disabled until runtime section lookup and neighbour flow are
+ * migrated. Its chunk identity must already keep equal face U/V pairs apart. */
 static void TestCubeSurfaceDoesNotRunFluid(void)
 {
     cubeTopology = true;
@@ -1098,6 +1190,56 @@ static void TestCubeSurfaceDoesNotRunFluid(void)
     FluidReset();
     FluidWakeCell(0, 1, 0);
     FluidUpdate(0.5f);
+    cubeTopology = false;
+}
+
+static void TestCubeFaceChunkIdentityAndCheckpoint(void)
+{
+    ResetWorld();
+    cubeTopology = true;
+    (void)WorldCurrentSurfaceContract();
+    SurfaceAddress first = {0, SURFACE_FACE_POS_Z, 17, 33, 8};
+    SurfaceAddress second = {0, SURFACE_FACE_POS_X, 17, 33, 8};
+    SurfaceAddress sameChunk = first;
+    sameChunk.u++;
+    bool shares = true;
+    assert(FluidTestAddressesShareChunk(first, second, &shares));
+    assert(!shares);
+    assert(FluidTestAddressesShareChunk(first, sameChunk, &shares));
+    assert(shares);
+
+    SurfaceChunkHandle firstChunk;
+    SurfaceChunkHandle secondChunk;
+    assert(TestContractChunkFromAddress(
+        &testSurfaceContract, first, &firstChunk));
+    assert(TestContractChunkFromAddress(
+        &testSurfaceContract, second, &secondChunk));
+    FILE *source = tmpfile();
+    assert(source);
+    uint32_t count = 2u;
+    assert(fwrite("FLD3", 1, 4, source) == 4);
+    assert(fwrite(&count, sizeof(count), 1, source) == 1);
+    WriteFluidEditV3(source, first, firstChunk, 8, 8, 8, 77u, 0u);
+    WriteFluidEditV3(source, second, secondChunk, 9, 8, 8, 88u, 0u);
+    rewind(source);
+    assert(FluidLoadState(source));
+    FILE *roundTrip = tmpfile();
+    assert(roundTrip && FluidSaveState(roundTrip));
+
+    assert(fseek(source, 0, SEEK_END) == 0);
+    long sourceSize = ftell(source);
+    assert(fseek(roundTrip, 0, SEEK_END) == 0);
+    long roundTripSize = ftell(roundTrip);
+    assert(sourceSize > 0 && sourceSize == roundTripSize);
+    rewind(source);
+    rewind(roundTrip);
+    for (long offset = 0; offset < sourceSize; offset++) {
+        int expected = fgetc(source);
+        int actual = fgetc(roundTrip);
+        assert(expected != EOF && actual != EOF && expected == actual);
+    }
+    fclose(roundTrip);
+    fclose(source);
     cubeTopology = false;
 }
 
@@ -1143,6 +1285,7 @@ int main(void)
     TestEvaporationTransactions();
     ResetWorld();
     TestCubeSurfaceDoesNotRunFluid();
+    TestCubeFaceChunkIdentityAndCheckpoint();
     puts("fluid tests passed");
     return 0;
 }

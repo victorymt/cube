@@ -51,7 +51,8 @@ input cursor separately; the clock is rebuilt from the loaded space time. This
 tests the subsystem persistence composition, not the full `GameSaveMap` file
 transaction or the streaming loader.
 
-The existing FLD2 payload persists water edits and procedural baselines. Loading
+The existing FLD3 payload persists surface-addressed water edits, chunk identity
+and procedural baselines. Loading
 reconstructs active fluid work and resets its queue, counters and fractional
 update budget. It does not promise identical intermediate flow after an arbitrary
 mid-flow save. Uninterrupted-versus-restored comparisons therefore need a settled
