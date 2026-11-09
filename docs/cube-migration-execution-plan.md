@@ -331,6 +331,8 @@ paths now uses cell volume rather than block identity. Commit M4.3.
 
 #### M4.4: water/plant Stage 4
 
+**Status:** complete (2026-11-09)
+
 Implement the Stage 4 generation order: substrate and caves, basins/oceans/lakes
 with volume, shoreline plants from the established waterline, then rooted plants
 and decorations. Writes must preserve the independent block and water fields,
@@ -341,6 +343,15 @@ Exit: fixed seeds produce identical block and water-volume output with one and
 multiple workers; generated water is not erased by later passes; shoreline,
 wetland and aquatic placement satisfy their traits. Commit
 `feat(terrain): order water and flora generation deterministically`.
+
+Exit evidence: planet generation now samples columns first, then runs separate
+substrate, liquid, shoreline-cover and ecology-decoration passes; Home
+generation places shoreline cover before general ground cover and rooted trees.
+`test_terrain_scale` compares repeated full-cell hashes and flora structures,
+and checks that generated water cells remain valid when they carry plants. The
+intended shoreline output changed the pinned temperate planet baseline; the
+other planet baselines and all existing landform checks remain unchanged.
+Commit M4.4.
 
 #### M4.5: entities and ecology
 

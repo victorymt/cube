@@ -52,7 +52,7 @@ Commit the complete Stage 3 behavior, tests, and runtime diagnostics as one revi
 
 ## Stage 4: deterministic generation order
 
-**Execution status:** planned as M4.4. The behavior and acceptance rules below
+**Execution status:** complete in M4.4. The behavior and acceptance rules below
 remain the detailed specification.
 
 ### Goal

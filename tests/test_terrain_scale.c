@@ -318,6 +318,32 @@ static uint64_t TerrainChunkHash(const Chunk *chunk)
     return hash;
 }
 
+static uint64_t TerrainChunkCellHash(const Chunk *chunk)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+    for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+         sectionIndex++) {
+        const ChunkSection *section = chunk->sections[sectionIndex];
+        hash ^= (uint32_t)section->sectionY;
+        hash *= UINT64_C(1099511628211);
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (int ly = 0; ly < SURFACE_SECTION_HEIGHT; ly++) {
+                for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                    hash ^= section->blocks[lx][ly][lz];
+                    hash *= UINT64_C(1099511628211);
+                    hash ^= section->waterVolumes
+                        ? section->waterVolumes[
+                              (lx * SURFACE_SECTION_HEIGHT + ly) *
+                                  CHUNK_SIZE + lz]
+                        : 0u;
+                    hash *= UINT64_C(1099511628211);
+                }
+            }
+        }
+    }
+    return hash;
+}
+
 static void TestTerrainStructureBaselines(void)
 {
     static const struct {
@@ -367,7 +393,7 @@ static void TestPlanetChunkDeterministicBaselines(void)
         uint64_t expectedHash;
     } baselines[] = {
         { 3, -4, UINT32_C(0x6a09e667), SOLAR_STYLE_TEMPERATE,
-          UINT64_C(2171660900474101961) },
+          UINT64_C(5674902173674198981) },
         { -7, 5, UINT32_C(0xbb67ae85), SOLAR_STYLE_DESERT,
           UINT64_C(224314255416465834) },
         { 11, 2, UINT32_C(0x3c6ef372), SOLAR_STYLE_CRATER,
@@ -479,6 +505,40 @@ static void TestGeneratedChunkDirtyMeshRebuildFixture(void)
 
     ChunksTestResetScheduler();
     terrainSeed = DEFAULT_WORLD_SEED;
+}
+
+static void TestGenerationPhaseDeterminism(void)
+{
+    terrainSeed = DEFAULT_WORLD_SEED;
+    Chunk first = { 0 };
+    Chunk second = { 0 };
+    GenerateChunkTerrain(&first, 0, 0, TERRAIN_VARIED);
+    GenerateChunkTerrain(&second, 0, 0, TERRAIN_VARIED);
+    assert(TerrainChunkCellHash(&first) == TerrainChunkCellHash(&second));
+    assert(first.floraStructureCount == second.floraStructureCount);
+    assert(memcmp(first.floraStructures, second.floraStructures,
+                  (size_t)first.floraStructureCount *
+                      sizeof(first.floraStructures[0])) == 0);
+    for (int sectionIndex = 0; sectionIndex < first.sectionCount;
+         sectionIndex++) {
+        const ChunkSection *section = first.sections[sectionIndex];
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (int ly = 0; ly < SURFACE_SECTION_HEIGHT; ly++) {
+                for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                    WorldCell cell = ChunkGetLocalCell(
+                        &first, lx,
+                        section->sectionY * SURFACE_SECTION_HEIGHT + ly, lz);
+                    assert(WorldCellIsValid(cell));
+                    if (cell.waterVolume > 0u) {
+                        assert(cell.block == BLOCK_AIR ||
+                               WorldCellBlockIsPlant(cell.block));
+                    }
+                }
+            }
+        }
+    }
+    ChunkClearBlockStorage(&first);
+    ChunkClearBlockStorage(&second);
 }
 
 static void TestSurfaceSampleContracts(void)
@@ -2089,6 +2149,7 @@ int main(void)
     TestCgaPlannerFindsAllStructureKinds();
     TestPlanetChunkDeterministicBaselines();
     TestGeneratedChunkDirtyMeshRebuildFixture();
+    TestGenerationPhaseDeterminism();
     TestLandformCompatibilityFingerprint();
     TestLandformRuntimeSurfaceIsolation();
     TestPlanetLandformGeneration();

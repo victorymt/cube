@@ -1323,6 +1323,21 @@ static void GeneratePlanetTerrainColumnLiquids(
     }
 }
 
+static void PlacePlanetShorelineCover(
+    Chunk *chunk, const PlanetTerrainColumn *column)
+{
+    if (!chunk || !column || !InHeight(column->height + 1)) return;
+    int y = column->height + 1;
+    WorldCell cell = ChunkGetLocalCell(
+        chunk, column->lx, y, column->lz);
+    if (cell.block != BLOCK_AIR || !WorldCellCanContainWater(cell.block) ||
+        cell.waterVolume == 0u) return;
+    unsigned hash = PlanetHash2D(column->worldX, column->worldZ, 0x51a7u);
+    if (hash % 11u != 0u) return;
+    (void)ChunkSetLocalBlock(
+        chunk, column->lx, y, column->lz, BLOCK_COMMON_REED);
+}
+
 static bool PlanetTerrainColumnFloraAllowed(
     const PlanetTerrainColumn *column, unsigned int salt)
 {
@@ -1442,13 +1457,34 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
         .seaLevel = PlanetTerrainSeaLevel()
     };
 
+    PlanetTerrainColumn columns[CHUNK_SIZE][CHUNK_SIZE];
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-            PlanetTerrainColumn column = PlanetTerrainColumnSample(
+            columns[lx][lz] = PlanetTerrainColumnSample(
                 startX, startZ, lx, lz);
-            GeneratePlanetTerrainColumnBase(chunk, &context, &column);
-            GeneratePlanetTerrainColumnLiquids(chunk, &context, &column);
-            DecoratePlanetTerrainColumn(chunk, &context, &column);
+        }
+    }
+    /* Keep generation phases separate so a later flora pass cannot observe a
+     * partially generated waterline from a neighboring column. */
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            GeneratePlanetTerrainColumnBase(chunk, &context, &columns[lx][lz]);
+        }
+    }
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            GeneratePlanetTerrainColumnLiquids(
+                chunk, &context, &columns[lx][lz]);
+        }
+    }
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            PlacePlanetShorelineCover(chunk, &columns[lx][lz]);
+        }
+    }
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            DecoratePlanetTerrainColumn(chunk, &context, &columns[lx][lz]);
         }
     }
 
@@ -1734,6 +1770,26 @@ static BlockType HomeTaxonGroundCoverBlock(
     return taxon ? taxon->primaryBlock : BLOCK_AIR;
 }
 
+static void PlaceHomeShorelineCover(
+    Chunk *chunk, int lx, int lz, int height,
+    const SurfaceTerrainSample *sample, TerrainMode mode)
+{
+    if (!chunk || !sample || !InHeight(height + 1)) return;
+    if (!sample->landform.hasWater && height >= TerrainSeaLevel(mode)) {
+        return;
+    }
+    int y = height + 1;
+    WorldCell cell = ChunkGetLocalCell(chunk, lx, y, lz);
+    if (!WorldCellCanContainWater(cell.block) || cell.waterVolume == 0u ||
+        cell.block != BLOCK_AIR) return;
+    unsigned hash = HomeSurfaceHashAt(
+        chunk->cx * CHUNK_SIZE + lx, chunk->cz * CHUNK_SIZE + lz, 0x51a7u);
+    if (hash % 7u != 0u) return;
+    BlockType cover = sample->biome == BIOME_SWAMP
+        ? BLOCK_COMMON_REED : BLOCK_MOSS_CARPET;
+    (void)ChunkSetLocalBlock(chunk, lx, y, lz, cover);
+}
+
 FloraTaxonId TerrainHomeGroundTaxonAt(int x, int z, TerrainMode mode,
                                       BlockType substrate, uint32_t hash)
 {
@@ -1789,6 +1845,14 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            PlaceHomeShorelineCover(
+                chunk, lx, lz, (int)lroundf(samples[lx][lz].elevation),
+                &samples[lx][lz], mode);
+        }
+    }
+
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
             int worldX = startX + lx;
             int worldZ = startZ + lz;
             const SurfaceTerrainSample *surface = &samples[lx][lz];
@@ -1813,6 +1877,10 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
                 const SurfaceTerrainSample *sample = &samples[lx][lz];
                 int height = (int)lroundf(sample->elevation);
                 if (height < 4 || sample->landform.hasWater) continue;
+                WorldCell atGroundCover = ChunkGetLocalCell(
+                    chunk, lx, height + 1, lz);
+                if (atGroundCover.block != BLOCK_AIR ||
+                    atGroundCover.waterVolume > 0u) continue;
                 BlockType ground = ChunkGetLocalBlock(chunk, lx, height, lz);
                 if (!HomeFloraSubstrate(ground)) continue;
                 unsigned int h = HomeSurfaceHashAt(
