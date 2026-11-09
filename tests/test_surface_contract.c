@@ -7,6 +7,7 @@
 #include "world/surface_topology.h"
 #include "world/world_cube.h"
 #include "world/world_surface_snapshot.h"
+#include "surface_contract_fixture.h"
 
 #include <assert.h>
 #include <math.h>
@@ -64,9 +65,24 @@ static void ResetWorldMemory(void)
     WorldSetCubeRuntimeEnabled(false);
 }
 
-static Chunk *InstallLegacyChunk(int cx, int cz)
+typedef struct LegacyChunkLayout {
+    int primaryCx;
+    int primaryCz;
+    int twinCx;
+    int twinCz;
+    int sectionY;
+} LegacyChunkLayout;
+
+typedef struct CubeChunkLayout {
+    SurfaceCubeChunkKey primary;
+    SurfaceCubeChunkKey twin;
+    int sectionY;
+} CubeChunkLayout;
+
+static Chunk *InstallLegacyChunkAt(int slot, int cx, int cz)
 {
-    Chunk *chunk = &chunks[0];
+    assert(slot >= 0 && slot < MAX_ACTIVE_CHUNKS);
+    Chunk *chunk = &chunks[slot];
     memset(chunk, 0, sizeof(*chunk));
     chunk->loaded = true;
     chunk->spherical = true;
@@ -77,9 +93,10 @@ static Chunk *InstallLegacyChunk(int cx, int cz)
     return chunk;
 }
 
-static Chunk *InstallCubeChunk(SurfaceCubeChunkKey key)
+static Chunk *InstallCubeChunkAt(int slot, SurfaceCubeChunkKey key)
 {
-    Chunk *chunk = &chunks[0];
+    assert(slot >= 0 && slot < MAX_ACTIVE_CHUNKS);
+    Chunk *chunk = &chunks[slot];
     memset(chunk, 0, sizeof(*chunk));
     chunk->loaded = true;
     chunk->spherical = true;
@@ -90,6 +107,31 @@ static Chunk *InstallCubeChunk(SurfaceCubeChunkKey key)
     chunk->cz = key.v;
     ChunkIndexInsert(chunk);
     return chunk;
+}
+
+static void InstallLegacyFixtureChunks(void *context)
+{
+    const LegacyChunkLayout *layout = context;
+    assert(layout);
+    UnloadAllChunks();
+    ChunkIndexReset();
+    Chunk *primary = InstallLegacyChunkAt(
+        0, layout->primaryCx, layout->primaryCz);
+    Chunk *twin = InstallLegacyChunkAt(1, layout->twinCx, layout->twinCz);
+    assert(ChunkMarkTerrainSectionResolved(primary, layout->sectionY));
+    assert(ChunkMarkTerrainSectionResolved(twin, layout->sectionY));
+}
+
+static void InstallCubeFixtureChunks(void *context)
+{
+    const CubeChunkLayout *layout = context;
+    assert(layout);
+    UnloadAllChunks();
+    ChunkIndexReset();
+    Chunk *primary = InstallCubeChunkAt(0, layout->primary);
+    Chunk *twin = InstallCubeChunkAt(1, layout->twin);
+    assert(ChunkMarkTerrainSectionResolved(primary, layout->sectionY));
+    assert(ChunkMarkTerrainSectionResolved(twin, layout->sectionY));
 }
 
 static void TestAddressIdentity(void)
@@ -123,62 +165,44 @@ static void TestLegacyContract(void)
     assert(WorldCurrentSurfaceContract() == contract);
 
     SurfaceAddress address = SurfaceAddressFromMapCoordinates(0, 100.0f, 100.0f, 0);
+    SurfaceAddress twin = SurfaceAddressFromMapCoordinates(0, 260.0f, 100.0f, 0);
     assert(SurfaceContractAddressIsValid(address));
+    assert(SurfaceContractAddressIsValid(twin));
     assert(!SurfaceContractCellIsKnown(contract, address));
 
     SurfaceMapCell canonical;
     assert(SurfaceAddressCanonicalMapCell(address, &canonical));
-    int cx, cz, lx, lz;
-    WorldToChunkLocal(canonical.x, canonical.z, &cx, &cz, &lx, &lz);
+    int primaryCx, primaryCz, lx, lz;
+    WorldToChunkLocal(canonical.x, canonical.z,
+                      &primaryCx, &primaryCz, &lx, &lz);
     (void)lx;
     (void)lz;
-    Chunk *chunk = InstallLegacyChunk(cx, cz);
-    assert(!SurfaceContractCellIsKnown(contract, address));
-    assert(ChunkMarkTerrainSectionResolved(
-        chunk, SurfaceSectionYFromBlockY(address.radial)));
+    SurfaceMapCell twinCanonical;
+    assert(SurfaceAddressCanonicalMapCell(twin, &twinCanonical));
+    int twinCx, twinCz;
+    WorldToChunkLocal(twinCanonical.x, twinCanonical.z,
+                      &twinCx, &twinCz, &lx, &lz);
+    assert(primaryCx != twinCx || primaryCz != twinCz);
+
+    LegacyChunkLayout layout = {
+        .primaryCx = primaryCx,
+        .primaryCz = primaryCz,
+        .twinCx = twinCx,
+        .twinCz = twinCz,
+        .sectionY = SurfaceSectionYFromBlockY(address.radial)
+    };
+    InstallLegacyFixtureChunks(&layout);
     assert(SurfaceContractCellIsKnown(contract, address));
-    WorldCell cell;
-    assert(SurfaceContractCellRead(contract, address, &cell));
-    assert(cell.block == BLOCK_AIR && cell.waterVolume == 0u);
 
-    WorldCell write = { BLOCK_STONE, 0u };
-    assert(SurfaceContractCellWrite(contract, address, write));
-    assert(SurfaceContractCellRead(contract, address, &cell));
-    assert(WorldCellEqual(cell, write));
-    WorldCell water = { BLOCK_AIR, 127u };
-    assert(SurfaceContractCellWrite(contract, address, water));
-    assert(SurfaceContractCellRead(contract, address, &cell));
-    assert(WorldCellEqual(cell, water));
-
-    SurfaceChunkHandle chunkHandle, chunkBack;
-    assert(SurfaceContractChunkFromAddress(contract, address, &chunkHandle));
-    assert(SurfaceContractChunkIsValid(contract, chunkHandle));
-    SurfaceAddress anchor;
-    assert(SurfaceContractChunkAnchorAddress(contract, chunkHandle, &anchor));
-    assert(SurfaceContractChunkFromAddress(contract, anchor, &chunkBack));
-    assert(SurfaceContractChunkEqual(contract, chunkHandle, chunkBack));
-    assert(SurfaceContractChunkHash(contract, chunkHandle) ==
-           SurfaceContractChunkHash(contract, chunkBack));
-    SurfaceSectionHandle section;
-    assert(SurfaceContractSectionFromAddress(contract, address, &section));
-    assert(SurfaceContractSectionIsValid(contract, section));
-
-    SurfaceAddress east;
-    SurfaceDirection back;
-    assert(SurfaceContractNeighbor(contract, address,
-                                   SURFACE_DIRECTION_U_PLUS, &east, &back));
-    assert(back == SURFACE_DIRECTION_U_MINUS);
-    SurfaceAddress eastBack;
-    assert(SurfaceContractNeighbor(contract, east, back, &eastBack, NULL));
-    assert(SurfaceContractAddressEqual(address, eastBack));
-
-    SurfaceContractSample sample;
-    assert(SurfaceContractSampleAt(contract, address, &sample));
-    assert(isfinite(sample.elevation));
-    assert(sample.biome >= BIOME_PLAINS && sample.biome <= BIOME_SWAMP);
-    SurfaceRegionHandle region = SurfaceContractRegionForAddress(contract, address);
-    assert(region.opaque[0] != 0u);
-    assert(SurfaceContractSameRegion(contract, address, east));
+    SurfaceContractFixture fixture = {
+        .contract = contract,
+        .primary = address,
+        .twin = twin,
+        .hasTwin = true,
+        .reload = InstallLegacyFixtureChunks,
+        .reloadContext = &layout
+    };
+    SurfaceContractFixtureAssert(&fixture);
     assert(!SurfaceContractSupportsPhysicalCoverage(contract));
     assert(!SurfaceContractSupportsPhysicalRaycast(contract));
     assert(!SurfaceContractSupportsPhysicalPose(contract));
@@ -201,62 +225,36 @@ static void TestCubeContract(void)
     assert(WorldInstallSurfaceSnapshotWithContract(&snapshot, contract));
 
     SurfaceAddress address = {0, SURFACE_FACE_POS_Z, 8, 8, 8};
+    SurfaceAddress twin = {0, SURFACE_FACE_POS_X, 8, 8, 8};
     assert(!SurfaceContractCellIsKnown(contract, address));
-    SurfaceCubeChunkKey key;
-    assert(SurfaceCubeChunkAt(address, &key));
-    Chunk *chunk = InstallCubeChunk(key);
-    assert(ChunkSetLocalCell(chunk, 8, 8, 8,
-                             (WorldCell){ BLOCK_STONE, 0u }));
-    assert(ChunkMarkTerrainSectionResolved(chunk, 0));
+    SurfaceCubeChunkKey primaryKey;
+    SurfaceCubeChunkKey twinKey;
+    assert(SurfaceCubeChunkAt(address, &primaryKey));
+    assert(SurfaceCubeChunkAt(twin, &twinKey));
+    assert(primaryKey.face != twinKey.face);
+    assert(primaryKey.u == twinKey.u && primaryKey.v == twinKey.v);
+    CubeChunkLayout layout = {
+        .primary = primaryKey,
+        .twin = twinKey,
+        .sectionY = SurfaceSectionYFromBlockY(address.radial)
+    };
+    InstallCubeFixtureChunks(&layout);
     assert(SurfaceContractCellIsKnown(contract, address));
-    WorldCell cell;
-    assert(SurfaceContractCellRead(contract, address, &cell));
-    assert(cell.block == BLOCK_STONE && cell.waterVolume == 0u);
-
-    assert(SurfaceContractCellWrite(contract, address,
-                                    (WorldCell){ BLOCK_GOLD_ORE, 0u }));
-    assert(SurfaceContractCellRead(contract, address, &cell));
-    assert(cell.block == BLOCK_GOLD_ORE && cell.waterVolume == 0u);
-    assert(!SurfaceContractCellWrite(contract, address,
-                                     (WorldCell){ BLOCK_BRICK, 255u }));
-    assert(SurfaceContractCellRead(contract, address, &cell));
-    assert(cell.block == BLOCK_GOLD_ORE && cell.waterVolume == 0u);
-    assert(SurfaceContractCellWrite(contract, address,
-                                    (WorldCell){ BLOCK_AIR, 128u }));
-    assert(SurfaceContractCellRead(contract, address, &cell));
-    assert(cell.block == BLOCK_AIR && cell.waterVolume == 128u);
-
-    SurfaceChunkHandle handle, handleBack;
-    assert(SurfaceContractChunkFromAddress(contract, address, &handle));
-    assert(SurfaceContractChunkIsValid(contract, handle));
-    SurfaceAddress anchor;
-    assert(SurfaceContractChunkAnchorAddress(contract, handle, &anchor));
-    assert(SurfaceContractChunkFromAddress(contract, anchor, &handleBack));
-    assert(SurfaceContractChunkEqual(contract, handle, handleBack));
-    SurfaceSectionHandle section;
-    assert(SurfaceContractSectionFromAddress(contract, address, &section));
-    assert(SurfaceContractSectionIsValid(contract, section));
 
     SurfaceAddress edge = {0, SURFACE_FACE_POS_Y, 4095, 17, 0};
-    SurfaceAddress across;
-    SurfaceDirection back;
-    assert(SurfaceContractNeighbor(contract, edge,
-                                   SURFACE_DIRECTION_U_PLUS, &across, &back));
-    assert(across.face != edge.face);
-    SurfaceAddress acrossBack;
-    assert(SurfaceContractNeighbor(contract, across, back, &acrossBack, NULL));
-    assert(SurfaceContractAddressEqual(edge, acrossBack));
-
-    SurfaceContractSample sample;
-    assert(SurfaceContractSampleAt(contract, address, &sample));
-    assert(isfinite(sample.elevation));
-    assert(sample.biome >= BIOME_PLAINS && sample.biome <= BIOME_SWAMP);
-    SurfaceRegionHandle region = SurfaceContractRegionForAddress(contract, address);
-    assert(region.opaque[0] != 0u);
-    SurfaceAddress sameFace = address;
-    sameFace.u++;
-    assert(SurfaceContractSameRegion(contract, address, sameFace));
-    assert(!SurfaceContractSameRegion(contract, address, edge));
+    SurfaceContractFixture fixture = {
+        .contract = contract,
+        .primary = address,
+        .twin = twin,
+        .hasTwin = true,
+        .crossEdge = edge,
+        .crossDirection = SURFACE_DIRECTION_U_PLUS,
+        .hasCrossEdge = true,
+        .crossEdgeChangesFace = true,
+        .reload = InstallCubeFixtureChunks,
+        .reloadContext = &layout
+    };
+    SurfaceContractFixtureAssert(&fixture);
     assert(SurfaceContractSupportsPhysicalCoverage(contract));
     assert(SurfaceContractSupportsPhysicalRaycast(contract));
     assert(SurfaceContractSupportsPhysicalPose(contract));

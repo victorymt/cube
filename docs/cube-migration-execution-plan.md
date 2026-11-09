@@ -37,7 +37,7 @@ Execution state:
 | M1 | complete | Legacy and cube share the topology-neutral `SurfaceContract`. |
 | M2 | complete | Cube mesh vertices, transforms and bounds share the section anchor frame. |
 | M3 | complete | V30 persists topology, canonical pose and complete cell edits. |
-| M4 | next | Migrate the remaining Homeworld consumers, then switch its default. |
+| M4 | active | M4.0 is complete; migrate the remaining Homeworld consumers, then switch its default. |
 | M5 | pending | Close physical coverage, visual and performance acceptance. |
 | M6 | pending | Remove Homeworld-only transition paths and close the migration. |
 
@@ -236,6 +236,8 @@ diagnostics; missing diagnostics are added through the DSL and documented.
 
 #### M4.0: shared consumer fixture
 
+**Status:** complete (2026-11-09)
+
 Build one contract-driven fixture whose assertions run unchanged against both
 legacy and cube surfaces. It must cover known/read/write cells, terrain and water
 samples, opaque chunk identity, horizontal and cross-face neighbours, and an
@@ -245,6 +247,14 @@ not change production behavior.
 Exit: both adapters pass the same fixture; cube capability-gated operations are
 tested without introducing a topology branch into the fixture. Commit
 `test(surface): add shared consumer contract fixture`.
+
+Exit evidence: `tests/surface_contract_fixture.c` now owns the shared
+known/read/write, sample, opaque chunk/section, bidirectional neighbour,
+cross-face, distinct-chunk and reload assertions. Both adapters pass it through
+`./build/normal/tests/test_surface_contract`; the cube case installs two faces
+with the same U/V and verifies that their chunk identities remain distinct.
+`make test-surface-cube` passes all eight focused binaries. No production code
+changed.
 
 #### M4.1: fluid chunk identity
 
