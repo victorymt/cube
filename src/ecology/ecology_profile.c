@@ -94,13 +94,14 @@ static PlanetLocalEnvironment EcologyHomeEnvironmentAt(
     float currentStorm, bool dynamic)
 {
     PlanetLocalEnvironment environment = { 0 };
-    int height = TerrainHeight(x, z, WorldTerrainMode());
-    int east = TerrainHeight(x + 2, z, WorldTerrainMode());
-    int west = TerrainHeight(x - 2, z, WorldTerrainMode());
-    int south = TerrainHeight(x, z + 2, WorldTerrainMode());
-    int north = TerrainHeight(x, z - 2, WorldTerrainMode());
+    int height = WorldSurfaceHeightAt(x, z);
+    int east = WorldSurfaceHeightAt(x + 2, z);
+    int west = WorldSurfaceHeightAt(x - 2, z);
+    int south = WorldSurfaceHeightAt(x, z + 2);
+    int north = WorldSurfaceHeightAt(x, z - 2);
     int seaLevel = TerrainSeaLevel(WorldTerrainMode());
-    Biome biome = BiomeAt(x, z);
+    Biome biome = BIOME_PLAINS;
+    (void)WorldSurfaceBiomeAt(x, z, &biome);
     float temperature = 288.0f;
     float moisture = 0.58f;
     float biomeSupport = 0.86f;
@@ -275,11 +276,11 @@ static PlanetLocalEnvironment EcologyEnvironmentSampleAt(
     PlanetSurfaceSample surface = dynamic
         ? PlanetSurfaceAtTime(x, z, simulationTime)
         : PlanetSurfaceBaselineAt(x, z);
-    int height = PlanetTerrainHeight(x, z);
-    int east = PlanetTerrainHeight(x + 2, z);
-    int west = PlanetTerrainHeight(x - 2, z);
-    int south = PlanetTerrainHeight(x, z + 2);
-    int north = PlanetTerrainHeight(x, z - 2);
+    int height = WorldSurfaceHeightAt(x, z);
+    int east = WorldSurfaceHeightAt(x + 2, z);
+    int west = WorldSurfaceHeightAt(x - 2, z);
+    int south = WorldSurfaceHeightAt(x, z + 2);
+    int north = WorldSurfaceHeightAt(x, z - 2);
     float maxSlope = fmaxf(fabsf((float)(east - west)),
                            fabsf((float)(south - north))) * 0.25f;
     environment.slope = EcologyClamp(maxSlope / 3.5f);
@@ -303,7 +304,7 @@ static PlanetLocalEnvironment EcologyEnvironmentSampleAt(
         ? planet->prevailingWindAngle : 0.0f;
     int upwindX = x - (int)lroundf(cosf(windAngle) * 8.0f);
     int upwindZ = z - (int)lroundf(sinf(windAngle) * 8.0f);
-    int upwindHeight = PlanetTerrainHeight(upwindX, upwindZ);
+    int upwindHeight = WorldSurfaceHeightAt(upwindX, upwindZ);
     float orographicLift = EcologyClamp(
         0.50f + ((float)height - (float)upwindHeight) / 10.0f);
     environment.meanPrecipitation = EcologyClamp(

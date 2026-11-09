@@ -2,6 +2,8 @@
 #define VOXELCRAFT_WORLD_ENVIRONMENT_H
 
 #include "world/surface_topology_version.h"
+#include "world/terrain_types.h"
+#include "world/world_cell.h"
 #include "world/world_location.h"
 
 #include <stdint.h>
@@ -63,6 +65,11 @@ int WorldSurfaceMaxYExclusive(void);
 bool WorldCanAccessBlockY(int y);
 float WorldGravityScale(void);
 int WorldSurfaceHeightAt(int x, int z);
+/* Consumer-facing cell access for entity, ecology and spawn code. The address
+ * is derived from the active surface snapshot; no map chunk lookup escapes. */
+bool WorldSurfaceCellAt(int x, int y, int z, WorldCell *outCell);
+bool WorldSurfaceCellKnownAt(int x, int y, int z);
+bool WorldSurfaceBiomeAt(int x, int z, Biome *outBiome);
 bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY);
 bool WorldIsProceduralOceanWaterAt(int x, int y, int z);
 uint32_t WorldCurrentSurfaceId(void);

@@ -16,6 +16,11 @@
 
 #define entities entityStore
 
+static bool EntitySpawnCellAt(int x, int y, int z, WorldCell *outCell)
+{
+    return outCell && WorldSurfaceCellAt(x, y, z, outCell);
+}
+
 typedef struct EntityPassiveSpawn {
     int slot;
     bool alienWorld;
@@ -170,11 +175,14 @@ static bool EntityValidatePassiveSpawn(EntityPassiveSpawn *spawn,
     }
     spawn->groundY = EntitySurfaceHeight(spawn->x, spawn->z);
     int playerY = (int)floorf(player->position.y);
-    bool playerUnderwater = GetBlockAt(
-        (int)floorf(player->position.x), playerY,
-        (int)floorf(player->position.z)) == BLOCK_WATER ||
-        FluidGetVolumeAt((int)floorf(player->position.x), playerY,
-                         (int)floorf(player->position.z)) > 0u;
+    int playerX = (int)floorf(player->position.x);
+    int playerZ = (int)floorf(player->position.z);
+    WorldCell playerCell;
+    if (!EntitySpawnCellAt(playerX, playerY, playerZ, &playerCell)) {
+        return false;
+    }
+    bool playerUnderwater = playerCell.block == BLOCK_WATER ||
+        playerCell.waterVolume > 0u;
     if (spawn->evolvable &&
         spawn->archetype == EVOLUTION_ARCHETYPE_FLIGHT && playerUnderwater) {
         return false;
@@ -197,10 +205,16 @@ static bool EntityValidatePassiveSpawn(EntityPassiveSpawn *spawn,
             ENTITY_GROUND_SPAWN_VERTICAL_RANGE) {
             return false;
         }
-        BlockType spawnAt = GetBlockAt(
-            spawn->x, spawn->groundY + 1, spawn->z);
-        BlockType spawnAbove = GetBlockAt(
-            spawn->x, spawn->groundY + 2, spawn->z);
+        WorldCell spawnAtCell;
+        WorldCell spawnAboveCell;
+        if (!EntitySpawnCellAt(spawn->x, spawn->groundY + 1, spawn->z,
+                               &spawnAtCell) ||
+            !EntitySpawnCellAt(spawn->x, spawn->groundY + 2, spawn->z,
+                               &spawnAboveCell)) {
+            return false;
+        }
+        BlockType spawnAt = spawnAtCell.block;
+        BlockType spawnAbove = spawnAboveCell.block;
         if (spawn->evolvable) {
             if (spawnAt != BLOCK_AIR || spawnAbove != BLOCK_AIR) return false;
         } else {
@@ -335,8 +349,14 @@ void EntitySpawnHostile(const Player *player, float daylight)
     int z = (int)floorf(player->position.z + sinf(angle) * distance);
     EntityCanonicalizeSurfaceCell(&x, &z);
     int groundY = EntitySurfaceHeight(x, z);
-    BlockType spawnAt = GetBlockAt(x, groundY + 1, z);
-    BlockType spawnAbove = GetBlockAt(x, groundY + 2, z);
+    WorldCell spawnAtCell;
+    WorldCell spawnAboveCell;
+    if (!EntitySpawnCellAt(x, groundY + 1, z, &spawnAtCell) ||
+        !EntitySpawnCellAt(x, groundY + 2, z, &spawnAboveCell)) {
+        return;
+    }
+    BlockType spawnAt = spawnAtCell.block;
+    BlockType spawnAbove = spawnAboveCell.block;
     if (spawnAt != BLOCK_AIR && spawnAt != BLOCK_WATER &&
         spawnAt != BLOCK_LAVA) {
         return;

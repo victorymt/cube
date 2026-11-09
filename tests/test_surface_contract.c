@@ -150,6 +150,23 @@ static void TestAddressIdentity(void)
         .face = SURFACE_FACE_POS_X, .u = -1, .v = 0 }));
 }
 
+static void AssertWorldCellFacade(const SurfaceContract *contract,
+                                  SurfaceAddress address)
+{
+    SurfaceMapCell canonical;
+    assert(SurfaceAddressCanonicalMapCell(address, &canonical));
+    int localX = canonical.x - WorldSurfaceMapOriginX();
+    int localZ = canonical.z - WorldSurfaceMapOriginZ();
+    WorldCell direct;
+    WorldCell wrapper;
+    assert(SurfaceContractCellRead(contract, address, &direct));
+    assert(WorldSurfaceCellAt(localX, address.radial, localZ, &wrapper));
+    assert(WorldCellEqual(direct, wrapper));
+    assert(WorldSurfaceCellKnownAt(localX, address.radial, localZ));
+    Biome biome = BIOME_PLAINS;
+    assert(WorldSurfaceBiomeAt(localX, localZ, &biome));
+}
+
 static void TestLegacyContract(void)
 {
     ResetWorldMemory();
@@ -203,6 +220,7 @@ static void TestLegacyContract(void)
         .reloadContext = &layout
     };
     SurfaceContractFixtureAssert(&fixture);
+    AssertWorldCellFacade(contract, address);
     assert(!SurfaceContractSupportsPhysicalCoverage(contract));
     assert(!SurfaceContractSupportsPhysicalRaycast(contract));
     assert(!SurfaceContractSupportsPhysicalPose(contract));
@@ -224,8 +242,14 @@ static void TestCubeContract(void)
     assert(strcmp(SurfaceContractBackendName(contract), "cube-grid") == 0);
     assert(WorldInstallSurfaceSnapshotWithContract(&snapshot, contract));
 
-    SurfaceAddress address = {0, SURFACE_FACE_POS_Z, 8, 8, 8};
-    SurfaceAddress twin = {0, SURFACE_FACE_POS_X, 8, 8, 8};
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        0, 100.0f, 100.0f, 8);
+    assert(SurfaceContractAddressIsValid(address));
+    SurfaceAddress twin = {0, address.face == SURFACE_FACE_POS_X
+        ? SURFACE_FACE_POS_Y : SURFACE_FACE_POS_X, 8, 8, 8};
+    twin.u = address.u;
+    twin.v = address.v;
+    twin.radial = address.radial;
     assert(!SurfaceContractCellIsKnown(contract, address));
     SurfaceCubeChunkKey primaryKey;
     SurfaceCubeChunkKey twinKey;
@@ -255,6 +279,7 @@ static void TestCubeContract(void)
         .reloadContext = &layout
     };
     SurfaceContractFixtureAssert(&fixture);
+    AssertWorldCellFacade(contract, address);
     assert(SurfaceContractSupportsPhysicalCoverage(contract));
     assert(SurfaceContractSupportsPhysicalRaycast(contract));
     assert(SurfaceContractSupportsPhysicalPose(contract));

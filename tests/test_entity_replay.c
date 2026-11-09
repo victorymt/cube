@@ -314,6 +314,22 @@ int WorldSurfaceHeightAt(int x, int z)
     return 10;
 }
 
+bool WorldSurfaceCellAt(int x, int y, int z, WorldCell *outCell)
+{
+    if (!outCell) return false;
+    *outCell = WorldCellFromLegacyBlock(GetBlockAt(x, y, z));
+    outCell->waterVolume = FluidGetVolumeAt(x, y, z);
+    return true;
+}
+
+bool WorldSurfaceCellKnownAt(int x, int y, int z)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    return true;
+}
+
 BlockType GetBlockAt(int x, int y, int z)
 {
     (void)z;

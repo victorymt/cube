@@ -3,6 +3,7 @@
 #include "space/space_state.h"
 #include "world/chunks.h"
 #include "world/terrain.h"
+#include "world/world_environment.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -296,7 +297,7 @@ static void PlacePlanetGroundCover(Chunk *chunk, int x, int z,
     PlanetBiome biome = PlanetBiomeAt(x, z);
     if (biome == PLANET_BIOME_OCEAN || biome == PLANET_BIOME_LAVA_SEA ||
         biome == PLANET_BIOME_STORM_BANDS) return;
-    int ground = PlanetTerrainHeight(x, z);
+    int ground = WorldSurfaceHeightAt(x, z);
     if (!InHeight(ground + 1)) return;
 
     BlockType type = PlanetGroundCoverBlock(
@@ -321,7 +322,7 @@ static void PlacePlanetFlora(Chunk *chunk, int x, int z,
     PlanetBiome biome = PlanetBiomeAt(x, z);
     if (biome == PLANET_BIOME_OCEAN || biome == PLANET_BIOME_LAVA_SEA ||
         biome == PLANET_BIOME_STORM_BANDS) return;
-    int ground = PlanetTerrainHeight(x, z);
+    int ground = WorldSurfaceHeightAt(x, z);
     if (ground > SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 7) return;
 
     PlanetFloraArchetype type = profile->flora;

@@ -34,8 +34,22 @@ int EntityNextFreeSlot(void)
 
 static bool BlockBlocksEntity(int x, int y, int z)
 {
-    BlockType type = GetBlockAt(x, y, z);
-    return BlockCollisionHeight(type) > 0.0f;
+    WorldCell cell;
+    if (!WorldSurfaceCellAt(x, y, z, &cell)) return true;
+    return BlockCollisionHeight(cell.block) > 0.0f;
+}
+
+static BlockType EntityBlockAt(int x, int y, int z)
+{
+    WorldCell cell;
+    return WorldSurfaceCellAt(x, y, z, &cell) ? cell.block : BLOCK_BEDROCK;
+}
+
+static WorldCell EntityCellAt(int x, int y, int z)
+{
+    WorldCell cell = { .block = BLOCK_BEDROCK };
+    (void)WorldSurfaceCellAt(x, y, z, &cell);
+    return cell;
 }
 
 static bool GroundBelow(Vector3 position)
@@ -212,14 +226,14 @@ static bool EntityFindWaterNearY(int x, int z, int centerY, int radius,
     for (int offset = 0; offset <= radius; offset++) {
         int above = centerY + offset;
         if (above >= SURFACE_MIN_Y && above < SURFACE_MAX_Y_EXCLUSIVE &&
-            FluidGetVolumeAt(x, above, z) > 0u) {
+            EntityCellAt(x, above, z).waterVolume > 0u) {
             *outY = above;
             return true;
         }
         int below = centerY - offset;
         if (offset > 0 && below >= SURFACE_MIN_Y &&
             below < SURFACE_MAX_Y_EXCLUSIVE &&
-            FluidGetVolumeAt(x, below, z) > 0u) {
+            EntityCellAt(x, below, z).waterVolume > 0u) {
             *outY = below;
             return true;
         }
@@ -325,17 +339,16 @@ static bool EntityStandHeightAt(const Entity *entity,
     int minimumFloor = currentFloor - (int)ceilf(profile->maxDrop);
     for (int floorY = maximumFloor; floorY >= minimumFloor; floorY--) {
         if (!BlockBlocksEntity(blockX, floorY, blockZ)) continue;
-        BlockType foot = GetBlockAt(blockX, floorY + 1, blockZ);
-        BlockType head = GetBlockAt(blockX, floorY + 2, blockZ);
+        WorldCell foot = EntityCellAt(blockX, floorY + 1, blockZ);
+        WorldCell head = EntityCellAt(blockX, floorY + 2, blockZ);
         if (BlockBlocksEntity(blockX, floorY + 1, blockZ) ||
             BlockBlocksEntity(blockX, floorY + 2, blockZ)) {
             continue;
         }
         *outStandY = (float)floorY + 1.0f;
-        *outLiquid = foot == BLOCK_WATER || head == BLOCK_WATER ||
-            FluidGetVolumeAt(blockX, floorY + 1, blockZ) > 0u ||
-            FluidGetVolumeAt(blockX, floorY + 2, blockZ) > 0u;
-        *outLava = foot == BLOCK_LAVA || head == BLOCK_LAVA;
+        *outLiquid = foot.block == BLOCK_WATER || head.block == BLOCK_WATER ||
+            foot.waterVolume > 0u || head.waterVolume > 0u;
+        *outLava = foot.block == BLOCK_LAVA || head.block == BLOCK_LAVA;
         return true;
     }
     return false;
@@ -394,16 +407,15 @@ static FaunaTerrainCandidate EntityAirCandidateAt(
         float lateral = (float)sample * profile->bodyRadius;
         int x = (int)floorf(centerX + sideX * lateral);
         int z = (int)floorf(centerZ + sideZ * lateral);
-        BlockType body = GetBlockAt(x, y, z);
-        BlockType head = GetBlockAt(x, y + 1, z);
+        WorldCell body = EntityCellAt(x, y, z);
+        WorldCell head = EntityCellAt(x, y + 1, z);
         candidate.blocked = candidate.blocked ||
             BlockBlocksEntity(x, y, z) || BlockBlocksEntity(x, y + 1, z);
-        candidate.liquid = candidate.liquid || body == BLOCK_WATER ||
-            head == BLOCK_WATER ||
-            FluidGetVolumeAt(x, y, z) > 0u ||
-            FluidGetVolumeAt(x, y + 1, z) > 0u;
+        candidate.liquid = candidate.liquid || body.block == BLOCK_WATER ||
+            head.block == BLOCK_WATER ||
+            body.waterVolume > 0u || head.waterVolume > 0u;
         candidate.lava = candidate.lava ||
-            body == BLOCK_LAVA || head == BLOCK_LAVA;
+            body.block == BLOCK_LAVA || head.block == BLOCK_LAVA;
     }
     if (entity->aquatic && !candidate.liquid) candidate.blocked = true;
     return candidate;
@@ -1087,8 +1099,10 @@ static void PassiveAdvanceController(PassiveUpdateContext *context)
         bool landing = entity->behavior == FAUNA_ACTION_REST ||
             entity->behavior == FAUNA_ACTION_NEST || entity->behavior == FAUNA_ACTION_FORAGE ||
             entity->behavior == FAUNA_ACTION_DRINK;
-        BlockType support = GetBlockAt((int)floorf(entity->position.x), groundY,
-                                       (int)floorf(entity->position.z));
+        WorldCell supportCell = EntityCellAt(
+            (int)floorf(entity->position.x), groundY,
+            (int)floorf(entity->position.z));
+        BlockType support = supportCell.block;
         landing = landing && BlockCollisionHeight(support) > 0 && !IsLiquidBlock(support);
         float clearance = landing ? 0.025f : context->motionProfile.hoverClearance;
         float terrainHover = fminf(
@@ -1244,9 +1258,9 @@ static void UpdateHostile(Entity *entity, const Player *player, float dt, float 
     }
 
     if (entity->type == ENTITY_ZOMBIE && daylight > 0.5f &&
-        !IsLiquidBlock(GetBlockAt((int)floorf(entity->position.x),
-                                  (int)floorf(entity->position.y + 0.5f),
-                                  (int)floorf(entity->position.z)))) {
+        !IsLiquidBlock(EntityBlockAt((int)floorf(entity->position.x),
+                                     (int)floorf(entity->position.y + 0.5f),
+                                     (int)floorf(entity->position.z)))) {
         entity->burnTimer -= dt;
         if ((int)(entity->burnTimer * 5.0f) != (int)((entity->burnTimer + dt) * 5.0f)) {
             GameEffectsEmitParticleBurst(

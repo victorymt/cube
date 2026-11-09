@@ -22,6 +22,13 @@
 
 #define ENTITY_STATE_VERSION 5u
 
+static BlockType EntityCellBlockAt(int x, int y, int z)
+{
+    WorldCell cell;
+    if (WorldSurfaceCellAt(x, y, z, &cell)) return cell.block;
+    return BLOCK_BEDROCK;
+}
+
 Vector3 EntityFluidCurrent(const Entity *entity)
 {
     if (!entity || !WorldIsSurfaceActive()) return Vector3Zero();
@@ -1052,7 +1059,7 @@ void EntitiesApplyWildfireHazards(float dt, float daylight,
         int x = (int)floorf(samplePosition.x);
         int y = (int)floorf(samplePosition.y);
         int z = (int)floorf(samplePosition.z);
-        BlockType roof = GetBlockAt(x, y + 2, z);
+        BlockType roof = EntityCellBlockAt(x, y + 2, z);
         float shelter = roof != BLOCK_AIR && !IsLiquidBlock(roof) ? 1.0f : 0.0f;
         FluidSample fluid = FluidSampleAt(samplePosition);
         float immersion = entity->aquatic ||

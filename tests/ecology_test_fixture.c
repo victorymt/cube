@@ -5,10 +5,12 @@
 #include "world/block_texture.h"
 #include "world/block_edit_types.h"
 #include "world/chunks_internal.h"
+#include "world/fluid.h"
 #include "world/terrain.h"
 #include "world/surface_contract_internal.h"
 #include "world/weather.h"
 #include "world/world_surface_snapshot.h"
+#include "world/world_cell.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -224,6 +226,29 @@ static void EcologyFixtureReleaseContract(SurfaceContract *contract)
     free(contract);
 }
 
+static bool EcologyFixtureSampleAt(const SurfaceContract *contract,
+                                   SurfaceAddress address,
+                                   SurfaceContractSample *outSample)
+{
+    SurfaceMapCell canonical;
+    if (!contract || !outSample ||
+        address.bodyId != contract->bodyId ||
+        !SurfaceContractAddressIsValid(address) ||
+        !SurfaceAddressCanonicalMapCell(address, &canonical)) return false;
+    SurfaceTerrainSample terrain = SurfaceTerrainAt(
+        canonical.x, canonical.z, terrainMode);
+    *outSample = (SurfaceContractSample){
+        .elevation = terrain.elevation,
+        .seaLevel = terrain.seaLevel,
+        .waterSurface = terrain.bathymetry.waterDepth > 0
+            ? (float)terrain.bathymetry.seaLevel + 1.0f : terrain.seaLevel,
+        .seabedY = terrain.bathymetry.seabedY,
+        .waterDepth = terrain.bathymetry.waterDepth,
+        .biome = terrain.biome
+    };
+    return true;
+}
+
 static const SurfaceContractOps ecologyFixtureContractOps = {
     .chunk_from_address = EcologyFixtureChunkFromAddress,
     .chunk_is_valid = EcologyFixtureChunkIsValid,
@@ -232,6 +257,7 @@ static const SurfaceContractOps ecologyFixtureContractOps = {
     .step_cell = EcologyFixtureStepCell,
     .chunk_cell_address = EcologyFixtureChunkCellAddress,
     .chunk_runtime = EcologyFixtureChunkRuntime,
+    .sample_at = EcologyFixtureSampleAt,
     .mark_address_dirty = EcologyFixtureMarkAddressDirty,
     .release = EcologyFixtureReleaseContract
 };
@@ -508,6 +534,30 @@ BlockType GetBlockBaseAt(int x, int y, int z)
 }
 
 BlockType GetBlockAt(int x, int y, int z) { return GetBlockBaseAt(x, y, z); }
+
+__attribute__((weak)) bool WorldSurfaceCellAt(
+    int x, int y, int z, WorldCell *outCell)
+{
+    if (!outCell) return false;
+    *outCell = WorldCellFromLegacyBlock(GetBlockAt(x, y, z));
+    outCell->waterVolume = FluidGetVolumeAt(x, y, z);
+    return true;
+}
+
+__attribute__((weak)) bool WorldSurfaceCellKnownAt(int x, int y, int z)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    return true;
+}
+
+__attribute__((weak)) bool WorldSurfaceBiomeAt(int x, int z, Biome *outBiome)
+{
+    if (!outBiome) return false;
+    *outBiome = BiomeAt(x, z);
+    return true;
+}
 
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((weak))

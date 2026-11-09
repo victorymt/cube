@@ -355,6 +355,8 @@ Commit M4.4.
 
 #### M4.5: entities and ecology
 
+**Status:** complete (2026-11-09)
+
 Move entity ground queries, spawn placement, flora updates and regional ecology
 inputs from map chunk identity to surface cell/sample/region operations. Keep
 off-screen state deterministic and avoid treating an unresolved cell as air.
@@ -362,6 +364,18 @@ off-screen state deterministic and avoid treating an unresolved cell as air.
 Exit: shared legacy/cube fixtures cover ground, blocking, spawning and flora at
 face centres and edges; no ecology consumer names a backend chunk key or
 topology enum. Commit `refactor(ecology): consume surface cells and samples`.
+
+Exit evidence: `WorldSurfaceCellAt`, `WorldSurfaceCellKnownAt` and
+`WorldSurfaceBiomeAt` expose contract-backed cell and sample reads to ordinary
+consumers. Entity collision, ground support, movement, aquatic spawn search,
+wildfire shelter and roof checks use the cell facade; unresolved cells are
+conservative and no entity consumer falls back to legacy map blocks. Home and
+planet ecology height queries use `WorldSurfaceHeightAt`, with the Home biome
+read through the contract. `test_surface_contract`, `test_world_environment`,
+`test_entity_replay`, `test_entity_ecology` and `test_ecology_system` pass, and
+the complete `make test` run reports 135 passed, 0 failed. Hyprland
+`test-cube-fluid-face-edge-e2e` and `test-v30-cell-reload-e2e` also pass. Commit
+M4.5.
 
 #### M4.6: CGA
 

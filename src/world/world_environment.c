@@ -135,6 +135,39 @@ int WorldSurfaceHeightAt(int x, int z)
     return (int)lroundf(sample.elevation);
 }
 
+bool WorldSurfaceCellAt(int x, int y, int z, WorldCell *outCell)
+{
+    SurfaceAddress address;
+    if (!outCell || !WorldSurfaceAddressAtLocalMap(x, z, &address)) {
+        return false;
+    }
+    address.radial = y;
+    return SurfaceContractAddressIsValid(address) &&
+           SurfaceContractCellRead(
+               WorldCurrentSurfaceContract(), address, outCell);
+}
+
+bool WorldSurfaceCellKnownAt(int x, int y, int z)
+{
+    SurfaceAddress address;
+    if (!WorldSurfaceAddressAtLocalMap(x, z, &address)) return false;
+    address.radial = y;
+    return SurfaceContractAddressIsValid(address) &&
+           SurfaceContractCellIsKnown(
+               WorldCurrentSurfaceContract(), address);
+}
+
+bool WorldSurfaceBiomeAt(int x, int z, Biome *outBiome)
+{
+    SurfaceAddress address;
+    SurfaceContractSample sample;
+    if (!outBiome || !WorldSurfaceAddressAtLocalMap(x, z, &address) ||
+        !SurfaceContractSampleAt(
+            WorldCurrentSurfaceContract(), address, &sample)) return false;
+    *outBiome = sample.biome;
+    return true;
+}
+
 static bool WorldProceduralOceanBathymetryAt(int x, int z,
                                               BathymetrySample *outSample)
 {

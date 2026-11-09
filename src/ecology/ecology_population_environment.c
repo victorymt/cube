@@ -1,6 +1,7 @@
 #include "ecology/ecology_population_internal.h"
 #include "world/terrain.h"
 #include "world/block_edits.h"
+#include "world/world_environment.h"
 
 #include <math.h>
 
@@ -185,7 +186,7 @@ float EcologyRegionalDisturbance(
                 regionX ||
             EcologyFloorDivide(globalZ, ECOLOGY_POPULATION_REGION_SIZE) !=
                 regionZ) continue;
-        int surfaceHeight = PlanetTerrainHeight(edit.x, edit.z);
+        int surfaceHeight = WorldSurfaceHeightAt(edit.x, edit.z);
         float surfaceDistance = fabsf((float)edit.y - (float)surfaceHeight);
         if (surfaceDistance > 12.0f) continue;
         float weight = EcologyEditWeight(edit.type) *
