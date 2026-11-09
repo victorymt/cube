@@ -6,7 +6,7 @@ Updated 2026-11-08. Source of the statements below: the status sections previous
 
 ## Current work
 
-**Cube-grid activation, W1 in progress.** G1 (a walkable, editable cube surface with edit round-trip) is not closed. The original expansion and simulation stages are implemented within their recorded scope.
+**Homeworld cube-grid migration, M0 complete; M1 next.** The active sequence and gates live in the [Homeworld cube migration execution plan](docs/cube-migration-execution-plan.md). Planets remain on the legacy backend for this plan.
 
 What works today: a cube world is reachable at runtime through `surface debug cube`, which opens a runtime gate, installs a cube policy, and drives streaming from cube coverage. On that path the player lands and walks, block picking is cube-based, and cube edits round-trip through their own save section. Cube-grid has continuous poses, explicit cell/chunk identity, an immutable v9 base generator, shared projected geometry, physical coverage enumeration, and runtime adapters covering generation, in-memory edits, budgeted admission, mesh projection, and render bounds.
 
@@ -24,7 +24,7 @@ What works today: a cube world is reachable at runtime through `surface debug cu
 
 Not the current runtime default. Both Homeworld and planets will switch to cube-grid/1 using cube base 9 plus the historical layer 11, with V30 saves requiring a new world. V30 will reject V29 and older files without migrating or deleting them. Preserving v7/v8 fingerprints is no longer a requirement. Regional ecology payload V7 and terrain generator v11 have independent version sequences. The authoritative version, identity, ownership, and capacity tables live in the [cube activation contract](docs/cube-contract.md).
 
-Next, in dependency order: close the cube mesh vertical stretch, convert the fluid queue to carry `SurfaceCubeChunkKey`, then convert the remaining consumers (ecology, CGA, volcano, terrain height) and implement V30.
+Next, in dependency order: establish the topology-neutral surface contract, close the cube mesh vertical stretch for G1, implement Homeworld V30 for G2, then migrate fluid and the remaining consumers for G3.
 
 ## Verified
 

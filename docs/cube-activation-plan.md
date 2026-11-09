@@ -1,5 +1,9 @@
 # Cube-grid 激活计划书
 
+> **历史计划（2026-11-09）**：当前执行顺序和验收门由
+> [Homeworld cube-grid migration execution plan](cube-migration-execution-plan.md)
+> 维护。本文保留当时的规划依据和验收记录，不再作为当前执行入口。
+
 - 编制日期：2026-10-22
 - 代码基线：`c580c23`（内容上等同 `2dab030`，之后仅新增进度报告）
 - 依据：[项目进度报告](project-progress-2026-10-20.md)、[cube 合同](surface-cube.md)、[路线图](../todo/00-roadmap.md)

@@ -5,6 +5,11 @@
 - 权威来自第 1 节钉住的版本序列，不来自某个提交：`make check-docs` 校验这些常量，改了常量却没改本文会直接报错。
 - 本文件只冻结契约，不改变运行时默认行为。
 
+> **当前激活范围（2026-11-09）**：执行计划先只关闭 Homeworld 的
+> cube-grid 迁移；本轮行星继续使用 `legacy-map/1`。多天体最终目标不变，
+> 但行星迁移和 legacy backend 删除属于后续独立计划。见
+> [Homeworld cube-grid migration execution plan](cube-migration-execution-plan.md)。
+
 ## 1. 版本矩阵（V 表）
 
 代码中同时存在**五条独立版本序列**，任何文档或讨论都不得混用：

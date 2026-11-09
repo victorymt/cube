@@ -582,6 +582,19 @@
         "make test-surface-cube"
       ]
     },
+    "docs/cube-migration-execution-plan.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "src/world/surface_types.h",
+        "src/world/world_cell.h",
+        "src/world/world_surface_snapshot.c"
+      ],
+      "recipes": [
+        "make check-docs",
+        "make test-surface-cube"
+      ]
+    },
     "docs/cube-audit-2026-10-22.md": {
       "tier": "record",
       "trackCode": false,

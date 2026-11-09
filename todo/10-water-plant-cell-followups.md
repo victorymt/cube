@@ -1,5 +1,9 @@
 # Water/plant cell model stages 3–5
 
+> **执行状态入口（2026-11-09）**：本文件保留为详细行为规格。新的
+> [Homeworld cube migration execution plan](../docs/cube-migration-execution-plan.md)
+> 决定顺序和状态：Stage 5 归入 M3，Stage 3–4 分别归入 M4 consumer migration。
+
 ## Purpose
 
 This plan records the deferred ecological, generation-order, and persistence work that follows the cell-volume water refactor. "Stage 3", "Stage 4", and "Stage 5" are local to the water/plant cell model and do not refer to the long-term Stage 03 tornado record or another numbered roadmap item. Current state is maintained in [STATUS.md](../STATUS.md).

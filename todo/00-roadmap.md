@@ -3,12 +3,14 @@
 This directory is the implementation and acceptance record for the long-term
 world-expansion work. A stage is planned here before implementation, updated as
 work progresses, verified, and then committed as one reviewable change.
+Execution order and acceptance gates are owned by the [Homeworld cube migration
+execution plan](../docs/cube-migration-execution-plan.md).
 
 ## Current work
 
 Current state: see [STATUS.md](../STATUS.md).
 
-Dated snapshots and plans, kept for their planning evidence, not for current state: [progress report 2026-10-20](../docs/project-progress-2026-10-20.md), [cube activation plan](../docs/cube-activation-plan.md), [coupling review](../docs/architecture/21-coupling-review-2026-10-24.md).
+Dated snapshots and plans, kept for their planning evidence, not for current state: [progress report 2026-10-20](../docs/project-progress-2026-10-20.md), [historical cube activation plan](../docs/cube-activation-plan.md), [coupling review](../docs/architecture/21-coupling-review-2026-10-24.md).
 
 ## Scope inventory
 
