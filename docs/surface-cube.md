@@ -383,9 +383,11 @@ streaming use contract capabilities instead of topology branches.
 M2 closed the remaining vertical stretch by applying one section-anchor tangent
 frame consistently to mesh vertices, render transforms and frustum bounds. The
 new `cube_vertical_geometry_replay.dsl` scene captures the same flat vertical
-wall through legacy and cube under Hyprland. Fluid, ecology/decoration, the
-remaining diagnostic consumers, V30 save/undo and the normal streaming default
-still require migration before cube-grid becomes the default.
+wall through legacy and cube under Hyprland. That route isolates vertical
+geometry and bounds; live cross-face walking and cube polar visual acceptance
+remain separate gates. Fluid, ecology/decoration, the remaining diagnostic
+consumers, V30 save/undo and the normal streaming default still require
+migration before cube-grid becomes the default.
 
 Validation: the full `make -j10 test all` run passed all 120 binaries, 193
 public headers, module/game builds, CLI/protocol checks and architecture guards.

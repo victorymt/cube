@@ -50,15 +50,19 @@ Y 分量仅 1.16；而渲染变换把它当作 (east, up, north) 基坐标使用
 修复：`CurveCubeMeshData` 把偏移投影到锚点切平面基上，
 使顶点与渲染变换的约定一致。A/B 对比确认（回退修复则条纹重现）。
 
-## 已解决（2026-11-09）
+## M2 已解决：cube-only 竖向几何（2026-11-09）
 
 M2 定位到剩余环节是 render transform 与 frustum center 没有使用和 mesh
 vertices 相同的 section anchor tangent frame。旧实现把 anchor-local 顶点用
 camera basis 绘制，并给 bounds 使用未投影的 Cartesian offset；单看 anchor、
-顶点 Y 或 section radial 都正常，组合后才产生画面上方的纵向高墙。修复后
-`test_cube_generation` 对每个顶点校验 anchor→camera 变换和包围球包含关系，
-`make test-cube-vertical-geometry-e2e` 在 Hyprland 下用同一 flat 竖墙分别截取
-legacy/cube 画面。
+顶点 Y 或 section radial 都正常，组合后才产生 cube-only 的竖墙/条纹。
+修复后 `test_cube_generation` 对每个顶点校验 anchor→camera 变换和包围球包含
+关系，`make test-cube-vertical-geometry-e2e` 在 Hyprland 下用同一 flat 竖墙分别
+截取 legacy/cube 画面。该视觉回归只证明竖向几何与 bounds；live face-edge
+行走仍由邻接/coverage 单元测试分别覆盖，不在这张截图路线的声明范围内。
+
+原始 spawn 附近可见的绿色高柱在 legacy 与 cube 下同样存在，因此它们是共享
+内容/地形，不是 cube-only transform 证据。
 
 以下保留 2026-10-22/23 当时的排除过程：
 
@@ -70,5 +74,9 @@ legacy/cube 画面。
   - 无同帧重复绘制（逐帧去重计数确认）
   三个环节单独都正确却不符预期，说明问题在尚未检查的第四环节；该环节已于
   2026-11-09 在 M2 关闭。
-- 极区网格结构性限制：纬度 1.569 处 1.75 高的身体只占 1 格（赤道 12 格），
-  源于经线收敛；已在测试中如实记录而非掩盖。
+
+## 仍未解决：legacy 极区结构限制
+
+- 纬度 1.569 处 1.75 高的身体只占 1 格（赤道 12 格），源于经线收敛；
+  已在测试中如实记录而非掩盖。该限制属于 legacy map 网格，不能由 M2 的
+  render transform 修复；cube 极区视觉验收仍按 M5 执行。

@@ -180,7 +180,11 @@ coverage follows a distant face-edge focus. The Hyprland replay
 through legacy and cube, with both screenshots at camera
 `0.000000,10.550000,0.000000`; the cube capture keeps the wall vertical and
 aligned instead of stretching it. Artifacts are retained under
-`/tmp/voxelcraft-cube-vertical.*`. The historical exclusion trail is retained in
+`/tmp/voxelcraft-cube-vertical.*`. The green background columns visible near
+the original spawn are shared by legacy and cube and are not evidence for this
+cube-only transform bug. The screenshot route claims vertical geometry and
+bounds, not a live cross-face walk; adjacency, edits and distant coverage remain
+covered by `test_cube_generation`. The historical exclusion trail is retained in
 [the 2026-10-22 audit](cube-audit-2026-10-22.md). Commit M2.
 
 ### M3: close G2 with V30
