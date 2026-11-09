@@ -511,6 +511,33 @@ static void TestCubeRuntimeAsyncEdits(void)
     Reset();
 }
 
+
+
+/* Coverage must follow a teleported focus across the surface instead of only
+ * filling the spawn neighborhood. A face-edge focus is the important case:
+ * missing admission there makes the player stand on an unloaded column. */
+static void TestCubeCoverageFollowsDistantFocus(void)
+{
+    Reset();
+    TerrainCubeContext *context = Context();
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        0, 4000.0f, 0.0f, 8);
+    SurfaceVector focus;
+    assert(SurfaceCellCenter(address, &focus));
+    CubeCoverageStatus status = { 0 };
+    assert(ChunksUpdateCubeCoverage(context, focus, 48.0, 8, &status));
+    assert(status.requested > 0 && status.admitted > 0);
+    assert(status.submitted > 0);
+    SurfaceCubeChunkKey focusKey;
+    assert(SurfaceCubeChunkAt(address, &focusKey));
+    assert(ChunksRequestCubeColumn(context, focusKey, false) !=
+           CUBE_CHUNK_UNAVAILABLE);
+    DrainChunkGen();
+    assert(ChunksCubeColumnIsLoaded(focusKey));
+    TerrainCubeContextRelease(context);
+    Reset();
+}
+
 static void TestCubePoolAdmission(void)
 {
     Reset();
@@ -645,11 +672,9 @@ static void TestCubeMeshIdentity(void)
     Reset();
 }
 
-/* The render transform must place a section on the sphere. When the frame was
- * built at radial 0 while the camera stood at radial H, every section was
- * pushed a full sphere radius away and the terrain rendered as floating plates.
- * This pins the invariant that made that visible: the transformed anchor must
- * land at the camera-frame height the camera actually occupies. */
+/* The render transform must place a section at its actual radial height in
+ * the camera-local reference frame. Anchor-only and per-vertex checks together
+ * prevent both planet-scale displacement and tangent-frame stretching. */
 /* The mesh for a section must stay within that section's slab once the render
  * transform is applied. A taller result means the geometry does not match the
  * block data and the terrain renders as vertical smears. */
@@ -679,6 +704,155 @@ static void TestCubeSectionStaysInItsSlab(void)
     free(job);
 }
 
+
+
+
+
+/* Real varied terrain must obey the same slab invariant as the synthetic one
+ * block. This catches generation/greedy coordinates that are already outside
+ * the section before rendering and therefore cannot be repaired by a camera
+ * transform. */
+static void TestVariedCubeSectionsStayInSlab(void)
+{
+    WorldSurfaceSnapshot snapshot = {
+        .context = {
+            .active = true,
+            .kind = WORLD_SURFACE_HOME,
+            .topology = {SURFACE_TOPOLOGY_CUBE_GRID, 1},
+            .bodyId = 0,
+            .seed = 1448040515u
+        }
+    };
+    TerrainCubeContext *context = TerrainCubeContextCreate(
+        &snapshot, TERRAIN_VARIED, WorldCurrentGeneration());
+    assert(context);
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        0, 169.5f, 295.5f, 0);
+    SurfaceCubeChunkKey key;
+    assert(SurfaceCubeChunkAt(address, &key));
+    Chunk *staging = calloc(1, sizeof(*staging));
+    assert(staging && TerrainCubeGenerateChunk(context, key, staging));
+    for (int sectionIndex = 0; sectionIndex < staging->sectionCount;
+         sectionIndex++) {
+        const ChunkSection *source = staging->sections[sectionIndex];
+        MeshJob job = {
+            .cubeGrid = true,
+            .spherical = true,
+            .cubeKey = key,
+            .cx = key.u,
+            .cz = key.v,
+            .sectionY = source->sectionY
+        };
+        memcpy(job.blocks, source->blocks, sizeof(job.blocks));
+        CaptureCubeBoundary(&job.boundary, key, source->sectionY);
+        BuildMeshJobPayload(&job);
+        if (job.hasMesh) {
+            float lo = INFINITY, hi = -INFINITY;
+            for (int i = 0; i < job.mesh.vertexCount; i++) {
+                float y = job.mesh.vertices[i * 3 + 1];
+                if (y < lo) lo = y;
+                if (y > hi) hi = y;
+            }
+            if (lo < -1.0f || hi > SURFACE_SECTION_HEIGHT + 1.0f) {
+                fprintf(stderr,
+                    "varied cube slab section=%d vertices=%d y=[%.3f,%.3f]\n",
+                    source->sectionY, job.mesh.vertexCount, lo, hi);
+            }
+            assert(lo >= -1.0f && hi <= SURFACE_SECTION_HEIGHT + 1.0f);
+        }
+        FreeMeshData(&job.mesh);
+        FreeMeshData(&job.waterMesh);
+        FreeMeshData(&job.floraMesh);
+        FreeMeshData(&job.lodFloraMesh);
+        free(job.floraInstances);
+    }
+    ChunkClearBlockStorage(staging);
+    free(staging);
+    TerrainCubeContextRelease(context);
+    ChunkGreedyMeshWorkerScratchShutdown();
+    ChunkMeshWorkerScratchShutdown();
+}
+
+/* Every vertex is encoded in the section anchor's tangent frame. Rendering
+ * must transform it through that same frame into camera-local space; checking
+ * only the anchor point let a mixed camera/anchor basis stretch vertical faces
+ * into the green wall. */
+static void TestCubeRenderTransformMatchesMeshFrame(void)
+{
+    const int sectionY = 5;
+    const int radialBase = sectionY * SURFACE_SECTION_HEIGHT;
+    for (int face = 0; face < SURFACE_FACE_COUNT; face++) {
+        SurfaceCubeChunkKey key = {0, (SurfaceFace)face, 128, 128};
+        MeshJob *job = calloc(1, sizeof(*job));
+        assert(job);
+        job->cubeGrid = job->spherical = true;
+        job->cubeKey = key;
+        job->cx = key.u;
+        job->cz = key.v;
+        job->sectionY = sectionY;
+        memset(job->boundary.known, 1, sizeof(job->boundary.known));
+        job->blocks[0][0][0] = BLOCK_STONE;
+        BuildMeshJobPayload(job);
+        assert(job->hasMesh && job->mesh.vertexCount > 0);
+
+        SurfaceVector anchor;
+        assert(SurfacePointFromCoordinates((SurfaceCoordinates){
+            key.face, key.u * CHUNK_SIZE, key.v * CHUNK_SIZE, radialBase
+        }, &anchor));
+        SurfaceFrame patchFrame = SurfaceFrameAt((SurfaceAddress){
+            key.bodyId, key.face, key.u * CHUNK_SIZE,
+            key.v * CHUNK_SIZE, radialBase
+        });
+        patchFrame.origin = (Vector3){
+            (float)anchor.x, (float)anchor.y, (float)anchor.z
+        };
+        Vector3 anchorDirection = Vector3Normalize(patchFrame.origin);
+        Vector2 mapCell;
+        assert(SurfaceMapCoordinatesFromDirection(anchorDirection, &mapCell));
+        Vector3 camera = {mapCell.x, 83.0f, mapCell.y};
+        SurfaceFrame reference = SurfaceFrameAtMapCoordinates(
+            key.bodyId, mapCell.x, mapCell.y, 0);
+        Chunk chunk = {
+            .cubeGrid = true, .spherical = true, .cubeKey = key
+        };
+        Matrix transform = SurfaceChunkRenderTransform(
+            &chunk, sectionY, camera, 0, 0);
+        Vector3 boundsCenter;
+        float boundsRadius;
+        assert(SurfaceChunkRenderBounds(
+            &chunk, sectionY, &boundsCenter, &boundsRadius));
+        boundsCenter = Vector3Transform(boundsCenter, transform);
+
+        for (int i = 0; i < job->mesh.vertexCount; i++) {
+            float *v = job->mesh.vertices + i * 3;
+            Vector3 local = {v[0], v[1], v[2]};
+            Vector3 body = SurfaceFrameLocalToPlanet(&patchFrame, local);
+            Vector3 inReference = SurfaceFramePlanetToLocal(&reference, body);
+            Vector3 expected = {
+                inReference.x + camera.x,
+                inReference.y,
+                inReference.z + camera.z
+            };
+            Vector3 actual = Vector3Transform(local, transform);
+            assert(Vector3Distance(actual, boundsCenter) <= boundsRadius);
+            if (Vector3Distance(expected, actual) > 0.02f) {
+                fprintf(stderr,
+                    "cube transform face=%d vertex=%d local=(%.3f,%.3f,%.3f) "
+                    "expected=(%.3f,%.3f,%.3f) actual=(%.3f,%.3f,%.3f)\n",
+                    face, i, local.x, local.y, local.z,
+                    expected.x, expected.y, expected.z,
+                    actual.x, actual.y, actual.z);
+            }
+            assert(Vector3Distance(expected, actual) <= 0.02f);
+        }
+        FreeMeshData(&job->mesh);
+        FreeMeshData(&job->waterMesh);
+        FreeMeshData(&job->floraMesh);
+        free(job->floraInstances);
+        free(job);
+    }
+}
+
 static void TestCubeRenderTransform(void)
 {
     for (int face = 0; face < 6; face++) {
@@ -692,13 +866,11 @@ static void TestCubeRenderTransform(void)
         assert(SurfaceMapCoordinatesFromDirection(anchorDirection, &mapCell));
         /* Camera 83 blocks above the surface, directly over the section. */
         Vector3 camera = {mapCell.x, 83.0f, mapCell.y};
-        Matrix transform = SurfaceChunkRenderTransform(&chunk, 0, camera, 0, 0);
+        Matrix transform = SurfaceChunkRenderTransform(&chunk, 5, camera, 0, 0);
 
-        /* The section anchor is at radial 0, i.e. 83 blocks below the camera.
-         * Its local y therefore must be -83; a frame built at radial 0 reports
-         * a value offset by a whole sphere radius instead. */
+        /* Section 5 starts at radial 80, three blocks below the camera. */
         Vector3 anchorLocal = Vector3Transform((Vector3){0, 0, 0}, transform);
-        assert(fabsf(anchorLocal.y + 83.0f) < 0.5f);
+        assert(fabsf(anchorLocal.y - 80.0f) < 0.5f);
         /* And it must be directly below the camera in the horizontal plane. */
         assert(fabsf(anchorLocal.x - camera.x) < 1.0f);
         assert(fabsf(anchorLocal.z - camera.z) < 1.0f);
@@ -783,8 +955,11 @@ int main(void)
 {
     TestCubeMeshIdentity();
     TestCubeSectionStaysInItsSlab();
+    TestVariedCubeSectionsStayInSlab();
+    TestCubeRenderTransformMatchesMeshFrame();
     TestCubeRenderTransform();
     TestPhysicalCoverage();
+    TestCubeCoverageFollowsDistantFocus();
     TestCubeMeshHalo();
     TestCubeMeshProjection();
     TestIdentityAndLifetime();

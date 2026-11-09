@@ -6,9 +6,9 @@ Updated 2026-11-09. Source of the statements below: the status sections previous
 
 ## Current work
 
-**Homeworld cube-grid migration, M1 complete; M2 next.** The active sequence and gates live in the [Homeworld cube migration execution plan](docs/cube-migration-execution-plan.md). Planets remain on the legacy backend for this plan.
+**Homeworld cube-grid migration, M2 complete; M3 next.** The active sequence and gates live in the [Homeworld cube migration execution plan](docs/cube-migration-execution-plan.md). Planets remain on the legacy backend for this plan.
 
-What works today: both legacy-map and cube-grid implement one topology-neutral `SurfaceContract`; the active contract owns the only long-lived cube generation context, and policy declaration accepts independent or mixed per-surface topologies. A cube world is reachable at runtime through `surface debug cube`, which opens the runtime gate, installs Home cube plus Planets legacy, and drives streaming through the contract's physical-coverage capability. On that path the player lands and walks, block picking is cube-based, and cube edits round-trip through their own save section. Cube-grid has continuous poses, explicit cell/chunk identity, an immutable v9 base generator, shared projected geometry, physical coverage enumeration, and runtime adapters covering generation, in-memory edits, budgeted admission, mesh projection, and render bounds.
+What works today: both legacy-map and cube-grid implement one topology-neutral `SurfaceContract`; the active contract owns the only long-lived cube generation context, and policy declaration accepts independent or mixed per-surface topologies. A cube world is reachable at runtime through `surface debug cube`, which opens the runtime gate, installs Home cube plus Planets legacy, and drives streaming through the contract's physical-coverage capability. On that path the player lands and walks, block picking is cube-based, and cube edits round-trip through their own save section. Cube-grid has continuous poses, explicit cell/chunk identity, an immutable v9 base generator, shared projected geometry, physical coverage enumeration, and runtime adapters covering generation, in-memory edits, budgeted admission, mesh projection, and render bounds. M2 aligned cube mesh vertices and frustum bounds with the same section anchor frame, eliminating the remaining vertical stretch in the deterministic Hyprland wall replay.
 
 **The default runtime still uses the legacy map grid with V29 saves.** Cube-grid is reachable only through that debug entry point and is not a shipping mode. The current save format remains V29.
 
@@ -16,7 +16,6 @@ What works today: both legacy-map and cube-grid implement one topology-neutral `
 
 | Blocker | Symptom | Owning record |
 |---|---|---|
-| Cube mesh vertical stretch | The last visual defect blocking G1: terrain above the player renders as vertical streaks | [Audit findings](docs/cube-audit-2026-10-22.md) |
 | Fluid on cube surfaces | Open and suspended. The edit queue keys by `(surfaceId, chunkX, chunkZ)` and would cross faces, so fluid returns early on cube worlds | [Activation plan](docs/cube-activation-plan.md) |
 | Polar ground coverage | Confirmed a structural limit of the legacy lat/long grid, not an enumeration bug; only the cube migration can fix it | [Cube contract capacity table](docs/cube-contract.md) |
 
@@ -24,10 +23,11 @@ What works today: both legacy-map and cube-grid implement one topology-neutral `
 
 Not the current runtime default. Both Homeworld and planets will switch to cube-grid/1 using cube base 9 plus the historical layer 11, with V30 saves requiring a new world. V30 will reject V29 and older files without migrating or deleting them. Preserving v7/v8 fingerprints is no longer a requirement. Regional ecology payload V7 and terrain generator v11 have independent version sequences. The authoritative version, identity, ownership, and capacity tables live in the [cube activation contract](docs/cube-contract.md).
 
-Next, in dependency order: close the cube mesh vertical stretch for M2/G1, implement Homeworld V30 for M3/G2, then migrate fluid and the remaining consumers for M4/G3.
+Next, in dependency order: implement Homeworld V30 for M3/G2, then migrate fluid and the remaining consumers for M4/G3.
 
 ## Verified
 
+- 2026-11-09: M2 closed the cube vertical-stretch defect. `test_cube_generation` validates the full anchor-frame-to-camera transform for every mesh vertex, section bounds containment, synthetic and real varied slabs, and distant face-edge coverage. `make test-cube-vertical-geometry-e2e` passed under Hyprland with legacy and cube captures of the same flat vertical wall at camera `0.000000,10.550000,0.000000`.
 - 2026-11-09: M1 froze the topology-neutral surface contract. `test_surface_contract` passes shared legacy/cube assertions for identity, known/read/write cells, opaque handles, adjacency, samples, regions, coverage and transactional installation; `test_world_surface_snapshot`, `test_save_format`, `test_surface_coverage`, `test_world_environment`, `test_player_collision`, `test_world_block_box`, `test_world_block_landing`, `test_cube_generation`, `make test-headers` (222 headers) and `make test-architecture` pass. The boundary gate permits only exact existing debt entries in `tests/surface_contract_boundary_allowlist.txt`.
 
 - 2026-11-08: water volume is now authoritative per `WorldCell`; air and plant cells can carry water without a legacy `BLOCK_WATER` block, rendering and exposure tests use volume, and `make test` passed 132 binaries with `make docs-probe` resolving 287 fields.

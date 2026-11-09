@@ -133,3 +133,12 @@ debug 运行固定 60 FPS 时钟并关闭 autosave。**只有 seed、位置、�
 - 语法/命令/字段：`docs/debug-dsl.md`（不要通读，先 grep 再读对应段）。
 - 现在哪些东西能用、哪些还坏着：`STATUS.md`。
 - 要加新命令或新字段：加载 `voxelcraft-dsl`。
+
+## Cube geometry replay
+
+`make test-cube-vertical-geometry-e2e` runs
+`tests/scenes/cube_vertical_geometry_replay.dsl`. It places one flat vertical
+wall, captures it through legacy and cube, and asserts cube activation before
+the second screenshot. Use this route when changing section transforms, model
+bounds or mesh coordinate conventions; the exhaustive per-vertex invariant is
+in `test_cube_generation`.

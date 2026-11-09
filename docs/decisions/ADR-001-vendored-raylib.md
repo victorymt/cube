@@ -61,3 +61,7 @@
 - `mk/raylib.mk`：`raylib-check`、`prerequisites`
 - `mk/tests.mk`：`ALLOW_DUP_LDFLAG`（`test_planet_texture_resources` 与静态库的同名符号）
 - `tests/test_build_prerequisites.sh`
+
+M2 的 `test-cube-vertical-geometry-e2e` 继续使用同一个 vendored-raylib
+二进制：场景在 Hyprland 中依次渲染 legacy 与 cube 的同一面竖墙，用来验证
+共享投影几何和 section transform，而不是引入 X11/平台分支。

@@ -1856,3 +1856,12 @@ gameplay or presentation. Runtime behavior should query the active
 `SurfaceContract` capability (`physical coverage`, `physical raycast`, or
 `physical pose`) and use the contract's opaque chunk handle when it needs a
 backend-independent identity.
+
+### Cube vertical geometry replay
+
+`make test-cube-vertical-geometry-e2e` runs
+`tests/scenes/cube_vertical_geometry_replay.dsl` under Hyprland. The scene
+places the same flat 5x5 stone wall in legacy and cube worlds, captures both at
+camera `0.000000,10.550000,0.000000`, and verifies cube activation. The exact
+per-vertex transform invariant lives in `test_cube_generation`; the scene keeps
+the real mesh upload and render path deterministic for visual review.

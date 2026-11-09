@@ -263,6 +263,7 @@ test-e2e: $(TARGET) $(BUILD_DIR)/diagnostics-plugins/diagnostics.so
 	bash tests/test_water_section_e2e.sh $(TARGET)
 	bash tests/test_flat_baseline_e2e.sh $(TARGET)
 	bash tests/test_debug_fields_e2e.sh $(TARGET)
+	bash tests/test_cube_vertical_geometry_e2e.sh $(TARGET)
 
 # These scripts existed and passed but nothing invoked them: no make target, no
 # CI entry, nobody sourcing them. They are the only coverage of stratified
@@ -379,6 +380,10 @@ test-surface-cube: $(SURFACE_CUBE_TEST_TARGET) $(SURFACE_TOPOLOGY_TEST_TARGET) $
 .PHONY: test-surface-topology-e2e
 test-surface-topology-e2e: $(TARGET)
 	bash tests/test_surface_topology_e2e.sh $(TARGET)
+
+.PHONY: test-cube-vertical-geometry-e2e
+test-cube-vertical-geometry-e2e: $(TARGET)
+	bash tests/test_cube_vertical_geometry_e2e.sh $(TARGET)
 
 # The documentation gate is Node-only. Without this guard a missing node
 # surfaced as a bare "node: command not found" from inside a make recipe, which

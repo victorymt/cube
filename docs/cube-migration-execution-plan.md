@@ -23,7 +23,7 @@ The cube runtime path already supports landing, walking, picking, edits,
 physical coverage streaming, generation and rendering behind that debug entry.
 The migration is not complete:
 
-- the terrain mesh still draws the unresolved green wall above the player;
+- the M2 baseline still drew the vertical terrain stretch above the player;
 - fluid refuses to run on cube surfaces because its queue keys do not include
   the face identity;
 - V30 is not implemented, and a cube save cannot yet start in a fresh process
@@ -161,6 +161,8 @@ M1.
 
 ### M2: close G1 core cube loop
 
+**Status:** complete (2026-11-09)
+
 Work:
 
 - reproduce the green wall with a deterministic DSL scene and screenshots;
@@ -170,7 +172,16 @@ Work:
 - add the regression scene and update `docs/debug-dsl.md` if a diagnostic is
   missing.
 
-Exit evidence: G1 scenarios and visual evidence pass under Hyprland. Commit M2.
+Exit evidence: `test_cube_generation` now checks every transformed mesh vertex
+against the section anchor frame, verifies section bounds contain those
+vertices, checks synthetic and real varied-terrain slab extents, and checks
+coverage follows a distant face-edge focus. The Hyprland replay
+`make test-cube-vertical-geometry-e2e` captures the same flat 5x5 stone wall
+through legacy and cube, with both screenshots at camera
+`0.000000,10.550000,0.000000`; the cube capture keeps the wall vertical and
+aligned instead of stretching it. Artifacts are retained under
+`/tmp/voxelcraft-cube-vertical.*`. The historical exclusion trail is retained in
+[the 2026-10-22 audit](cube-audit-2026-10-22.md). Commit M2.
 
 ### M3: close G2 with V30
 

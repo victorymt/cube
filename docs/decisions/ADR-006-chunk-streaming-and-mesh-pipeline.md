@@ -91,3 +91,9 @@ contract now returns opaque chunk handles and renamed cube-only coverage values
 (`SurfaceCubeCoverageCandidate` / `SurfaceCubeCoverageResult`). Consumers must
 not infer admission identity from `SurfaceChunkKey` or `SurfaceCubeChunkKey`;
 streaming and draw-distance integration move through the active contract.
+
+M2 makes the cube mesh coordinate convention explicit: mesh vertices and
+frustum bounds are encoded in the section anchor's tangent frame, then the
+renderer transforms that frame into the camera-local reference frame. Legacy
+and cube share the same projected geometry path; cube adds exact face
+neighbours, not a second vertex convention.

@@ -117,6 +117,7 @@ make test-headers               # 每个公共头独立编译
 make test-modules               # 七个组件归档都能单独构建
 python3 scripts/coupling-report.py
 make check-docs                 # 本文自身的链接、锚点与散文规则
+make test-cube-vertical-geometry-e2e  # Hyprland 下 legacy/cube 同一竖墙回放
 ```
 
 规则清单本身在 `tests/test_architecture.sh`，本文只解释它为什么这样划；两者不一致时以脚本为准，并修本文。

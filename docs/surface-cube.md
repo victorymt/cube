@@ -217,8 +217,9 @@ Progress as of 2026-10-23 is marked per item; unmarked text is the original
    `surface_ready`'s existing local readiness meaning and expose separate
    requested/ready coverage diagnostics instead of claiming visual readiness.
    **Diagnostics are exposed** (`stream.cube.*`); LOD and drawing policy are
-   still not unified, and a vertical-stretch defect in the terrain mesh remains
-   open.
+   still not unified. The M2 transform/bounds repair now makes mesh vertices and
+   frustum centers use the same section anchor frame, closing the vertical
+   stretch.
 4. Replay the existing temperate and dry polar scenes using geographic
    targets, then cross poles/face edges on foot, edit blocks, unload/reload,
    and save/reload. Pin the v9 output and enforce memory budgets. Complete V30
@@ -377,10 +378,14 @@ M1 now supplies one topology-neutral `SurfaceContract` for legacy and cube,
 with opaque chunk/section handles, complete `WorldCell` I/O, semantic
 neighbours, samples, regions and physical coverage. The active contract is the
 single long-lived `TerrainCubeContext` owner; player collision and main
-streaming use contract capabilities instead of topology branches. Fluid,
-ecology/decoration, the remaining diagnostic consumers, V30 save/undo and the
-normal streaming default still require migration before cube-grid becomes the
-default.
+streaming use contract capabilities instead of topology branches.
+
+M2 closed the remaining vertical stretch by applying one section-anchor tangent
+frame consistently to mesh vertices, render transforms and frustum bounds. The
+new `cube_vertical_geometry_replay.dsl` scene captures the same flat vertical
+wall through legacy and cube under Hyprland. Fluid, ecology/decoration, the
+remaining diagnostic consumers, V30 save/undo and the normal streaming default
+still require migration before cube-grid becomes the default.
 
 Validation: the full `make -j10 test all` run passed all 120 binaries, 193
 public headers, module/game builds, CLI/protocol checks and architecture guards.

@@ -324,6 +324,7 @@ G1 和 G2 是**不可跳过的硬门槛**，也是估算校准点：跨过 G2 �
 | 2026-10-23 | **修复**：渲染帧原点 | `SurfaceChunkRenderTransform` 在 radial 0 构建帧，导致每个 section 整体偏移一个球半径、地形呈"漂浮板块"。改为按相机半径构建帧 |
 | 2026-10-23 | 玩家闭环实测 | 用 `input 0 0 0 0 240` 真实推进帧后：`player.on_ground=true`，稳定在 `y=83.13`，`input_frames` 归零。落地与行走成立 |
 | 2026-10-23 | **未解决**：画面纵向拉伸 | 上述两处几何修复后，画面上方**仍**是被拉成长条的绿色地形面。已排除：地形数据、顶点 Y、section 径向定位、flora。第四环节未定位 |
+| 2026-11-09 | **修复**：剩余纵向拉伸 | M2 发现 mesh 使用 section anchor tangent frame，而 render transform 混用 camera basis 与另一套 origin/radial 规则；frustum center 也使用未投影 Cartesian offset。统一 anchor→camera-local 变换和 bounds frame 后，per-vertex、slab、bounds 与 Hyprland legacy/cube 墙体回放均通过 |
 | 待续 | W1-3 流体：真正改造 | 队列需承载 `SurfaceCubeChunkKey` |
 | 2026-10-22 | W3 其余 | 生态、CGA、地形高度查询尚未切换 |
 | 待续 | W2 其余 | V30 版本号与界面文案尚未切换 |
@@ -362,10 +363,10 @@ G1 和 G2 是**不可跳过的硬门槛**，也是估算校准点：跨过 G2 �
 
 | 未收口项 | 状态 |
 |---|---|
-| 画面上方纵向拉伸（唯一剩余视觉问题） | 未定位第四环节 |
+| 画面上方纵向拉伸（唯一剩余视觉问题） | 2026-11-09 M2 修复并通过 Hyprland 回放 |
 | 流体在 cube 下暂停 | 队列需先承载 `SurfaceCubeChunkKey` |
 
-G1 因此**尚未关闭**。
+G1 的剩余 visual blocker 已在 M2 关闭；完整 V30/consumer parity 仍按当前执行计划推进。
 
 ## 8. 移动尺度实测：为什么移动不能按 map 格缩放（2026-10-22）
 

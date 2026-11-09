@@ -26,7 +26,7 @@ metadata:
 | --- | --- | --- | --- |
 | 单元测试 | `tests/test_*.c`（128 个） | `mk/tests.mk` 的 `define_test` | 文件头 3–8 行 + 关键 `Test*` 函数上一行 |
 | 门禁测试 | `tests/test_*.sh`（25 个） | `Makefile` 的 `test-*` 目标 | 文件头说明守什么不变量、违规时提示怎么修 |
-| E2E | `tests/test_*_e2e.sh`（16 个）+ `tests/scenes/*.dsl`（48 个） | `test-e2e` / Hyprland CI job | 脚本头说明验证的画面/状态；场景靠 `assert` 自述 |
+| E2E | `tests/test_*_e2e.sh`（17 个）+ `tests/scenes/*.dsl`（49 个） | `test-e2e` / Hyprland CI job | 脚本头说明验证的画面/状态；场景靠 `assert` 自述 |
 | Benchmark | `tests/benchmark_chunks.c` | `test-benchmark-invariants` | 输出的每个不变量必须来自测量，并注明来源 |
 
 要点：
@@ -197,3 +197,7 @@ M1 adds a mandatory architecture sweep via
 `tests/test_surface_contract_boundaries.sh`. When a test or production change
 touches surface consumers, run it with `make test-architecture`; new backend
 tokens must use `SurfaceContract`, not extend the exact allowlist casually.
+
+M2 adds `test-cube-vertical-geometry-e2e`: the scene captures the same vertical
+wall through legacy and cube under Hyprland, while `test_cube_generation` owns
+the exhaustive per-vertex transform and section-bounds invariant.

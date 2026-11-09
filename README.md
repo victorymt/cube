@@ -330,6 +330,7 @@ make test-debug-graphics-e2e
 make test-chunk-diagnostics-e2e
 # Independent 600-frame polar route, also included in that CI job:
 make test-polar-e2e
+make test-cube-vertical-geometry-e2e
 ```
 
 The full route covers startup, materials and flora, weather and hazards,
