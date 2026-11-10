@@ -220,7 +220,7 @@ Progress as of 2026-10-23 is marked per item; unmarked text is the original
    and drawing. Derive conservative bounds from curved mesh geometry. Keep
    `surface_ready`'s existing local readiness meaning and expose separate
    requested/ready coverage diagnostics instead of claiming visual readiness.
-   **M5.1–M5.2 are done**: one physical candidate list now drives retention,
+   **M5.1–M5.3 are done**: one physical candidate list now drives retention,
    exact-slot eviction, duplicate absorption, stale replacement and
    nearest-first submission under the fixed 625-slot cap. Invalid input leaves
    the resident pool and last observation untouched. `SurfaceCoverageEvidence`
@@ -229,8 +229,10 @@ Progress as of 2026-10-23 is marked per item; unmarked text is the original
    physical patch distance as admission and draw culling; main and shadow passes
    only cull the latest admitted set. `render.coverage.*` distinguishes actual
    visible and submitted sections from admitted or target-LOD-ready columns. The
-   M2 transform/bounds repair now makes mesh vertices and frustum centers use the
-   same section anchor frame, closing the vertical stretch.
+   parameterized Hyprland matrix covers all six faces, 12 edges, 8 corners, both
+   poles, a high camera and render distances 4/8/12 with 31 PNG/report pairs.
+   The M2 transform/bounds repair now makes mesh vertices and frustum centers use
+   the same section anchor frame, closing the vertical stretch.
 4. Replay the existing temperate and dry polar scenes using geographic
    targets, then cross poles/face edges on foot, edit blocks, unload/reload,
    and save/reload. Pin the v9 output and enforce memory budgets. Complete V30

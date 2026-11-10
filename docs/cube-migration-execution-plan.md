@@ -38,7 +38,7 @@ Execution state:
 | M2 | complete | Cube mesh vertices, transforms and bounds share the section anchor frame. |
 | M3 | complete | V30 persists topology, canonical pose and complete cell edits. |
 | M4 | complete | Homeworld consumers use the surface contract and new Homeworld worlds default to cube-grid. |
-| M5 | active | M5.0–M5.2 complete; run the visual matrix, then close visual/performance acceptance. |
+| M5 | active | M5.0–M5.3 complete; collect the final visual/performance budgets in M5.4. |
 | M6 | pending | Remove Homeworld-only transition paths and close the migration. |
 
 This plan deliberately does not migrate planets. The surface interfaces and
@@ -625,7 +625,7 @@ complete `make test` run (136 passed, 0 failed) pass. Code commit `5e4fdc3`.
 
 #### M5.3: run the six-face visual matrix
 
-**Status:** next
+**Status:** complete (2026-11-10)
 
 Add deterministic Hyprland scenes for all six faces, face edges, corners, both
 poles, high altitude and multiple render distances. Each scene records camera,
@@ -646,9 +646,35 @@ Implementation and evidence:
   narrow strip, and LOD evidence agrees with the drawn sections. Saturated cases
   remain explicit and may not be asserted as complete visual coverage.
 
+Exit evidence: `tests/test_cube_surface_matrix_e2e.sh` generates one DSL route
+from `tests/cube_surface_matrix.cases` and runs 31 Hyprland scenes at 1280x720:
+6 face centers, 12 edges, 8 corners, both poles, one 128-block-high camera and
+render distances 4/8/12. `surface address` supplies integer cube identity;
+`fly on` holds altitude without a pause menu. Each scene waits for local terrain,
+visible/drawn terrain and target-LOD stability, then captures a PNG plus a
+format-v13 report containing coverage and render evidence. The final run passed
+31/31 with no missing draw, no visible target-LOD miss, no invalid saturation
+pair and no local-terrain failure. Eleven cases were unsaturated; twenty
+edge/corner cases were explicitly saturated at 625 admitted columns with
+`requested > admitted`. Generation/mesh queue peaks were 62/8. The visual
+contact sheet showed terrain and water across all six faces, seams, corners,
+poles and distances without the legacy polar narrow strip. The durable metric
+table and run recipe are in
+[`docs/performance/cube-surface-matrix-2026-11-10.md`](performance/cube-surface-matrix-2026-11-10.md).
+
+M5.3 also corrected three latent boundaries exposed by the matrix: cube
+`SurfaceBlockReadyAt` now applies the current map origin; `SurfacePoseFromAddress`
+uses a double-precision position-derived tangent frame; and map-space CGA
+chunks that cannot form one canonical rectangle (polar or seam-global-wrap) now
+retain cube base terrain while omitting CGA structures. Representable chunks
+still plan structures normally. This limitation must remain explicit until CGA
+planning is topology-native.
+
+Code commit target: `test(cube): cover the Homeworld visual matrix`.
+
 #### M5.4: close coverage and performance evidence
 
-**Status:** pending M5.3
+**Status:** next
 
 Repeat frame-time, memory, queue and saturation measurements on the same machine
 and scenes. If a budget fails, record the deficit and stop rather than changing

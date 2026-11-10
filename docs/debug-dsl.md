@@ -727,12 +727,14 @@ Runtime values are sampled when an expression is evaluated:
 | `render.coverage.main_target_lod_missing_sections` | number | Visible main-pass sections not ready at their target LOD |
 | `render.coverage.main_drawn_sections` | number | Visible main-pass sections that submitted at least one model |
 | `render.coverage.main_solid_draws`, `render.coverage.main_water_draws`, `render.coverage.main_flora_draws` | number | Main-pass solid, water and flora model submissions |
+| `render.coverage.main_solid_triangles`, `render.coverage.main_water_triangles`, `render.coverage.main_flora_triangles` | number | Triangles submitted by each main-pass model class |
 | `render.coverage.shadow_admission_culled_columns`, `render.coverage.shadow_distance_culled_columns` | number | Shadow-pass columns rejected by admission and physical distance |
 | `render.coverage.shadow_candidate_sections`, `render.coverage.shadow_frustum_culled_sections` | number | Shadow-pass sections entering shadow visibility and those culled |
 | `render.coverage.shadow_visible_sections` | number | Shadow-pass sections passing admission, distance and shadow visibility |
 | `render.coverage.shadow_target_lod_missing_sections` | number | Visible shadow-pass sections not ready at their target LOD |
 | `render.coverage.shadow_drawn_sections` | number | Visible shadow-pass sections that submitted at least one model |
 | `render.coverage.shadow_solid_draws`, `render.coverage.shadow_water_draws`, `render.coverage.shadow_flora_draws` | number | Shadow-pass solid, water and flora submissions; water is currently always zero |
+| `render.coverage.shadow_solid_triangles`, `render.coverage.shadow_water_triangles`, `render.coverage.shadow_flora_triangles` | number | Triangles submitted by each shadow-pass model class |
 | `settings.autosave` | bool | Autosave state (false in debug mode) |
 
 ### Note on the `stream.cube.*` rows above
@@ -811,6 +813,7 @@ map layer liquids on|off
 surface debug home
 surface debug cube
 surface pose LONGITUDE LATITUDE RADIAL YAW PITCH
+surface address FACE U V ALTITUDE YAW PITCH
 surface debug planet temperate|desert|ice|lava|crater SEED
 water debug
 water debug on|off
@@ -867,10 +870,18 @@ A fresh normal Homeworld already starts on cube-grid. The planet form
 creates a deterministic solid surface for the requested style and seed. These
 surface commands use normal chunk teardown and surface activation, and require
 the playing screen. `save` and `load` require the playing screen.
+Capture report format version 13 embeds `coverage.cube.*` and the committed
+`render.coverage.*` snapshot, so a matrix screenshot carries its own
+requested/admitted/LOD/visible/drawn evidence.
 `surface pose` places the player at a geographic longitude/latitude (radians),
 radial height and yaw/pitch on the active surface. It is intended for
 face-edge, pole and cube cross-process scenes where map-coordinate teleporting
 would depend on the current local origin.
+`surface address` is the cube-grid-native form: `FACE` is `0..5`, `U/V` are
+cube face cells `0..4095`, `ALTITUDE` is blocks above the sampled terrain
+elevation, and `YAW/PITCH` use the same ranges as `look`. It is rejected on the
+legacy backend or when the address has no representable surface pose. This is
+the preferred matrix route because it avoids geographic round trips at seams.
 
 Only V30 world saves are supported. The `TOPOL002` header records independent
 Homeworld and planetary topology descriptors. The core stores a canonical
@@ -945,6 +956,7 @@ look delta YAW_DELTA PITCH_DELTA
 look at X Y Z
 input FORWARD STRAFE VERTICAL SPRINT FRAMES
 input manual|scripted
+fly on|off
 mouse left
 mouse right
 ui click X Y
@@ -968,6 +980,9 @@ pending player/ship input windows. Later explicit input windows still take
 precedence, then return to the selected mode. `input scripted` restores test
 isolation. `player.manual_input` reports whether physical navigation is enabled;
 ordinary pause menus and cursor-release state still apply.
+`fly on` enables the ordinary floating movement state and clears vertical
+velocity; `fly off` restores gravity-driven movement. Unlike `pause on`, it does
+not open a menu, so deterministic matrix screenshots can hold a chosen altitude.
 
 Teleport coordinates are finite and bounded to +/-1,000,000,
 yaw to +/-1,000, and pitch to [-1.45, 1.45]. Absolute look uses the same pitch
