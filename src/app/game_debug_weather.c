@@ -100,9 +100,11 @@ static WeatherRadiationDslState WeatherRadiationState(
 
     RadiationRuntimeSnapshot snapshot = { 0 };
     double offsetK = 0.0;
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        WorldCurrentSurfaceId(), (float)canonical.x + 0.5f,
+        (float)canonical.z + 0.5f, 0);
     if (!RadiationRuntimeGlobalSnapshot(&snapshot) ||
-        !RadiationRuntimeGlobalTemperatureOffsetAt(
-            WorldCurrentSurfaceId(), canonical.x, canonical.z, &offsetK) ||
+        !RadiationRuntimeGlobalTemperatureOffsetAtAddress(address, &offsetK) ||
         !snapshot.valid || !isfinite(snapshot.column.temperatureK) ||
         !isfinite(offsetK)) {
         return state;

@@ -364,12 +364,6 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
     int targetWidth = plan.targetWidth;
     int targetHeight = plan.targetHeight;
     int placed = 0;
-    int minChunkX = 0;
-    int maxChunkX = 0;
-    int minChunkZ = 0;
-    int maxChunkZ = 0;
-    bool haveTouchedChunk = false;
-
     WorldBeginUndoGroup();
     for (int py = 0; py < targetHeight; py++) {
         for (int px = 0; px < targetWidth; px++) {
@@ -398,33 +392,9 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
                     placed++;
                 }
             }
-
-            int cx = 0;
-            int cz = 0;
-            int lx = 0;
-            int lz = 0;
-            WorldToChunkLocal(wx, wz, &cx, &cz, &lx, &lz);
-            if (!haveTouchedChunk) {
-                minChunkX = maxChunkX = cx;
-                minChunkZ = maxChunkZ = cz;
-                haveTouchedChunk = true;
-            } else {
-                if (cx < minChunkX) minChunkX = cx;
-                if (cx > maxChunkX) maxChunkX = cx;
-                if (cz < minChunkZ) minChunkZ = cz;
-                if (cz > maxChunkZ) maxChunkZ = cz;
-            }
         }
     }
     WorldEndUndoGroup();
-
-    if (haveTouchedChunk) {
-        for (int cz = minChunkZ - 1; cz <= maxChunkZ + 1; cz++) {
-            for (int cx = minChunkX - 1; cx <= maxChunkX + 1; cx++) {
-                MarkChunkDirty(cx, cz);
-            }
-        }
-    }
 
     UnloadImage(image);
     GameNoticePost(TextFormat("Imported %dx%d %s blocks (%d total), precision %d.",

@@ -3,13 +3,14 @@
 
 #include "space/planet_profile.h"
 #include "world/radiation_balance.h"
+#include "world/surface_contract.h"
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
 
 /* Increment this when the in-memory runtime state layout changes. */
-#define RADIATION_RUNTIME_STATE_VERSION 1u
+#define RADIATION_RUNTIME_STATE_VERSION 2u
 #define RADIATION_RUNTIME_STATE_MAGIC 0x52544431u /* "RTD1" */
 
 #define RADIATION_RUNTIME_DEFAULT_FIXED_STEP_SECONDS (1.0 / 60.0)
@@ -61,6 +62,8 @@ typedef struct RadiationRuntime {
     uint32_t boundSurfaceId;
     int boundRegionX;
     int boundRegionZ;
+    SurfaceRegionHandle boundRegion;
+    bool hasRegionHandle;
     double baselineTemperatureK;
     bool hasBinding;
     bool initialized;
@@ -110,6 +113,11 @@ bool RadiationRuntimeGetSnapshot(const RadiationRuntime *runtime,
 bool RadiationRuntimeGlobalReset(const RadiationRuntimeConfig *config);
 bool RadiationRuntimeGlobalBind(uint32_t surfaceId, int mapX, int mapZ,
                                 double initialTemperatureK);
+bool RadiationRuntimeGlobalBindAddress(SurfaceAddress address,
+                                       double initialTemperatureK);
+bool RadiationRuntimeGlobalBindSurfaceRegion(uint32_t surfaceId,
+                                             SurfaceRegionHandle region,
+                                             double initialTemperatureK);
 bool RadiationRuntimeGlobalAdvance(
     const PlanetProfile *profile,
     const RadiationRuntimeLocationTime *location,
@@ -119,6 +127,8 @@ bool RadiationRuntimeGlobalSnapshot(RadiationRuntimeSnapshot *out);
 bool RadiationRuntimeGlobalTemperatureOffsetAt(uint32_t surfaceId,
                                                int mapX, int mapZ,
                                                double *outOffsetK);
+bool RadiationRuntimeGlobalTemperatureOffsetAtAddress(SurfaceAddress address,
+                                                      double *outOffsetK);
 bool RadiationRuntimeGlobalSaveState(FILE *file);
 bool RadiationRuntimeGlobalLoadState(FILE *file);
 

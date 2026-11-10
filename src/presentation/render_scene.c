@@ -66,12 +66,12 @@ void WorldRenderFramePrepare(const Camera3D *camera,
     worldFrameCameraCz = 0;
     worldFrameEffectiveRenderDistance = effectiveRenderDistance;
     worldFrameDrawSurfaceChunks = drawSurfaceChunks;
-    int localX = 0;
-    int localZ = 0;
-    WorldToChunkLocal((int)floorf(camera->position.x),
-                      (int)floorf(camera->position.z),
-                      &worldFrameCameraCx, &worldFrameCameraCz,
-                      &localX, &localZ);
+    int cameraX = (int)floorf(camera->position.x);
+    int cameraZ = (int)floorf(camera->position.z);
+    worldFrameCameraCx = cameraX >= 0 ? cameraX / CHUNK_SIZE :
+        -((-cameraX + CHUNK_SIZE - 1) / CHUNK_SIZE);
+    worldFrameCameraCz = cameraZ >= 0 ? cameraZ / CHUNK_SIZE :
+        -((-cameraZ + CHUNK_SIZE - 1) / CHUNK_SIZE);
     worldFrameShadowChunkRadius = WorldRendererShadowChunkRadius();
     if (worldFrameShadowChunkRadius > effectiveRenderDistance) {
         worldFrameShadowChunkRadius = effectiveRenderDistance;

@@ -42,11 +42,13 @@ static bool HydrologyState(const GameRuntime *game,
     SurfaceMapCell canonical = SurfaceCanonicalMapCell(
         (float)originX + floorf(game->player.position.x),
         (float)originZ + floorf(game->player.position.z));
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        WorldCurrentSurfaceId(), (float)canonical.x + 0.5f,
+        (float)canonical.z + 0.5f, 0);
     HydrologyRuntimeSnapshot snapshot = { 0 };
     HydrologyRuntimeFeedback feedback = { 0 };
     if (!HydrologyRuntimeGlobalSnapshot(&snapshot) || !snapshot.active ||
-        !HydrologyRuntimeGlobalFeedbackAt(
-            WorldCurrentSurfaceId(), canonical.x, canonical.z, &feedback)) {
+        !HydrologyRuntimeGlobalFeedbackAtAddress(address, &feedback)) {
         return false;
     }
     if (outSnapshot) *outSnapshot = snapshot;

@@ -291,9 +291,11 @@ static bool WeatherInputForTime(Vector3 playerPosition, double simulationTime,
         }
         double radiationOffsetK = 0.0;
         if (!historical && !WorldNetherIsActive()) {
-            (void)RadiationRuntimeGlobalTemperatureOffsetAt(
-                WorldCurrentSurfaceId(), canonical.x, canonical.z,
-                &radiationOffsetK);
+            SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+                WorldCurrentSurfaceId(), (float)canonical.x + 0.5f,
+                (float)canonical.z + 0.5f, 0);
+            (void)RadiationRuntimeGlobalTemperatureOffsetAtAddress(
+                address, &radiationOffsetK);
         }
         climateInput.meanTemperatureK += (float)radiationOffsetK;
         if (!LocalClimateEvaluate(&climateInput, &climate)) return false;
@@ -381,9 +383,11 @@ static bool WeatherInputForTime(Vector3 playerPosition, double simulationTime,
         }
         double radiationOffsetK = 0.0;
         if (!historical && !WorldNetherIsActive()) {
-            (void)RadiationRuntimeGlobalTemperatureOffsetAt(
-                WorldCurrentSurfaceId(), canonical.x, canonical.z,
-                &radiationOffsetK);
+            SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+                WorldCurrentSurfaceId(), (float)canonical.x + 0.5f,
+                (float)canonical.z + 0.5f, 0);
+            (void)RadiationRuntimeGlobalTemperatureOffsetAtAddress(
+                address, &radiationOffsetK);
         }
         climateInput.meanTemperatureK += (float)radiationOffsetK;
         if (!LocalClimateEvaluate(&climateInput, &climate)) return false;

@@ -125,6 +125,8 @@ bool SetBlockForImport(int x, int y, int z, BlockType type)
     (void)z;
     (void)type;
     importedBlockWrites++;
+    /* Production SetBlockForImport owns dirty marking through SetBlockCore. */
+    dirtyChunkCalls++;
     return true;
 }
 
@@ -447,7 +449,7 @@ static void TestImageImportClosesUndoGroup(void)
     assert(undoBeginCalls == 1 && undoEndCalls == 1);
     // Relief clears the entire generated column, including historical terrain.
     assert(importedBlockWrites == SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 1);
-    assert(dirtyChunkCalls > 0);
+    assert(dirtyChunkCalls == importedBlockWrites);
 }
 
 static void TestImportDialogOpenContract(void)

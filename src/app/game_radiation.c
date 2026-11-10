@@ -76,9 +76,11 @@ void GameAdvanceRadiationSimulationStep(GameRuntime *game,
         .longitudeRad = longitude,
         .simulationTimeGameTime = periodicTime
     };
-    if (!RadiationRuntimeGlobalBind(
-            WorldCurrentSurfaceId(), canonical.x, canonical.z,
-            baselineTemperatureK)) {
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        WorldCurrentSurfaceId(), (float)originX + game->player.position.x,
+        (float)originZ + game->player.position.z,
+        (int)floorf(game->player.position.y));
+    if (!RadiationRuntimeGlobalBindAddress(address, baselineTemperatureK)) {
         return;
     }
     (void)RadiationRuntimeGlobalAdvance(

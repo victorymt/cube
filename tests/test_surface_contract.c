@@ -7,6 +7,8 @@
 #include "world/surface_topology.h"
 #include "world/world_cube.h"
 #include "world/world_surface_snapshot.h"
+#include "world/hydrology_runtime.h"
+#include "world/radiation_runtime.h"
 #include "surface_contract_fixture.h"
 
 #include <assert.h>
@@ -167,6 +169,158 @@ static void AssertWorldCellFacade(const SurfaceContract *contract,
     assert(WorldSurfaceBiomeAt(localX, localZ, &biome));
 }
 
+static int RuntimeRegionCoordinate(int mapCoordinate)
+{
+    int64_t value = mapCoordinate;
+    if (value >= 0) return (int)(value / HYDROLOGY_RUNTIME_REGION_SIZE);
+    return (int)(-((-value + HYDROLOGY_RUNTIME_REGION_SIZE - 1) /
+                  HYDROLOGY_RUNTIME_REGION_SIZE));
+}
+
+static void AssertRegionRuntimeFacade(const SurfaceContract *contract,
+                                      SurfaceAddress address,
+                                      SurfaceAddress sameRegion,
+                                      SurfaceAddress outsideRegion)
+{
+    SurfaceRegionHandle region =
+        SurfaceContractRegionForAddress(contract, address);
+    assert(region.opaque[0] != 0u || region.opaque[1] != 0u);
+    assert(SurfaceContractSameRegion(contract, address, sameRegion));
+    assert(!SurfaceContractSameRegion(contract, address, outsideRegion));
+
+    HydrologyRuntime hydrology;
+    assert(HydrologyRuntimeInit(&hydrology, NULL));
+    assert(HydrologyRuntimeBindAddress(&hydrology, address));
+    assert(hydrology.location.hasRegion);
+    assert(hydrology.location.region.opaque[0] == region.opaque[0] &&
+           hydrology.location.region.opaque[1] == region.opaque[1]);
+
+    SurfaceMapCell primaryCell;
+    SurfaceMapCell sameRegionCell;
+    assert(SurfaceAddressCanonicalMapCell(address, &primaryCell));
+    assert(SurfaceAddressCanonicalMapCell(sameRegion, &sameRegionCell));
+    int primaryGridX = (primaryCell.x -
+        RuntimeRegionCoordinate(primaryCell.x) *
+            HYDROLOGY_RUNTIME_REGION_SIZE) /
+        (HYDROLOGY_RUNTIME_REGION_SIZE / HYDROLOGY_RUNTIME_GRID_SIZE);
+    int primaryGridZ = (primaryCell.z -
+        RuntimeRegionCoordinate(primaryCell.z) *
+            HYDROLOGY_RUNTIME_REGION_SIZE) /
+        (HYDROLOGY_RUNTIME_REGION_SIZE / HYDROLOGY_RUNTIME_GRID_SIZE);
+    int sameGridX = (sameRegionCell.x -
+        RuntimeRegionCoordinate(sameRegionCell.x) *
+            HYDROLOGY_RUNTIME_REGION_SIZE) /
+        (HYDROLOGY_RUNTIME_REGION_SIZE / HYDROLOGY_RUNTIME_GRID_SIZE);
+    int sameGridZ = (sameRegionCell.z -
+        RuntimeRegionCoordinate(sameRegionCell.z) *
+            HYDROLOGY_RUNTIME_REGION_SIZE) /
+        (HYDROLOGY_RUNTIME_REGION_SIZE / HYDROLOGY_RUNTIME_GRID_SIZE);
+    assert(primaryGridX != sameGridX || primaryGridZ != sameGridZ);
+    assert(HydrologyRuntimeAddPrecipitationCell(
+        &hydrology, primaryGridX, primaryGridZ, 1.0f));
+
+    HydrologyRuntimeFeedback feedback;
+    assert(HydrologyRuntimeFeedbackAtAddress(
+        &hydrology, address, &feedback));
+    assert(feedback.surfaceWaterM > 0.0f);
+    assert(HydrologyRuntimeFeedbackAtAddress(
+        &hydrology, sameRegion, &feedback));
+    assert(feedback.surfaceWaterM == 0.0f);
+    assert(!HydrologyRuntimeFeedbackAtAddress(
+        &hydrology, outsideRegion, &feedback));
+    HydrologyRuntimeFree(&hydrology);
+
+    assert(RadiationRuntimeGlobalReset(NULL));
+    assert(RadiationRuntimeGlobalBindAddress(address, 288.0));
+    PlanetProfile profile = {
+        .receivedIrradiance = 1.0f,
+        .equilibriumTempK = 288.0f,
+        .albedo = 0.30f,
+        .greenhouseEffect = 0.40f,
+        .orbitalEccentricity = 0.0167f,
+        .axialTilt = 23.44f * 3.14159265358979323846f / 180.0f,
+        .yearLength = 365.25f,
+        .rotationRate = 360.0f
+    };
+    RadiationRuntimeLocationTime location = {
+        .latitudeRad = 0.4,
+        .longitudeRad = -0.6,
+        .simulationTimeGameTime = 4.0
+    };
+    unsigned steps = 0u;
+    assert(RadiationRuntimeGlobalAdvance(
+        &profile, &location, 0.1, &steps));
+    assert(steps > 0u);
+    double offsetK = 0.0;
+    assert(RadiationRuntimeGlobalTemperatureOffsetAtAddress(
+        address, &offsetK));
+    assert(isfinite(offsetK));
+    assert(!RadiationRuntimeGlobalTemperatureOffsetAtAddress(
+        outsideRegion, &offsetK));
+    assert(offsetK == 0.0);
+
+    RadiationRuntimeSnapshot before = { 0 };
+    assert(RadiationRuntimeGlobalSnapshot(&before));
+    FILE *file = tmpfile();
+    assert(file);
+    assert(RadiationRuntimeGlobalSaveState(file));
+    rewind(file);
+    assert(RadiationRuntimeGlobalReset(NULL));
+    assert(RadiationRuntimeGlobalLoadState(file));
+    fclose(file);
+    RadiationRuntimeSnapshot after = { 0 };
+    assert(RadiationRuntimeGlobalSnapshot(&after));
+    assert(after.stepCount == before.stepCount);
+    assert(RadiationRuntimeGlobalTemperatureOffsetAtAddress(
+        address, &offsetK));
+    assert(RadiationRuntimeGlobalBindAddress(address, 999.0));
+    assert(RadiationRuntimeGlobalSnapshot(&after));
+    assert(after.stepCount == before.stepCount);
+}
+
+static void AssertHydrologySamplingRegionTransition(
+    const SurfaceContract *contract, SurfaceAddress first,
+    SurfaceAddress next)
+{
+    assert(SurfaceContractSameRegion(contract, first, next));
+    SurfaceMapCell firstCell;
+    SurfaceMapCell nextCell;
+    assert(SurfaceAddressCanonicalMapCell(first, &firstCell));
+    assert(SurfaceAddressCanonicalMapCell(next, &nextCell));
+    assert(RuntimeRegionCoordinate(firstCell.x) !=
+           RuntimeRegionCoordinate(nextCell.x));
+
+    HydrologyRuntime hydrology;
+    assert(HydrologyRuntimeInit(&hydrology, NULL));
+    assert(HydrologyRuntimeBindAddress(&hydrology, first));
+    int gridX = (firstCell.x -
+        RuntimeRegionCoordinate(firstCell.x) *
+            HYDROLOGY_RUNTIME_REGION_SIZE) /
+        (HYDROLOGY_RUNTIME_REGION_SIZE / HYDROLOGY_RUNTIME_GRID_SIZE);
+    int gridZ = (firstCell.z -
+        RuntimeRegionCoordinate(firstCell.z) *
+            HYDROLOGY_RUNTIME_REGION_SIZE) /
+        (HYDROLOGY_RUNTIME_REGION_SIZE / HYDROLOGY_RUNTIME_GRID_SIZE);
+    assert(HydrologyRuntimeAddPrecipitationCell(
+        &hydrology, gridX, gridZ, 1.0f));
+
+    assert(HydrologyRuntimeBindAddress(&hydrology, next));
+    assert(hydrology.location.regionX ==
+           RuntimeRegionCoordinate(nextCell.x));
+    assert(hydrology.location.regionZ ==
+           RuntimeRegionCoordinate(nextCell.z));
+    HydrologyCell resetCell;
+    assert(HydrologyRuntimeQueryCell(
+        &hydrology, gridX, gridZ, &resetCell));
+    assert(resetCell.surfaceWaterDepthM == 0.0f);
+    HydrologyRuntimeFeedback feedback;
+    assert(!HydrologyRuntimeFeedbackAtAddress(
+        &hydrology, first, &feedback));
+    assert(HydrologyRuntimeFeedbackAtAddress(
+        &hydrology, next, &feedback));
+    HydrologyRuntimeFree(&hydrology);
+}
+
 static void TestLegacyContract(void)
 {
     ResetWorldMemory();
@@ -182,6 +336,8 @@ static void TestLegacyContract(void)
     assert(WorldCurrentSurfaceContract() == contract);
 
     SurfaceAddress address = SurfaceAddressFromMapCoordinates(0, 100.0f, 100.0f, 0);
+    SurfaceAddress sameRegion = SurfaceAddressFromMapCoordinates(
+        0, 127.0f, 127.0f, 0);
     SurfaceAddress twin = SurfaceAddressFromMapCoordinates(0, 260.0f, 100.0f, 0);
     assert(SurfaceContractAddressIsValid(address));
     assert(SurfaceContractAddressIsValid(twin));
@@ -221,6 +377,7 @@ static void TestLegacyContract(void)
     };
     SurfaceContractFixtureAssert(&fixture);
     AssertWorldCellFacade(contract, address);
+    AssertRegionRuntimeFacade(contract, address, sameRegion, twin);
     assert(!SurfaceContractSupportsPhysicalCoverage(contract));
     assert(!SurfaceContractSupportsPhysicalRaycast(contract));
     assert(!SurfaceContractSupportsPhysicalPose(contract));
@@ -250,6 +407,8 @@ static void TestCubeContract(void)
     twin.u = address.u;
     twin.v = address.v;
     twin.radial = address.radial;
+    SurfaceAddress sameRegion = SurfaceAddressFromMapCoordinates(
+        0, 127.0f, 127.0f, address.radial);
     assert(!SurfaceContractCellIsKnown(contract, address));
     SurfaceCubeChunkKey primaryKey;
     SurfaceCubeChunkKey twinKey;
@@ -280,6 +439,10 @@ static void TestCubeContract(void)
     };
     SurfaceContractFixtureAssert(&fixture);
     AssertWorldCellFacade(contract, address);
+    AssertRegionRuntimeFacade(contract, address, sameRegion, twin);
+    AssertHydrologySamplingRegionTransition(
+        contract, address,
+        SurfaceAddressFromMapCoordinates(0, 300.0f, 100.0f, address.radial));
     assert(SurfaceContractSupportsPhysicalCoverage(contract));
     assert(SurfaceContractSupportsPhysicalRaycast(contract));
     assert(SurfaceContractSupportsPhysicalPose(contract));

@@ -111,9 +111,10 @@ static bool GameHydrologyBindRegion(GameRuntime *game)
         (float)originX + floorf(game->player.position.x),
         (float)originZ + floorf(game->player.position.z));
     uint32_t surfaceId = WorldCurrentSurfaceId();
-    if (!HydrologyRuntimeGlobalBind(surfaceId, canonical.x, canonical.z)) {
-        return false;
-    }
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        surfaceId, (float)canonical.x + 0.5f, (float)canonical.z + 0.5f,
+        (int)floorf(game->player.position.y));
+    if (!HydrologyRuntimeGlobalBindAddress(address)) return false;
     uint64_t runtimeGeneration = HydrologyRuntimeGlobalGeneration();
     uint32_t seed = WorldCurrentSurfaceContext().seed;
     TerrainMode terrainMode = WorldTerrainMode();
@@ -343,11 +344,11 @@ bool GameHydrologyFeedbackAt(int x, int z, double simulationTime,
     }
     int mapX = WorldSurfaceMapOriginX() + x;
     int mapZ = WorldSurfaceMapOriginZ() + z;
-    SurfaceMapCell canonical = SurfaceCanonicalMapCell(
-        (float)mapX, (float)mapZ);
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        WorldCurrentSurfaceId(), (float)mapX + 0.5f,
+        (float)mapZ + 0.5f, 0);
     HydrologyRuntimeFeedback feedback = { 0 };
-    if (!HydrologyRuntimeGlobalFeedbackAt(
-            WorldCurrentSurfaceId(), canonical.x, canonical.z, &feedback)) {
+    if (!HydrologyRuntimeGlobalFeedbackAtAddress(address, &feedback)) {
         return false;
     }
     *outFeedback = (LocalClimateHydrologyFeedback){

@@ -1,4 +1,7 @@
 #include "world/radiation_runtime.h"
+#include "world/surface_topology.h"
+#include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include <float.h>
 #include <math.h>
@@ -138,6 +141,14 @@ bool RadiationRuntimeStateIsValid(const RadiationRuntime *runtime)
         !(runtime->column.heatCapacityJm2K > 0.0) ||
         runtime->snapshot.version != RADIATION_RUNTIME_STATE_VERSION ||
         runtime->snapshot.stepCount == UINT64_MAX) {
+        return false;
+    }
+    if (runtime->hasBinding) {
+        if (!PositiveFinite(runtime->baselineTemperatureK)) return false;
+        if (runtime->hasRegionHandle &&
+            runtime->boundRegion.opaque[0] == 0u &&
+            runtime->boundRegion.opaque[1] == 0u) return false;
+    } else if (runtime->hasRegionHandle) {
         return false;
     }
     double representedEnergy = runtime->column.temperatureK *
@@ -394,6 +405,22 @@ bool RadiationRuntimeGetSnapshot(const RadiationRuntime *runtime,
 
 static RadiationRuntime globalRuntime;
 
+static bool RegionHandleEqual(SurfaceRegionHandle a, SurfaceRegionHandle b)
+{
+    return a.opaque[0] == b.opaque[0] && a.opaque[1] == b.opaque[1];
+}
+
+static bool RegionForMap(uint32_t surfaceId, int mapX, int mapZ,
+                         SurfaceRegionHandle *out)
+{
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        surfaceId, (float)mapX, (float)mapZ, 0);
+    if (!out || !contract) return false;
+    *out = SurfaceContractRegionForAddress(contract, address);
+    return out->opaque[0] != 0u || out->opaque[1] != 0u;
+}
+
 static int RegionCoordinate(int mapCoordinate)
 {
     int64_t value = mapCoordinate;
@@ -416,10 +443,15 @@ bool RadiationRuntimeGlobalBind(uint32_t surfaceId, int mapX, int mapZ,
     config.initialTemperatureK = initialTemperatureK;
     int regionX = RegionCoordinate(mapX);
     int regionZ = RegionCoordinate(mapZ);
+    SurfaceRegionHandle region = { 0 };
+    bool hasRegion = RegionForMap(surfaceId, mapX, mapZ, &region);
     bool sameBinding = globalRuntime.initialized && globalRuntime.hasBinding &&
                        globalRuntime.boundSurfaceId == surfaceId &&
                        globalRuntime.boundRegionX == regionX &&
-                       globalRuntime.boundRegionZ == regionZ;
+                       globalRuntime.boundRegionZ == regionZ &&
+                       globalRuntime.hasRegionHandle == hasRegion &&
+                       (!hasRegion ||
+                        RegionHandleEqual(globalRuntime.boundRegion, region));
     if (!sameBinding && !RadiationRuntimeInit(&globalRuntime, &config)) {
         return false;
     }
@@ -427,10 +459,50 @@ bool RadiationRuntimeGlobalBind(uint32_t surfaceId, int mapX, int mapZ,
         globalRuntime.boundSurfaceId = surfaceId;
         globalRuntime.boundRegionX = regionX;
         globalRuntime.boundRegionZ = regionZ;
+        globalRuntime.boundRegion = region;
+        globalRuntime.hasRegionHandle = hasRegion;
         globalRuntime.baselineTemperatureK = initialTemperatureK;
         globalRuntime.hasBinding = true;
     }
     return RadiationRuntimeStateIsValid(&globalRuntime);
+}
+
+bool RadiationRuntimeGlobalBindSurfaceRegion(uint32_t surfaceId,
+                                             SurfaceRegionHandle region,
+                                             double initialTemperatureK)
+{
+    if (!PositiveFinite(initialTemperatureK)) return false;
+    RadiationRuntimeConfig config = globalRuntime.initialized
+        ? globalRuntime.config : RadiationRuntimeDefaultConfig();
+    config.initialTemperatureK = initialTemperatureK;
+    bool sameBinding = globalRuntime.initialized && globalRuntime.hasBinding &&
+        globalRuntime.boundSurfaceId == surfaceId &&
+        globalRuntime.hasRegionHandle &&
+        RegionHandleEqual(globalRuntime.boundRegion, region);
+    if (!sameBinding && !RadiationRuntimeInit(&globalRuntime, &config)) {
+        return false;
+    }
+    if (!sameBinding) {
+        globalRuntime.boundSurfaceId = surfaceId;
+        globalRuntime.boundRegionX = 0;
+        globalRuntime.boundRegionZ = 0;
+        globalRuntime.boundRegion = region;
+        globalRuntime.hasRegionHandle = true;
+        globalRuntime.baselineTemperatureK = initialTemperatureK;
+        globalRuntime.hasBinding = true;
+    }
+    return RadiationRuntimeStateIsValid(&globalRuntime);
+}
+
+bool RadiationRuntimeGlobalBindAddress(SurfaceAddress address,
+                                       double initialTemperatureK)
+{
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
+    if (!contract || !SurfaceAddressIsValid(address)) return false;
+    SurfaceRegionHandle region = SurfaceContractRegionForAddress(contract, address);
+    if (region.opaque[0] == 0u && region.opaque[1] == 0u) return false;
+    return RadiationRuntimeGlobalBindSurfaceRegion(
+        address.bodyId, region, initialTemperatureK);
 }
 
 bool RadiationRuntimeGlobalAdvance(
@@ -467,6 +539,26 @@ bool RadiationRuntimeGlobalTemperatureOffsetAt(uint32_t surfaceId,
     return true;
 }
 
+bool RadiationRuntimeGlobalTemperatureOffsetAtAddress(SurfaceAddress address,
+                                                      double *outOffsetK)
+{
+    if (outOffsetK) *outOffsetK = 0.0;
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
+    SurfaceRegionHandle queried;
+    if (!outOffsetK || !contract || !RadiationRuntimeStateIsValid(&globalRuntime) ||
+        !globalRuntime.hasBinding || !globalRuntime.hasRegionHandle ||
+        !globalRuntime.snapshot.valid || !SurfaceAddressIsValid(address) ||
+        globalRuntime.boundSurfaceId != address.bodyId ||
+        ((queried = SurfaceContractRegionForAddress(contract, address)).opaque[0] == 0u &&
+         queried.opaque[1] == 0u) ||
+        !RegionHandleEqual(globalRuntime.boundRegion, queried)) return false;
+    double offset = globalRuntime.column.temperatureK -
+                    globalRuntime.baselineTemperatureK;
+    if (!isfinite(offset)) return false;
+    *outOffsetK = Clamp(offset, -30.0, 30.0);
+    return true;
+}
+
 static bool WriteValue(FILE *file, const void *value, size_t size)
 {
     return file && value && fwrite(value, size, 1u, file) == 1u;
@@ -481,7 +573,8 @@ bool RadiationRuntimeGlobalSaveState(FILE *file)
 {
     if (!RadiationRuntimeStateIsValid(&globalRuntime) || !file) return false;
     uint32_t flags = (globalRuntime.snapshot.valid ? 1u : 0u) |
-                     (globalRuntime.hasBinding ? 2u : 0u);
+                     (globalRuntime.hasBinding ? 2u : 0u) |
+                     (globalRuntime.hasRegionHandle ? 4u : 0u);
     uint32_t header[3] = {
         RADIATION_RUNTIME_STATE_MAGIC,
         RADIATION_RUNTIME_STATE_VERSION,
@@ -504,6 +597,8 @@ bool RadiationRuntimeGlobalSaveState(FILE *file)
                     sizeof(globalRuntime.boundRegionX)) ||
         !WriteValue(file, &globalRuntime.boundRegionZ,
                     sizeof(globalRuntime.boundRegionZ)) ||
+        !WriteValue(file, &globalRuntime.boundRegion,
+                    sizeof(globalRuntime.boundRegion)) ||
         !WriteValue(file, &globalRuntime.baselineTemperatureK,
                     sizeof(globalRuntime.baselineTemperatureK))) {
         return false;
@@ -519,7 +614,7 @@ bool RadiationRuntimeGlobalLoadState(FILE *file)
     if (!ReadValue(file, header, sizeof(header)) ||
         header[0] != RADIATION_RUNTIME_STATE_MAGIC ||
         header[1] != RADIATION_RUNTIME_STATE_VERSION ||
-        header[2] > 3u ||
+        header[2] > 7u ||
         !ReadValue(file, &loaded.config, sizeof(loaded.config)) ||
         !ReadValue(file, &loaded.column, sizeof(loaded.column)) ||
         !ReadValue(file, &loaded.accumulatorSeconds,
@@ -533,6 +628,7 @@ bool RadiationRuntimeGlobalLoadState(FILE *file)
                    sizeof(loaded.boundSurfaceId)) ||
         !ReadValue(file, &loaded.boundRegionX, sizeof(loaded.boundRegionX)) ||
         !ReadValue(file, &loaded.boundRegionZ, sizeof(loaded.boundRegionZ)) ||
+        !ReadValue(file, &loaded.boundRegion, sizeof(loaded.boundRegion)) ||
         !ReadValue(file, &loaded.baselineTemperatureK,
                    sizeof(loaded.baselineTemperatureK))) {
         return false;
@@ -542,6 +638,11 @@ bool RadiationRuntimeGlobalLoadState(FILE *file)
     loaded.snapshot.version = header[1];
     loaded.snapshot.valid = (header[2] & 1u) != 0u;
     loaded.hasBinding = (header[2] & 2u) != 0u;
+    loaded.hasRegionHandle = (header[2] & 4u) != 0u;
+    if ((!loaded.hasRegionHandle &&
+         (loaded.boundRegion.opaque[0] != 0u ||
+          loaded.boundRegion.opaque[1] != 0u)) ||
+        (loaded.hasRegionHandle && !loaded.hasBinding)) return false;
     if (!RadiationRuntimeStateIsValid(&loaded)) return false;
     globalRuntime = loaded;
     return true;

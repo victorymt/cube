@@ -2,13 +2,14 @@
 #define VOXELCRAFT_HYDROLOGY_RUNTIME_H
 
 #include "world/hydrology_model.h"
+#include "world/surface_contract.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 
 /* One bounded coarse solver covers the currently active canonical surface. */
-#define HYDROLOGY_RUNTIME_STATE_VERSION 1u
+#define HYDROLOGY_RUNTIME_STATE_VERSION 2u
 #define HYDROLOGY_RUNTIME_STATE_MAGIC 0x48594431u /* "HYD1" */
 #define HYDROLOGY_RUNTIME_REGION_SIZE 128
 #define HYDROLOGY_RUNTIME_GRID_SIZE 32
@@ -27,8 +28,12 @@ typedef struct HydrologyRuntimeConfig {
 
 typedef struct HydrologyRuntimeLocation {
     uint32_t surfaceId;
+    /* Canonical 128x128 map region cached by the bounded solver. */
     int regionX;
     int regionZ;
+    /* Semantic contract region; cube faces can span many sampling regions. */
+    SurfaceRegionHandle region;
+    bool hasRegion;
 } HydrologyRuntimeLocation;
 
 typedef struct HydrologyRuntimeCellInput {
@@ -88,6 +93,8 @@ bool HydrologyRuntimeBind(HydrologyRuntime *runtime,
                           uint32_t surfaceId, int mapX, int mapZ);
 bool HydrologyRuntimeBindRegion(HydrologyRuntime *runtime,
                                 uint32_t surfaceId, int regionX, int regionZ);
+bool HydrologyRuntimeBindAddress(HydrologyRuntime *runtime,
+                                 SurfaceAddress address);
 bool HydrologyRuntimeSetCellInput(HydrologyRuntime *runtime,
                                   int x, int z,
                                   HydrologyRuntimeCellInput input);
@@ -111,10 +118,14 @@ bool HydrologyRuntimeGetSnapshot(const HydrologyRuntime *runtime,
 bool HydrologyRuntimeFeedbackAt(const HydrologyRuntime *runtime,
                                 uint32_t surfaceId, int mapX, int mapZ,
                                 HydrologyRuntimeFeedback *out);
+bool HydrologyRuntimeFeedbackAtAddress(const HydrologyRuntime *runtime,
+                                       SurfaceAddress address,
+                                       HydrologyRuntimeFeedback *out);
 
 bool HydrologyRuntimeGlobalReset(const HydrologyRuntimeConfig *config);
 void HydrologyRuntimeGlobalFree(void);
 bool HydrologyRuntimeGlobalBind(uint32_t surfaceId, int mapX, int mapZ);
+bool HydrologyRuntimeGlobalBindAddress(SurfaceAddress address);
 /* Process-local epoch, changed by reset/free, region rebinding and successful
  * load (including loading the same region). Never serialized. */
 uint64_t HydrologyRuntimeGlobalGeneration(void);
@@ -132,6 +143,8 @@ bool HydrologyRuntimeGlobalSnapshot(HydrologyRuntimeSnapshot *out);
 bool HydrologyRuntimeGlobalFeedbackAt(uint32_t surfaceId,
                                       int mapX, int mapZ,
                                       HydrologyRuntimeFeedback *out);
+bool HydrologyRuntimeGlobalFeedbackAtAddress(SurfaceAddress address,
+                                             HydrologyRuntimeFeedback *out);
 bool HydrologyRuntimeGlobalSaveState(FILE *file);
 bool HydrologyRuntimeGlobalLoadState(FILE *file);
 

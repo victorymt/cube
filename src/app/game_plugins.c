@@ -6,6 +6,7 @@
 #include "core/plugin.h"
 #include "world/chunks.h"
 #include "world/hydrology_runtime.h"
+#include "world/surface_topology.h"
 #include "world/world_state.h"
 #include "world/world_environment.h"
 
@@ -93,8 +94,9 @@ static bool GamePluginHydrologyFeedbackAt(
         return false;
     }
     HydrologyRuntimeFeedback feedback = { 0 };
-    if (!HydrologyRuntimeGlobalFeedbackAt(
-            surfaceId, mapX, mapZ, &feedback)) {
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        surfaceId, (float)mapX + 0.5f, (float)mapZ + 0.5f, 0);
+    if (!HydrologyRuntimeGlobalFeedbackAtAddress(address, &feedback)) {
         return false;
     }
     outFeedback->active = feedback.active;
