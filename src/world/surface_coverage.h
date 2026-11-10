@@ -19,6 +19,24 @@ typedef struct SurfaceCubeCoverageResult {
     bool saturated;
 } SurfaceCubeCoverageResult;
 
+/* Stable evidence surface for M5. `ready` means admitted columns have terrain
+ * data; meshReady is resident mesh presence. Neither alone proves what the
+ * renderer drew. visualReady is a conservative local mesh-readiness signal, not
+ * a full-viewport or occlusion certificate. */
+typedef struct SurfaceCoverageEvidence {
+    unsigned requested;
+    unsigned admitted;
+    unsigned ready;
+    unsigned pending;
+    unsigned missing;
+    unsigned submitted;
+    unsigned released;
+    unsigned meshReady;
+    bool saturated;
+    bool localTerrainReady;
+    bool visualReady;
+} SurfaceCoverageEvidence;
+
 // The same physical metric used for admission and draw-distance checks.
 bool SurfaceCubeChunkDistance(SurfaceCubeChunkKey key, SurfaceVector focus,
                                SurfaceCubeCoverageCandidate *outCandidate);
@@ -34,5 +52,11 @@ bool SurfaceCubeChunkBounds(SurfaceCubeChunkKey key, double minRadial, double ma
 bool SurfaceCoverageCollect(uint32_t bodyId, SurfaceVector focus, double radius,
                              SurfaceCubeCoverageCandidate *out, unsigned capacity,
                              SurfaceCubeCoverageResult *outResult);
+
+/* Freeze the translation from backend counters to shared evidence. */
+SurfaceCoverageEvidence SurfaceCoverageEvidenceBuild(
+    unsigned requested, unsigned admitted, unsigned ready, unsigned pending,
+    unsigned missing, unsigned submitted, unsigned released, bool saturated,
+    unsigned meshReady, bool localTerrainReady);
 
 #endif

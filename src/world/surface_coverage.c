@@ -129,3 +129,26 @@ bool SurfaceCoverageCollect(uint32_t bodyId, SurfaceVector focus, double radius,
     free(queue);
     return true;
 }
+
+SurfaceCoverageEvidence SurfaceCoverageEvidenceBuild(
+    unsigned requested, unsigned admitted, unsigned ready, unsigned pending,
+    unsigned missing, unsigned submitted, unsigned released, bool saturated,
+    unsigned meshReady, bool localTerrainReady)
+{
+    bool visualReady = localTerrainReady && admitted > 0u && !saturated &&
+        ready == admitted && pending == 0u && missing == 0u &&
+        meshReady >= admitted;
+    return (SurfaceCoverageEvidence){
+        .requested = requested,
+        .admitted = admitted,
+        .ready = ready,
+        .pending = pending,
+        .missing = missing,
+        .submitted = submitted,
+        .released = released,
+        .meshReady = meshReady,
+        .saturated = saturated,
+        .localTerrainReady = localTerrainReady,
+        .visualReady = visualReady
+    };
+}

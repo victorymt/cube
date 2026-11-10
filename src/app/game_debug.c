@@ -20,9 +20,9 @@
 #include "app/game_debug_hydrology.h"
 #include "app/game_debug_wildfire.h"
 #include "app/game_debug_world.h"
+#include "app/game_coverage_evidence.h"
 #include "app/game_save.h"
 #include "world/chunks.h"
-#include "world/chunks_cube.h"
 #include "core/debug_control.h"
 #include "core/debug_dsl.h"
 #include "core/game_notice.h"
@@ -1245,8 +1245,7 @@ static bool GameDebugDslResolveHydrology(GameRuntime *game, const char *name,
 static bool GameDebugDslResolveLod(GameRuntime *game, const char *name,
                                    DebugDslValue *outValue)
 {
-    if (strncmp(name, "stream.lod_", 11u) != 0 &&
-        strncmp(name, "stream.cube.", 12u) != 0) return false;
+    if (strncmp(name, "stream.lod_", 11u) != 0) return false;
     const ChunkDiagnostics *diagnostics =
         GameDebugChunkDiagnostics(game, true);
     return GameDebugLodDslResolveSnapshot(diagnostics, name, outValue);
@@ -1489,33 +1488,9 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
         return GameDebugDslNumber(outValue, missing);
     }
     if (phase == GAME_DEBUG_DSL_STREAM && strncmp(name, "stream.cube.", 12u) == 0) {
-        CubeCoverageStatus coverage;
-        bool active = ChunksCubeCoverageIsActive();
-        bool haveCoverage = active && ChunksLastCubeCoverage(&coverage);
-        if (!haveCoverage) coverage = (CubeCoverageStatus){ 0 };
-        const char *field = name + 12u;
-        if (strcmp(field, "active") == 0)
-            return GameDebugDslBool(outValue, active);
-        if (strcmp(field, "saturated") == 0)
-            return GameDebugDslBool(outValue, haveCoverage && coverage.saturated);
-        if (strcmp(field, "requested") == 0)
-            return GameDebugDslNumber(outValue, haveCoverage ? coverage.requested : 0);
-        if (strcmp(field, "admitted") == 0)
-            return GameDebugDslNumber(outValue, haveCoverage ? coverage.admitted : 0);
-        if (strcmp(field, "ready") == 0)
-            return GameDebugDslNumber(outValue, haveCoverage ? coverage.ready : 0);
-        if (strcmp(field, "pending") == 0)
-            return GameDebugDslNumber(outValue, haveCoverage ? coverage.pending : 0);
-        if (strcmp(field, "missing") == 0)
-            return GameDebugDslNumber(outValue, haveCoverage ? coverage.missing : 0);
-        if (strcmp(field, "submitted") == 0)
-            return GameDebugDslNumber(outValue, haveCoverage ? coverage.submitted : 0);
-        if (strcmp(field, "released") == 0)
-            return GameDebugDslNumber(outValue, haveCoverage ? coverage.released : 0);
-        if (strcmp(field, "mesh_ready") == 0)
-            return GameDebugDslNumber(outValue,
-                active ? ChunksCubeMeshReadyCount() : 0);
-        return false;
+        GameCoverageEvidence evidence;
+        return GameCoverageEvidenceCapture(game, &evidence) &&
+            GameCoverageEvidenceDslResolve(name, &evidence, outValue);
     }
     if (chunkDiagnostics && strncmp(name, "stream.chunks.", 14u) == 0) {
         return GameDebugDiagnosticsDslResolve(game, name, outValue);

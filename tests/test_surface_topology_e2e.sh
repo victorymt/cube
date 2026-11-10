@@ -58,6 +58,7 @@ run_command 'wait until stream.surface_ready timeout 2400'
 # A fresh normal Homeworld must stream through the cube coverage path without
 # first running the explicit debug activation command.
 run_command 'assert stream.cube.active == true'
+run_command 'assert stream.cube.available == true && stream.cube.local_terrain_ready'
 run_command 'assert stream.cube.requested > 0 && stream.cube.admitted > 0'
 run_command 'block set 4 200 8 Glass'
 run_command 'let home_pose = player.position'

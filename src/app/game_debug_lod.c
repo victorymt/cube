@@ -1,7 +1,6 @@
 #include "app/game_debug_lod.h"
 
 #include "world/chunks.h"
-#include "world/chunks_cube.h"
 
 #include <string.h>
 
@@ -23,38 +22,11 @@ static bool LodDslNumber(DebugDslValue *outValue, double value)
     return true;
 }
 
-/* Cube coverage is reported alongside the LOD counters because both describe
- * what the streamer is doing this frame, and the DSL groups them under
- * `stream.`. */
-static bool GameDebugCubeDslResolve(const char *name, DebugDslValue *outValue)
-{
-    if (strncmp(name, "stream.cube.", 12u) != 0) return false;
-    if (strcmp(name, "stream.cube.active") == 0) {
-        return LodDslBool(outValue, ChunksCubeCoverageIsActive());
-    }
-    CubeCoverageStatus status;
-    bool have = ChunksLastCubeCoverage(&status);
-    if (strcmp(name, "stream.cube.ready") == 0) {
-        return LodDslNumber(outValue, have ? status.ready : 0u);
-    }
-    if (strcmp(name, "stream.cube.requested") == 0) {
-        return LodDslNumber(outValue, have ? status.requested : 0u);
-    }
-    if (strcmp(name, "stream.cube.admitted") == 0) {
-        return LodDslNumber(outValue, have ? status.admitted : 0u);
-    }
-    if (strcmp(name, "stream.cube.missing") == 0) {
-        return LodDslNumber(outValue, have ? status.missing : 0u);
-    }
-    return false;
-}
-
 bool GameDebugLodDslResolveSnapshot(const ChunkDiagnostics *diagnostics,
                                     const char *name,
                                     DebugDslValue *outValue)
 {
     if (!name || !outValue) return false;
-    if (GameDebugCubeDslResolve(name, outValue)) return true;
     if (!diagnostics || strncmp(name, "stream.lod_", 11u) != 0) {
         return false;
     }
