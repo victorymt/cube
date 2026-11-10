@@ -149,18 +149,24 @@ legacy map 网格每一圈纬度固定 **1024 个区块**，与纬度无关。�
 | 字段 | 类型 | 含义 |
 |---|---|---|
 | `stream.cube.active` | bool | cube 覆盖策略当前是否驱动流式 |
+| `stream.cube.available` | bool | 是否已有一次成功的 coverage observation |
 | `stream.cube.requested` | number | 本次覆盖请求的列数 |
 | `stream.cube.admitted` | number | 通过容量准入的列数 |
-| `stream.cube.ready` | number | 已生成且可绘制的列数 |
+| `stream.cube.ready` | number | 准入列中地形已生成的列数 |
 | `stream.cube.pending` | number | 已提交未完成的列数 |
 | `stream.cube.missing` | number | 未提交或不可用的列数 |
 | `stream.cube.saturated` | bool | 请求数是否超过准入容量 |
 | `stream.cube.submitted` | number | 本次新增提交数 |
 | `stream.cube.released` | number | 本次驱逐数 |
 | `stream.cube.mesh_ready` | number | 已完成网格的列数 |
+| `stream.cube.local_terrain_ready` | bool | 玩家附近没有缺失地形；只表示碰撞/地形就绪 |
+| `stream.cube.visual_ready` | bool | 本地网格就绪的保守组合，不等同于完整视锥、遮挡或绘制覆盖 |
 
 **约束：**
 
-- 这些字段在 cube 未激活时全部返回 `0` / `false`，不得复用 `stream.surface_ready`。
+- 计数与状态字段在 cube 未激活时返回 `0` / `false`；`active` 与 `available`
+  分别区分“覆盖路径已运行”和“已有可读观测”。
+- `stream.surface_ready`、`stream.cube.ready` 和
+  `stream.cube.local_terrain_ready` 都只表示地形/碰撞就绪，不得当作视觉就绪。
 - `saturated=true` 时，任何测试**不得**断言 `requested == admitted == ready`。
 - 字段命名固定，后续新增只能追加，不能改义。

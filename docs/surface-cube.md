@@ -220,10 +220,11 @@ Progress as of 2026-10-23 is marked per item; unmarked text is the original
    and drawing. Derive conservative bounds from curved mesh geometry. Keep
    `surface_ready`'s existing local readiness meaning and expose separate
    requested/ready coverage diagnostics instead of claiming visual readiness.
-   **Diagnostics are exposed** (`stream.cube.*`); LOD and drawing policy are
-   still not unified. The M2 transform/bounds repair now makes mesh vertices and
-   frustum centers use the same section anchor frame, closing the vertical
-   stretch.
+   **The evidence schema is frozen** through `SurfaceCoverageEvidence` and
+   `stream.cube.*`, separating terrain readiness from conservative local visual
+   readiness; LOD and drawing policy are still not unified. The M2
+   transform/bounds repair now makes mesh vertices and frustum centers use the
+   same section anchor frame, closing the vertical stretch.
 4. Replay the existing temperate and dry polar scenes using geographic
    targets, then cross poles/face edges on foot, edit blocks, unload/reload,
    and save/reload. Pin the v9 output and enforce memory budgets. Complete V30

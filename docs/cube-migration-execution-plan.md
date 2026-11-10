@@ -38,7 +38,7 @@ Execution state:
 | M2 | complete | Cube mesh vertices, transforms and bounds share the section anchor frame. |
 | M3 | complete | V30 persists topology, canonical pose and complete cell edits. |
 | M4 | complete | Homeworld consumers use the surface contract and new Homeworld worlds default to cube-grid. |
-| M5 | next | Close physical coverage, visual and performance acceptance. |
+| M5 | active | M5.0 is complete; unify coverage scheduling and then close visual/performance acceptance. |
 | M6 | pending | Remove Homeworld-only transition paths and close the migration. |
 
 This plan deliberately does not migrate planets. The surface interfaces and
@@ -525,10 +525,25 @@ complete `make test` run (135 passed, 0 failed) pass. Commit M4.10.
 
 #### M5.0: freeze the coverage evidence surface
 
+**Status:** complete (2026-11-10)
+
 Freeze one fixture and diagnostic schema for requested, admitted, ready,
 pending, missing, submitted, released and saturated values. Separate local
 terrain readiness from visual readiness. Commit
 `test(coverage): freeze physical coverage evidence`.
+
+Exit evidence: `SurfaceCoverageEvidence` now owns the stable count schema plus
+`mesh_ready`, `local_terrain_ready` and conservative `visual_ready` fields.
+`GameCoverageEvidenceCapture` combines the latest cube coverage observation with
+local collision/terrain readiness and resident mesh presence; the DSL resolves
+all fields under `stream.cube.*`, including `available`, and no longer has a
+second partial mapper in the LOD module. `tests/coverage_evidence_fixture.c`
+pins every field and the visual-readiness rule, while
+`tests/test_coverage_evidence.c` verifies local terrain readiness, mesh presence
+and saturation remain distinct. `make test-surface-cube` reports 9 passed,
+0 failed; the Hyprland topology E2E confirms the normal-start cube evidence
+fields and the complete `make test` run reports 136 passed, 0 failed. Commit
+M5.0.
 
 #### M5.1: unify scheduling, admission and eviction
 
