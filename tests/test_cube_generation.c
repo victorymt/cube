@@ -347,6 +347,8 @@ static void TestFailedAndStaleResults(void)
 static void TestQueuedCancellationAndCapacity(void)
 {
     Reset();
+    assert(WorldInstallTopologyPolicy(
+        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
     WorldSurfaceSnapshot home = {.context = {.active = true,
         .kind = WORLD_SURFACE_HOME, .topology = {SURFACE_TOPOLOGY_LEGACY_MAP, 1}}};
     assert(WorldInstallSurfaceSnapshot(&home));

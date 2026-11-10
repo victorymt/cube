@@ -142,7 +142,7 @@ static void TestTopologyHeader(void)
     // Pinned V30 wire bytes, including LE topology integers.
     const unsigned char expected[] =
         "VOXELCRAFT_SAVE_V30" "TOPOL002"
-        "\x01\x00\x00\x00" "\x01\x00\x00\x00"
+        "\x02\x00\x00\x00" "\x01\x00\x00\x00"
         "\x01\x00\x00\x00" "\x01\x00\x00\x00";
     WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
     FILE *file = tmpfile();
@@ -155,7 +155,7 @@ static void TestTopologyHeader(void)
     rewind(file);
     WorldSurfaceTopologyPolicy loaded = { 0 };
     assert(WorldSaveReadHeader(file, &loaded) == NULL);
-    assert(loaded.home.kind == SURFACE_TOPOLOGY_LEGACY_MAP && loaded.home.version == 1);
+    assert(loaded.home.kind == SURFACE_TOPOLOGY_CUBE_GRID && loaded.home.version == 1);
     assert(loaded.planets.kind == SURFACE_TOPOLOGY_LEGACY_MAP && loaded.planets.version == 1);
     assert(fgetc(file) == 'T');
     fclose(file);
@@ -206,7 +206,7 @@ static void TestTopologyHeader(void)
     assert(file && WorldSaveWriteHeader(file, policy));
     rewind(file);
     assert(WorldSaveReadHeader(file, &loaded) == NULL);
-    assert(loaded.home.kind == SURFACE_TOPOLOGY_LEGACY_MAP);
+    assert(loaded.home.kind == SURFACE_TOPOLOGY_CUBE_GRID);
     assert(loaded.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID);
     fclose(file);
     assert(!WorldSaveWriteHeader(NULL, policy));

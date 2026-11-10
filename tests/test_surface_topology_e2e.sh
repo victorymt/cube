@@ -52,12 +52,13 @@ reject_load() {
 }
 run_command 'start'
 run_command 'pause on'
-run_command 'assert world.surface_topology == "legacy-map" && world.surface_topology_version == 1'
-# The cube diagnostics namespace exists but must stay inactive under the default grid.
-run_command 'assert stream.cube.active == false && stream.cube.saturated == false'
-run_command 'assert stream.cube.requested == 0 && stream.cube.admitted == 0'
+run_command 'assert world.surface_topology == "cube-grid" && world.surface_topology_version == 1'
 run_command 'teleport 4 200 8 0 0'
-run_command 'stream wait 1200'
+run_command 'wait until stream.surface_ready timeout 2400'
+# A fresh normal Homeworld must stream through the cube coverage path without
+# first running the explicit debug activation command.
+run_command 'assert stream.cube.active == true'
+run_command 'assert stream.cube.requested > 0 && stream.cube.admitted > 0'
 run_command 'block set 4 200 8 Glass'
 run_command 'let home_pose = player.position'
 save_world
@@ -65,6 +66,7 @@ cp "$runtime_dir/voxelcraft_save.txt" "$runtime_dir/home.save"
 run_command 'teleport 20 200 20 0 0'
 load_world
 run_command 'assert player.position == home_pose && world.dimension == "home"'
+run_command 'assert world.surface_topology == "cube-grid" && world.surface_topology_version == 1'
 
 run_command 'surface debug planet temperate 991'
 run_command 'assert world.surface_topology == "legacy-map" && world.surface_topology_version == 1'
@@ -87,7 +89,7 @@ p = Path(sys.argv[1])
 data = (p / 'planet.save').read_bytes()
 assert data[:19] == b'VOXELCRAFT_SAVE_V30'
 assert data[19:27] == b'TOPOL002'
-assert struct.unpack_from('<4I', data, 27) == (1, 1, 1, 1)
+assert struct.unpack_from('<4I', data, 27) == (2, 1, 1, 1)
 for version in range(18, 30):
     (p / f'v{version}.save').write_bytes(f'VOXELCRAFT_SAVE_V{version}'.encode() + data[43:])
 for name, offset, value in [('unknown', 35, 99), ('version', 39, 2)]:
@@ -126,7 +128,7 @@ run_command 'surface debug home'
 run_command 'teleport 4 200 8 0 0'
 run_command 'stream wait 1200'
 send_command 'block set 4 200 8 Glass'
-wait_for_reply '^DEBUG_CONTROL block set ok .*previous_name="Glass"'
+wait_for_reply '^DEBUG_CONTROL block set ok .*previous_name="Air"'
 # Normal gameplay ascent provides a non-surface save without a topology switch.
 run_command 'teleport 0 1000 0 0 0'
 run_command 'pause off'

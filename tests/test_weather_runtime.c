@@ -50,6 +50,8 @@ static PlanetProfile TestPlanetProfile(void)
 
 static void InstallHomeSurface(void)
 {
+    assert(WorldInstallTopologyPolicy(
+        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
     const WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,
@@ -63,6 +65,8 @@ static void InstallHomeSurface(void)
 
 static void InstallPlanetSurface(void)
 {
+    assert(WorldInstallTopologyPolicy(
+        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
     const WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,

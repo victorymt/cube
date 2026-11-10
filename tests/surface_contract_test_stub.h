@@ -58,6 +58,8 @@ static bool InstallTestSurfaceContract(uint32_t bodyId)
         sizeof(testSurfaceContracts) / sizeof(testSurfaceContracts[0])) {
         return false;
     }
+    assert(WorldInstallTopologyPolicy(
+        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
     WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,

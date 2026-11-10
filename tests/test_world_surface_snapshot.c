@@ -122,8 +122,9 @@ static void TestTopologyValidation(void)
 
     WorldResetTopologyPolicy();
     WorldSurfaceTopologyPolicy policy = WorldCurrentTopologyPolicy();
-    assert(policy.home.kind == map.kind && policy.home.version == 1u);
+    assert(policy.home.kind == cube.kind && policy.home.version == 1u);
     assert(policy.planets.kind == map.kind && policy.planets.version == 1u);
+    policy = (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY;
     assert(WorldInstallTopologyPolicy(policy));
     policy.planets = cube;
     assert(WorldInstallTopologyPolicy(policy));
@@ -141,7 +142,10 @@ static void TestTopologyValidation(void)
     policy = (WorldSurfaceTopologyPolicy){ cube, cube };
     assert(WorldInstallTopologyPolicy(policy));
     WorldResetTopologyPolicy();
+    assert(WorldTopologyForSurface(WORLD_SURFACE_HOME).kind == cube.kind);
     assert(WorldTopologyForSurface(WORLD_SURFACE_PLANET).kind == map.kind);
+    policy = (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY;
+    assert(WorldInstallTopologyPolicy(policy));
 
     WorldSurfaceSnapshot home = { .context = {
         .active = true, .kind = WORLD_SURFACE_HOME, .topology = map, .seed = 123u
@@ -205,7 +209,9 @@ static void TestCubeRuntimeGate(void)
     /* Gate state does not make a policy unrepresentable. */
     assert(WorldInstallTopologyPolicy(mixedPolicy));
     WorldResetTopologyPolicy();
-    assert(WorldCurrentTopologyPolicy().home.kind == SURFACE_TOPOLOGY_LEGACY_MAP);
+    assert(WorldCurrentTopologyPolicy().home.kind == SURFACE_TOPOLOGY_CUBE_GRID);
+    assert(WorldCurrentTopologyPolicy().planets.kind ==
+           SURFACE_TOPOLOGY_LEGACY_MAP);
     assert(WorldInstallSurfaceSnapshot(NULL));
 }
 
@@ -213,6 +219,8 @@ int main(void)
 {
     assert(WorldInstallSurfaceSnapshot(NULL));
     AssertNoneSnapshot(WorldCurrentSurfaceSnapshot());
+    assert(WorldInstallTopologyPolicy(
+        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
     TestHomeSnapshotIsCopiedByValue();
     TestPlanetIdentityDoesNotAliasSeed();
     TestNullResetsSnapshot();

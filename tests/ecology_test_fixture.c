@@ -363,6 +363,8 @@ void EcologyTestSyncWorldSnapshot(void)
         assert(WorldInstallSurfaceSnapshot(&snapshot));
         return;
     }
+    assert(WorldInstallTopologyPolicy(
+        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
     SurfaceContract *contract = calloc(1, sizeof(*contract));
     assert(contract);
     *contract = (SurfaceContract){

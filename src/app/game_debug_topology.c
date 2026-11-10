@@ -281,6 +281,34 @@ bool GameDebugEnterCubeWorld(struct GameRuntime *game)
     return true;
 }
 
+bool GameDebugTransitionSurface(GameRuntime *game, bool homeWorld,
+                                SolarBodyStyle style, uint32_t seed)
+{
+    if (!game) return false;
+    WorldSurfaceTopologyPolicy previousPolicy = WorldCurrentTopologyPolicy();
+    bool previousGate = WorldCubeRuntimeEnabled();
+    WorldSurfaceTopologyPolicy nextPolicy = previousPolicy;
+    if (homeWorld) {
+        /* `surface debug home` is the explicit legacy baseline now that a
+         * fresh normal Homeworld starts on cube-grid. */
+        nextPolicy = (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY;
+        WorldSetCubeRuntimeEnabled(false);
+    } else {
+        nextPolicy.planets = (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1;
+    }
+    if (!WorldInstallTopologyPolicy(nextPolicy)) {
+        WorldSetCubeRuntimeEnabled(previousGate);
+        return false;
+    }
+    HomeWorldMapClose();
+    if (!GameWorldTransitionDebugSurface(&game->player, homeWorld, style, seed)) {
+        (void)WorldInstallTopologyPolicy(previousPolicy);
+        WorldSetCubeRuntimeEnabled(previousGate);
+        return false;
+    }
+    return true;
+}
+
 bool GameDebugSetSurfacePose(GameRuntime *game)
 {
     if (!game || !WorldIsSurfaceActive()) return false;

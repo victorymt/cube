@@ -346,6 +346,8 @@ static void AssertHydrologySamplingRegionTransition(
 static void TestLegacyContract(void)
 {
     ResetWorldMemory();
+    assert(WorldInstallTopologyPolicy(
+        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
     WorldSetSeed(0x12345678u);
     WorldSurfaceSnapshot snapshot = Snapshot(
         WORLD_SURFACE_HOME, (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1, 0, 0x12345678u, 0, 0);

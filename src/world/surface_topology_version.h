@@ -23,7 +23,10 @@ typedef struct WorldSurfaceTopologyPolicy {
 } WorldSurfaceTopologyPolicy;
 
 #define SURFACE_TOPOLOGY_MAP_V1 { SURFACE_TOPOLOGY_LEGACY_MAP, 1u }
+#define SURFACE_TOPOLOGY_CUBE_V1 { SURFACE_TOPOLOGY_CUBE_GRID, 1u }
 #define WORLD_SURFACE_TOPOLOGY_DEFAULT \
+    { SURFACE_TOPOLOGY_CUBE_V1, SURFACE_TOPOLOGY_MAP_V1 }
+#define WORLD_SURFACE_TOPOLOGY_LEGACY \
     { SURFACE_TOPOLOGY_MAP_V1, SURFACE_TOPOLOGY_MAP_V1 }
 
 bool SurfaceTopologyIsKnown(SurfaceTopologyVersion topology);

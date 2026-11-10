@@ -8,6 +8,7 @@
 #include "space/space_world_transition.h"
 #include "world/chunks.h"
 #include "world/cube_switch.h"
+#include "world/fluid.h"
 #include "world/radiation_runtime.h"
 #include "world/hydrology_runtime.h"
 #include "world/terrain.h"
@@ -31,6 +32,9 @@ static void GameWorldTransitionUnloadSurfaceData(void)
 
 static void GameWorldTransitionFinishSurfaceActivation(void)
 {
+    /* Fluid edit buckets carry topology-specific chunk handles. Surface
+     * transitions drop the old runtime before any new contract can consume it. */
+    FluidReset();
     GameSyncWorldSurfaceSnapshot(WorldGetSeed());
     WorldSetNetherActive(false);
     WorldResetSurfaceRebaseEvent();

@@ -6,10 +6,10 @@ wait until game.screen == "playing" timeout 7200
 pause on
 teleport -1209 9 1903 0 0
 pause off
-stream wait 1200
 surface debug cube
 wait until world.surface_topology == "cube-grid" timeout 1800
 wait until stream.cube.active timeout 1800
+wait until stream.surface_ready timeout 1800
 view distance 1
 surface pose -0.9272913863 0.7297913598 9 0 0
 input 0 0 0 0 120

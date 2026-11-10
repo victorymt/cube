@@ -265,6 +265,8 @@ static void ActivateTestPlanet(uint32_t seed, SolarBodyStyle style)
 
 static void DeactivateTestPlanet(void)
 {
+    assert(WorldInstallTopologyPolicy(
+        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
     const WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,

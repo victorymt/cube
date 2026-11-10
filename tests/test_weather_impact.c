@@ -1140,6 +1140,8 @@ static void TestLegacyMigrationAndTransactionalFailure(void)
 
 int main(void)
 {
+    assert(WorldInstallTopologyPolicy(
+        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
     const WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,

@@ -5,7 +5,7 @@ wait until game.screen == "playing" timeout 7200
 load
 wait until world.surface_topology == "cube-grid" timeout 1800
 wait until stream.cube.active timeout 1800
-stream wait 1200
+wait until stream.surface_ready timeout 1800
 block set 169 84 297 Dirt
 assert world.surface_topology == "cube-grid"
 exit 0

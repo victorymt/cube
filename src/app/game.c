@@ -60,6 +60,7 @@
 #include "space/space_state.h"
 #include "space/space_units.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 #include "gameplay/ship.h"
 #include "world/nether.h"
 #include "ecology/entity.h"
@@ -99,12 +100,14 @@ static void GameOnWorldBlockCommitted(
     }
 }
 
-static bool NewWorldSpawnCandidate(int x, int z, TerrainMode mode,
-                                   Vector3 *outPosition)
+static bool NewWorldSpawnCandidate(int x, int z, Vector3 *outPosition)
 {
-    int height = TerrainHeight(x, z, mode);
-    int seaLevel = TerrainSeaLevel(mode);
-    if ((seaLevel >= 0 && height < seaLevel) || ShouldPlaceTree(x, z, mode)) {
+    SurfaceContractSample sample;
+    if (!WorldSurfaceSampleAt(x, z, &sample)) return false;
+    int height = (int)lroundf(sample.elevation);
+    int seaLevel = (int)lroundf(sample.seaLevel);
+    if (sample.waterDepth > 0 || (seaLevel >= 0 && height < seaLevel) ||
+        ShouldPlaceTree(x, z, WorldTerrainMode())) {
         return false;
     }
     if (height < SURFACE_MIN_Y ||
@@ -116,27 +119,30 @@ static bool NewWorldSpawnCandidate(int x, int z, TerrainMode mode,
     return true;
 }
 
-static Vector3 FindNewWorldSpawn(TerrainMode mode)
+static Vector3 FindNewWorldSpawn(void)
 {
     const int searchRadius = 512;
     Vector3 candidate = { 0 };
     for (int radius = 0; radius <= searchRadius; radius++) {
         if (radius == 0) {
-            if (NewWorldSpawnCandidate(0, 0, mode, &candidate)) return candidate;
+            if (NewWorldSpawnCandidate(0, 0, &candidate)) return candidate;
             continue;
         }
         for (int offset = -radius; offset <= radius; offset++) {
-            if (NewWorldSpawnCandidate(offset, -radius, mode, &candidate) ||
-                NewWorldSpawnCandidate(radius, offset, mode, &candidate) ||
-                NewWorldSpawnCandidate(-offset, radius, mode, &candidate) ||
-                NewWorldSpawnCandidate(-radius, -offset, mode, &candidate)) {
+            if (NewWorldSpawnCandidate(offset, -radius, &candidate) ||
+                NewWorldSpawnCandidate(radius, offset, &candidate) ||
+                NewWorldSpawnCandidate(-offset, radius, &candidate) ||
+                NewWorldSpawnCandidate(-radius, -offset, &candidate)) {
                 return candidate;
             }
         }
     }
 
-    int seaLevel = TerrainSeaLevel(mode);
-    int platformY = seaLevel >= 0 ? seaLevel + 1 : TerrainHeight(0, 0, mode) + 1;
+    SurfaceContractSample sample;
+    int seaLevel = WorldSurfaceSampleAt(0, 0, &sample)
+        ? (int)lroundf(sample.seaLevel) : -1;
+    int platformY = seaLevel >= 0 ? seaLevel + 1
+                                 : WorldSurfaceHeightAt(0, 0) + 1;
     for (int z = -1; z <= 1; z++) {
         for (int x = -1; x <= 1; x++) {
             SetBlockNoUndo(x, platformY, z, BLOCK_PLANK);
@@ -163,7 +169,11 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     NetherReset();
     AlbumReset();
     AlbumUiReset();
+    WorldSetTerrainMode(mode);
     WorldReset(seed);
+    /* New Homeworlds use cube-grid by default. Save/load installs its own
+     * topology policy before creating a contract. */
+    WorldSetCubeRuntimeEnabled(true);
     if (game->debugControl.terrainHistoryDisabled) {
         TerrainGenerationSetVersion(TERRAIN_GENERATION_VOLCANO_HISTORY - 1u);
     }
@@ -191,9 +201,8 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     SimulationClockReset(&game->simulationClock, 0.0);
     game->simulationTick = 0u;
 
-    WorldSetTerrainMode(mode);
     GamePluginsReset(game);
-    game->player.position = FindNewWorldSpawn(WorldTerrainMode());
+    game->player.position = FindNewWorldSpawn();
     game->player.velocity = Vector3Zero();
     game->player.yaw = PI;
     game->player.pitch = -0.25f;
@@ -1335,6 +1344,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     SetTargetFPS(!game->perfMode && game->debugControlEnabled ? 60 : 0);
     EnableCursor();
     ChunksConfigureWorkerCount(game->chunkWorkerCount);
+    WorldSetCubeRuntimeEnabled(true);
     GameSyncWorldSurfaceSnapshot(WorldGetSeed());
     if (!ChunksStartGenThread()) {
         fprintf(stderr, "Warning: failed to start chunk worker pool; "
