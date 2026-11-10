@@ -152,6 +152,7 @@ legacy map 网格每一圈纬度固定 **1024 个区块**，与纬度无关。�
 |---|---|---|
 | `stream.cube.active` | bool | cube 覆盖策略当前是否驱动流式 |
 | `stream.cube.available` | bool | 是否已有一次成功的 coverage observation |
+| `stream.cube.observation_sequence` | number | 最近一次成功 coverage observation 的单调序号 |
 | `stream.cube.requested` | number | 本次覆盖请求的列数 |
 | `stream.cube.admitted` | number | 通过容量准入的列数 |
 | `stream.cube.ready` | number | 准入列中地形已生成的列数 |
@@ -160,7 +161,8 @@ legacy map 网格每一圈纬度固定 **1024 个区块**，与纬度无关。�
 | `stream.cube.saturated` | bool | 请求数是否超过准入容量 |
 | `stream.cube.submitted` | number | 本次新增提交数 |
 | `stream.cube.released` | number | 本次驱逐数 |
-| `stream.cube.mesh_ready` | number | 已完成网格的列数 |
+| `stream.cube.target_lod_ready` | number | 所有已物化 section 均达到目标 LOD 的准入列数 |
+| `stream.cube.target_lod_missing_sections` | number | 准入列中未达到目标 LOD 的已物化 section 数 |
 | `stream.cube.local_terrain_ready` | bool | 玩家附近没有缺失地形；只表示碰撞/地形就绪 |
 | `stream.cube.visual_ready` | bool | 本地网格就绪的保守组合，不等同于完整视锥、遮挡或绘制覆盖 |
 
@@ -170,5 +172,10 @@ legacy map 网格每一圈纬度固定 **1024 个区块**，与纬度无关。�
   分别区分“覆盖路径已运行”和“已有可读观测”。
 - `stream.surface_ready`、`stream.cube.ready` 和
   `stream.cube.local_terrain_ready` 都只表示地形/碰撞就绪，不得当作视觉就绪。
+- `stream.cube.target_lod_ready` / `target_lod_missing_sections` 只表示目标
+  LOD 网格就绪；`render.coverage.*` 才记录实际视锥、主/阴影绘制提交。
+- 渲染帧只能消费最近 coverage observation 的 admission 集合；主绘制和阴影
+  可继续裁剪该集合，但不能增加未准入列。`admitted`、`visible` 或 `drawn`
+  都不得被解释为完整视锥或遮挡覆盖。
 - `saturated=true` 时，任何测试**不得**断言 `requested == admitted == ready`。
 - 字段命名固定，后续新增只能追加，不能改义。

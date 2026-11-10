@@ -38,7 +38,7 @@ Execution state:
 | M2 | complete | Cube mesh vertices, transforms and bounds share the section anchor frame. |
 | M3 | complete | V30 persists topology, canonical pose and complete cell edits. |
 | M4 | complete | Homeworld consumers use the surface contract and new Homeworld worlds default to cube-grid. |
-| M5 | active | M5.0–M5.1 complete; align LOD/drawing, then close visual/performance acceptance. |
+| M5 | active | M5.0–M5.2 complete; run the visual matrix, then close visual/performance acceptance. |
 | M6 | pending | Remove Homeworld-only transition paths and close the migration. |
 
 This plan deliberately does not migrate planets. The surface interfaces and
@@ -579,7 +579,7 @@ run reports 136 passed, 0 failed. Code commit `6fdaa34`.
 
 #### M5.2: align LOD and drawing readiness
 
-**Status:** next
+**Status:** complete (2026-11-10)
 
 Make LOD selection and drawing consume the same coverage and readiness model.
 Do not report requested or admitted slots as drawn coverage, and do not hide
@@ -607,14 +607,25 @@ Work:
   draw-distance culling and shadow eligibility must agree, and saturation must
   not enlarge the radius or bypass the 625-slot cap.
 
-Exit: no cube renderer path performs an admission decision outside the coverage
-owner; target-LOD readiness and drawn coverage are separately observable; the
-focused cube, contract, streaming and architecture tests pass; no diagnostic
-claims full visual coverage from requested/admitted values.
+Exit evidence: cube LOD selection now uses the same minimum physical patch
+distance as coverage admission and draw culling. Main and shadow rendering
+consume the latest opaque-handle admission snapshot; they can cull admitted
+columns but cannot draw a column outside that observation. `ChunkTargetLodReady`
+and `ChunkTargetLodMissingSections` replace the old any-mesh readiness shortcut,
+while `render.coverage.*` records target/active LOD histograms, missing sections,
+admission/distance/frustum culling and actual solid/water/flora submissions for
+main and shadow passes separately. The E2E probe first aims the camera at the
+surface, then verifies that stream and render observation sequences match and
+that admitted, visible and drawn counters remain distinct. `test_cube_generation`,
+`test_chunk_streaming`, `test_coverage_evidence`, `test_surface_contract`,
+`make test-surface-cube` (9 passed, 0 failed), the Hyprland
+`test-surface-topology-e2e`, `make docs-probe` (341/341 fields),
+`make test-headers`, `make test-werror`, `make test-architecture` and the
+complete `make test` run (136 passed, 0 failed) pass. Code commit `5e4fdc3`.
 
 #### M5.3: run the six-face visual matrix
 
-**Status:** pending M5.2
+**Status:** next
 
 Add deterministic Hyprland scenes for all six faces, face edges, corners, both
 poles, high altitude and multiple render distances. Each scene records camera,

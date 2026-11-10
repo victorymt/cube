@@ -220,14 +220,17 @@ Progress as of 2026-10-23 is marked per item; unmarked text is the original
    and drawing. Derive conservative bounds from curved mesh geometry. Keep
    `surface_ready`'s existing local readiness meaning and expose separate
    requested/ready coverage diagnostics instead of claiming visual readiness.
-   **M5.1 is done**: one physical candidate list now drives retention,
+   **M5.1–M5.2 are done**: one physical candidate list now drives retention,
    exact-slot eviction, duplicate absorption, stale replacement and
    nearest-first submission under the fixed 625-slot cap. Invalid input leaves
    the resident pool and last observation untouched. `SurfaceCoverageEvidence`
    and `stream.cube.*` expose the full result, separating terrain readiness from
-   conservative local visual readiness; LOD and drawing policy are still not
-   unified. The M2 transform/bounds repair now makes mesh vertices and frustum
-   centers use the same section anchor frame, closing the vertical stretch.
+   conservative local visual readiness. Cube LOD selection now uses the same
+   physical patch distance as admission and draw culling; main and shadow passes
+   only cull the latest admitted set. `render.coverage.*` distinguishes actual
+   visible and submitted sections from admitted or target-LOD-ready columns. The
+   M2 transform/bounds repair now makes mesh vertices and frustum centers use the
+   same section anchor frame, closing the vertical stretch.
 4. Replay the existing temperate and dry polar scenes using geographic
    targets, then cross poles/face edges on foot, edit blocks, unload/reload,
    and save/reload. Pin the v9 output and enforce memory budgets. Complete V30
@@ -330,7 +333,10 @@ The expanded `test_cube_generation` fixture covers hash-index growth/replacement
 invalid-address rejection, reserve failure without changing resident terrain,
 cross-face/body isolation, deep edits and air-only sections, unload/regenerate,
 edits during real asynchronous work, stale context rejection, slot reuse,
-preload promotion and pool saturation without eviction.
+preload promotion, pool saturation without eviction, target-LOD readiness versus
+fallback meshes, face/edge/corner physical LOD distance and admission-gated draw
+eligibility. `test_chunk_streaming` pins missing-target-section stats and commit
+of the main/shadow render coverage snapshot.
 
 Validation: `make -j12 test all` passed all 120 binaries, public-header and
 module/game builds, debug CLI/protocol contracts and architecture/clean-build

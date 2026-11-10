@@ -528,6 +528,7 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.missing_surface_chunks` | number | Missing surface chunk count, or `-1` outside play |
 | `stream.cube.active` | bool | Whether cube coverage currently drives streaming; false under the legacy grid |
 | `stream.cube.available` | bool | Whether a successful cube coverage observation exists |
+| `stream.cube.observation_sequence` | number | Monotonic identity of the latest successful coverage observation |
 | `stream.cube.requested` | number | Columns requested by the latest cube coverage update |
 | `stream.cube.admitted` | number | Columns admitted under the 625-slot physical cap |
 | `stream.cube.ready` | number | Admitted columns whose terrain column is loaded |
@@ -538,7 +539,8 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.cube.released` | number | Columns evicted by the latest update |
 | `stream.cube.duplicates` | number | Admitted columns already backed by a current-generation resident when the latest update was planned |
 | `stream.cube.stale` | number | Old-generation cube columns evicted before the latest update scheduled replacement work |
-| `stream.cube.mesh_ready` | number | Resident cube columns whose current-generation section already owns a mesh |
+| `stream.cube.target_lod_ready` | number | Admitted cube columns whose materialized sections are all ready at their target LOD |
+| `stream.cube.target_lod_missing_sections` | number | Materialized sections in admitted cube columns that are not ready at target LOD |
 | `stream.cube.local_terrain_ready` | bool | No local surface terrain chunks are missing; collision/terrain readiness only |
 | `stream.cube.visual_ready` | bool | Conservative local mesh-readiness evidence; not a full viewport, occlusion or draw-coverage certificate |
 | `stream.audit_complete` | bool | No stream audit or stream wait is active |
@@ -567,6 +569,7 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.lod_target_exact`, `stream.lod_target_half`, `stream.lod_target_quarter` | number | Loaded chunks targeting exact, half-resolution, or quarter-resolution meshes |
 | `stream.lod_active_exact`, `stream.lod_active_half`, `stream.lod_active_quarter` | number | Loaded chunks currently rendering exact, half-resolution, or quarter-resolution meshes |
 | `stream.lod_ready_exact_sections`, `stream.lod_ready_half_sections`, `stream.lod_ready_quarter_sections` | number | Section mesh caches ready for the current data version at each LOD |
+| `stream.lod_target_missing_sections` | number | Materialized loaded sections not ready at their chunk's target LOD |
 | `stream.lod_proxy_flora_half`, `stream.lod_proxy_flora_quarter` | number | Ready half- or quarter-resolution section tree proxy meshes |
 | `stream.lod_jobs_exact`, `stream.lod_jobs_half`, `stream.lod_jobs_quarter` | number | Queued, running, or completed mesh jobs awaiting retirement at each LOD |
 | `stream.workers_configured` | number | Target surface chunk worker count |
@@ -710,14 +713,36 @@ Runtime values are sampled when an expression is evaluated:
 | `render.water_debug` | bool | Water section bounds are enabled |
 | `render.water_debug_through` | bool | Water bounds draw through terrain |
 | `render.water_triangles` | number | Water debug pass triangle count |
+| `render.coverage.frame_sequence` | number | Monotonic render-frame sequence for the committed coverage snapshot |
+| `render.coverage.observation_sequence` | number | Coverage observation consumed by that render frame |
+| `render.coverage.requested`, `render.coverage.admitted` | number | Requested and admitted cube columns in that observation |
+| `render.coverage.saturated` | bool | Whether the consumed coverage observation was saturated |
+| `render.coverage.target_exact`, `render.coverage.target_half`, `render.coverage.target_quarter` | number | Target-LOD histogram copied at render-frame start |
+| `render.coverage.active_exact`, `render.coverage.active_half`, `render.coverage.active_quarter` | number | Active-LOD histogram copied at render-frame start |
+| `render.coverage.target_missing_sections` | number | Loaded materialized sections missing target-LOD readiness at render-frame start |
+| `render.coverage.main_admission_culled_columns` | number | Loaded cube columns rejected because they were outside the consumed admission set |
+| `render.coverage.main_distance_culled_columns` | number | Admitted columns rejected by the main pass physical distance |
+| `render.coverage.main_candidate_sections`, `render.coverage.main_frustum_culled_sections` | number | Main-pass sections entering frustum testing and those culled by it |
+| `render.coverage.main_visible_sections` | number | Main-pass sections passing physical distance, admission and frustum checks |
+| `render.coverage.main_target_lod_missing_sections` | number | Visible main-pass sections not ready at their target LOD |
+| `render.coverage.main_drawn_sections` | number | Visible main-pass sections that submitted at least one model |
+| `render.coverage.main_solid_draws`, `render.coverage.main_water_draws`, `render.coverage.main_flora_draws` | number | Main-pass solid, water and flora model submissions |
+| `render.coverage.shadow_admission_culled_columns`, `render.coverage.shadow_distance_culled_columns` | number | Shadow-pass columns rejected by admission and physical distance |
+| `render.coverage.shadow_candidate_sections`, `render.coverage.shadow_frustum_culled_sections` | number | Shadow-pass sections entering shadow visibility and those culled |
+| `render.coverage.shadow_visible_sections` | number | Shadow-pass sections passing admission, distance and shadow visibility |
+| `render.coverage.shadow_target_lod_missing_sections` | number | Visible shadow-pass sections not ready at their target LOD |
+| `render.coverage.shadow_drawn_sections` | number | Visible shadow-pass sections that submitted at least one model |
+| `render.coverage.shadow_solid_draws`, `render.coverage.shadow_water_draws`, `render.coverage.shadow_flora_draws` | number | Shadow-pass solid, water and flora submissions; water is currently always zero |
 | `settings.autosave` | bool | Autosave state (false in debug mode) |
 
 ### Note on the `stream.cube.*` rows above
 
 Those fields report the **last successful** coverage observation and keep the
-last values when a later call is rejected. `ready` is terrain readiness;
-`mesh_ready` is resident mesh presence; `visual_ready` is the conservative local
-combination of both, not proof of full-viewport drawing. `stream.surface_ready`
+last values when a later call is rejected. `observation_sequence` identifies that
+observation. `ready` is terrain readiness; `target_lod_ready` and
+`target_lod_missing_sections` describe section readiness at the target LOD;
+`visual_ready` is the conservative local combination of terrain and target-LOD
+readiness, not proof of full-viewport drawing. `stream.surface_ready`
 is also local terrain readiness and is never a visual or full-coverage
 certificate. `duplicates` and `stale` describe the latest planning pass: a
 duplicate is an admitted request already satisfied by a current-generation
@@ -725,6 +750,12 @@ resident, while stale residents are evicted before replacement. When
 `stream.cube.saturated` is true, a route must not assert
 `requested == admitted == ready`. See the
 [activation contract](cube-contract.md).
+
+`render.coverage.*` is committed only after the main world draw pass. Its
+`observation_sequence` is the coverage result consumed by that frame; it can lag
+the latest scheduler observation, but it must match on a completed frame before
+comparing admitted/drawn evidence. Admission or visibility counters never imply
+that all admitted columns were drawn.
 
 
 ## Command catalog
