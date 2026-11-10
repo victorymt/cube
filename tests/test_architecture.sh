@@ -652,6 +652,14 @@ render_frame_lines=$(printf '%s\n' "$render_frame_body" | wc -l)
 [ "$render_frame_lines" -le 25 ] ||
     fail "GameRenderFrame must remain a render-stage coordinator"
 
+# Terrain, waterline and planet-biome sampling belong behind the world surface
+# facade. Consumers describe a local surface column; only the world adapter may
+# choose a legacy or cube sampling implementation.
+if grep -R -nE '\b(TerrainHeight|PlanetTerrainHeight|TerrainBathymetryAt|PlanetBathymetryAt|SurfaceTerrainAt|PlanetTerrainSampleAt|PlanetBiomeAt|TerrainSeaLevel|PlanetTerrainSeaLevel)[[:space:]]*\(' \
+    src/gameplay src/ecology src/presentation --include='*.c' --include='*.h'; then
+    fail "surface consumers must use WorldSurfaceSampleAt or its typed facade"
+fi
+
 sh tests/test_surface_contract_boundaries.sh
 sh tests/test_clean_build.sh
 

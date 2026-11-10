@@ -167,6 +167,28 @@ static void AssertWorldCellFacade(const SurfaceContract *contract,
     assert(WorldSurfaceCellKnownAt(localX, address.radial, localZ));
     Biome biome = BIOME_PLAINS;
     assert(WorldSurfaceBiomeAt(localX, localZ, &biome));
+    SurfaceContractSample directSample;
+    SurfaceContractSample worldSample;
+    assert(SurfaceContractSampleAt(contract, address, &directSample));
+    assert(WorldSurfaceSampleAt(localX, localZ, &worldSample));
+    assert(worldSample.elevation == directSample.elevation);
+    assert(worldSample.seaLevel == directSample.seaLevel);
+    assert(worldSample.waterSurface == directSample.waterSurface);
+    assert(worldSample.slope == directSample.slope);
+    assert(worldSample.seabedY == directSample.seabedY);
+    assert(worldSample.waterDepth == directSample.waterDepth);
+    assert(worldSample.bathymetryZone == directSample.bathymetryZone);
+    assert(worldSample.bathymetryMaterial == directSample.bathymetryMaterial);
+    assert(worldSample.biome == directSample.biome);
+    assert(worldSample.planetBiome == directSample.planetBiome);
+    assert(worldSample.hasPlanetBiome == directSample.hasPlanetBiome);
+    assert(WorldSurfaceHeightAt(localX, localZ) ==
+           (int)lroundf(directSample.elevation));
+    BathymetrySample bathymetry;
+    assert(WorldSurfaceBathymetryAt(localX, localZ, &bathymetry));
+    assert(bathymetry.seabedY == directSample.seabedY);
+    assert(bathymetry.waterDepth == directSample.waterDepth);
+    assert(!directSample.hasPlanetBiome);
 }
 
 static int RuntimeRegionCoordinate(int mapCoordinate)

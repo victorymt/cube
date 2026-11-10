@@ -3,8 +3,7 @@
 #include "space/space_state.h"
 #include "world/weather.h"
 #include "space/planet_atmosphere.h"
-#include "world/terrain.h"
-#include "world/world_state.h"
+#include "world/world_environment.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -45,8 +44,13 @@ WeatherVisualState WeatherVisualStateAtWorld(
         .atmosphereActive = true
     };
     WeatherVisualState state = WeatherVisualStateEvaluate(&input);
-    state.cloudAltitudeReference = WeatherCloudAltitudeReference(
-        (float)(planet ? PlanetTerrainSeaLevel() : TerrainSeaLevel(WorldTerrainMode())));
+    SurfaceContractSample surface;
+    float seaLevel = 0.0f;
+    if (WorldSurfaceSampleAt((int)floorf(position.x),
+                             (int)floorf(position.z), &surface)) {
+        seaLevel = surface.seaLevel;
+    }
+    state.cloudAltitudeReference = WeatherCloudAltitudeReference(seaLevel);
     float localAir = (float)(fmin(air.densityRatio, 1.0) * air.weatherActivity);
     state.fogDensity *= localAir;
     state.dustDensity *= localAir;

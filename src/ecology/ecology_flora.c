@@ -294,7 +294,8 @@ static void PlacePlanetGroundCover(Chunk *chunk, int x, int z,
                                    const PlanetEcologyProfile *profile,
                                    uint32_t hash)
 {
-    PlanetBiome biome = PlanetBiomeAt(x, z);
+    PlanetBiome biome = PLANET_BIOME_PLAINS;
+    if (!WorldSurfacePlanetBiomeAt(x, z, &biome)) return;
     if (biome == PLANET_BIOME_OCEAN || biome == PLANET_BIOME_LAVA_SEA ||
         biome == PLANET_BIOME_STORM_BANDS) return;
     int ground = WorldSurfaceHeightAt(x, z);
@@ -319,7 +320,8 @@ BlockType PlanetEcologyTestGroundCoverBlock(
 static void PlacePlanetFlora(Chunk *chunk, int x, int z,
                              const PlanetEcologyProfile *profile, uint32_t hash)
 {
-    PlanetBiome biome = PlanetBiomeAt(x, z);
+    PlanetBiome biome = PLANET_BIOME_PLAINS;
+    if (!WorldSurfacePlanetBiomeAt(x, z, &biome)) return;
     if (biome == PLANET_BIOME_OCEAN || biome == PLANET_BIOME_LAVA_SEA ||
         biome == PLANET_BIOME_STORM_BANDS) return;
     int ground = WorldSurfaceHeightAt(x, z);

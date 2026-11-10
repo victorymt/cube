@@ -65,9 +65,11 @@ static int RegionOrigin(int region)
     return region * HYDROLOGY_RUNTIME_REGION_SIZE;
 }
 
-static float HydrologySoilDepthAt(int elevation)
+static float HydrologySoilDepthAt(int x, int z, int elevation)
 {
-    int seaLevel = TerrainSeaLevel(WorldTerrainMode());
+    SurfaceContractSample sample;
+    int seaLevel = WorldSurfaceSampleAt(x, z, &sample)
+        ? (int)lroundf(sample.seaLevel) : -1;
     if (seaLevel >= 0 && elevation <= seaLevel) return 0.15f;
     return 1.0f;
 }
@@ -95,7 +97,8 @@ static bool GameHydrologyRefreshTerrainCell(unsigned index)
     if (!HydrologyRuntimeGlobalSetTerrainCell(
             (int)(index % HYDROLOGY_RUNTIME_GRID_SIZE),
             (int)(index / HYDROLOGY_RUNTIME_GRID_SIZE),
-            (float)elevation, HydrologySoilDepthAt(elevation))) return false;
+            (float)elevation,
+            HydrologySoilDepthAt(localX, localZ, elevation))) return false;
     hydrologyInputCache.stats.terrainSamples++;
     return true;
 }

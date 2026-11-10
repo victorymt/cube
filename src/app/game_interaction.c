@@ -347,9 +347,9 @@ static void GameUseNetherPortal(GameRuntime *game)
             landing, NETHER_LAYER_Y + 1, NETHER_LAYER_TOP - 1, &landing);
         GameNoticePost("Entered the Nether.");
     } else {
-        float groundY = (float)TerrainHeight(
+        float groundY = (float)WorldSurfaceHeightAt(
             (int)floorf(game->player.position.x),
-            (int)floorf(game->player.position.z), WorldTerrainMode());
+            (int)floorf(game->player.position.z));
         landing.y = groundY + 3.0f;
         int landingMinY = (int)floorf(landing.y) -
                           PLAYER_LANDING_SEARCH_DEPTH;

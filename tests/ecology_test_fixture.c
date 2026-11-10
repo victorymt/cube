@@ -237,14 +237,21 @@ static bool EcologyFixtureSampleAt(const SurfaceContract *contract,
         !SurfaceAddressCanonicalMapCell(address, &canonical)) return false;
     SurfaceTerrainSample terrain = SurfaceTerrainAt(
         canonical.x, canonical.z, terrainMode);
+    bool planet = PlanetWorldIsActive();
     *outSample = (SurfaceContractSample){
         .elevation = terrain.elevation,
         .seaLevel = terrain.seaLevel,
         .waterSurface = terrain.bathymetry.waterDepth > 0
             ? (float)terrain.bathymetry.seaLevel + 1.0f : terrain.seaLevel,
+        .slope = terrain.slope,
         .seabedY = terrain.bathymetry.seabedY,
         .waterDepth = terrain.bathymetry.waterDepth,
-        .biome = terrain.biome
+        .bathymetryZone = terrain.bathymetry.zone,
+        .bathymetryMaterial = terrain.bathymetry.material,
+        .biome = terrain.biome,
+        .planetBiome = planet ? PlanetBiomeAt(canonical.x, canonical.z)
+                              : PLANET_BIOME_PLAINS,
+        .hasPlanetBiome = planet
     };
     return true;
 }
@@ -428,6 +435,33 @@ uint32_t WorldGetSeed(void)
 __attribute__((weak)) int WorldSurfaceHeightAt(int x, int z)
 {
     return PlanetTerrainHeight(x, z);
+}
+
+__attribute__((weak)) bool WorldSurfaceSampleAt(
+    int x, int z, SurfaceContractSample *outSample)
+{
+    if (!outSample) return false;
+    Biome biome = BIOME_PLAINS;
+    (void)WorldSurfaceBiomeAt(x, z, &biome);
+    *outSample = (SurfaceContractSample){
+        .elevation = (float)WorldSurfaceHeightAt(x, z),
+        .seaLevel = HOME_SEA_LEVEL,
+        .waterSurface = HOME_SEA_LEVEL + 1.0f,
+        .biome = biome,
+        .planetBiome = PLANET_BIOME_PLAINS,
+        .hasPlanetBiome = PlanetWorldIsActive()
+    };
+    return true;
+}
+
+__attribute__((weak)) bool WorldSurfacePlanetBiomeAt(
+    int x, int z, PlanetBiome *outBiome)
+{
+    (void)x;
+    (void)z;
+    if (!outBiome) return false;
+    *outBiome = PlanetBiomeAt(x, z);
+    return true;
 }
 
 int WorldGetEditCount(void)

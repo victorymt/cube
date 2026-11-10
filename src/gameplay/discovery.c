@@ -6,6 +6,7 @@
 #include "space/space_state.h"
 #include "world/terrain.h"
 #include "world/block_edits.h"
+#include "world/world_environment.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -98,8 +99,11 @@ static bool PlanetPoiForCell(int cellX, int cellZ, PlanetPoi *out)
         uint32_t zHash = PlanetPoiHash(cellX, cellZ, 0x9a41u + (uint32_t)attempt * 23u);
         int x = baseX + PLANET_POI_MARGIN + (int)(xHash % (uint32_t)span);
         int z = baseZ + PLANET_POI_MARGIN + (int)(zHash % (uint32_t)span);
-        int groundY = PlanetTerrainHeight(x, z);
-        PlanetBiome biome = PlanetBiomeAt(x, z);
+        SurfaceContractSample sample;
+        if (!WorldSurfaceSampleAt(x, z, &sample) ||
+            !sample.hasPlanetBiome) continue;
+        int groundY = (int)lroundf(sample.elevation);
+        PlanetBiome biome = sample.planetBiome;
         if (PlanetPoiIsWaterBiome(biome) ||
             groundY > SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 6) continue;
 

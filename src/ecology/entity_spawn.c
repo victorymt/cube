@@ -58,7 +58,8 @@ static bool EntityAnyEvolvable(void)
 
 static bool PlanetBiomeSupportsFauna(int x, int z)
 {
-    PlanetBiome biome = PlanetBiomeAt(x, z);
+    PlanetBiome biome = PLANET_BIOME_PLAINS;
+    if (!WorldSurfacePlanetBiomeAt(x, z, &biome)) return false;
     return biome != PLANET_BIOME_OCEAN && biome != PLANET_BIOME_LAVA_SEA &&
            biome != PLANET_BIOME_STORM_BANDS &&
            biome != PLANET_BIOME_VOLCANIC_RIDGE;

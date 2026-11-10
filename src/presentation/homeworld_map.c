@@ -211,39 +211,29 @@ static HomeWorldMapBounds MapViewBounds(const HomeWorldMapLayout *layout)
     return bounds;
 }
 
-static MapSurfaceTerrainSample MapTerrainAt(int x, int z,
-                                            TerrainMode terrainMode)
+static MapSurfaceTerrainSample MapTerrainAt(int x, int z)
 {
-    if (!homeMap.planetSurface) {
-        SurfaceTerrainSample sample = SurfaceTerrainAt(x, z, terrainMode);
-        return (MapSurfaceTerrainSample){
-            .cell = {
-                .planetSurface = false,
-                .biome = sample.biome,
-                .elevation = sample.elevation,
-                .seaLevel = sample.seaLevel,
-                .slope = sample.slope,
-                .waterDepth = sample.landform.hasWater
-                    ? (int)fmaxf(1, sample.landform.waterLevel - sample.elevation)
-                    : sample.bathymetry.waterDepth
-            },
-            .bathymetry = sample.bathymetry
-        };
+    SurfaceContractSample sample;
+    if (!WorldSurfaceSampleAt(x, z, &sample)) {
+        return (MapSurfaceTerrainSample){ 0 };
     }
-
-    BathymetrySample bathymetry = PlanetBathymetryAt(x, z);
-    float east = (float)PlanetTerrainHeight(x + 1, z);
-    float west = (float)PlanetTerrainHeight(x - 1, z);
-    float north = (float)PlanetTerrainHeight(x, z - 1);
-    float south = (float)PlanetTerrainHeight(x, z + 1);
+    BathymetrySample bathymetry = {
+        .seaLevel = (int)lroundf(sample.seaLevel),
+        .seabedY = sample.seabedY,
+        .waterDepth = sample.waterDepth,
+        .zone = sample.bathymetryZone,
+        .material = sample.bathymetryMaterial
+    };
     return (MapSurfaceTerrainSample){
         .cell = {
-            .planetSurface = true,
-            .planetBiome = PlanetBiomeAt(x, z),
-            .elevation = (float)bathymetry.seabedY,
-            .seaLevel = (float)bathymetry.seaLevel,
-            .slope = fmaxf(fabsf(east - west), fabsf(north - south)) * 0.5f,
-            .waterDepth = bathymetry.waterDepth
+            .planetSurface = homeMap.planetSurface,
+            .biome = sample.biome,
+            .planetBiome = sample.hasPlanetBiome
+                ? sample.planetBiome : PLANET_BIOME_PLAINS,
+            .elevation = sample.elevation,
+            .seaLevel = sample.seaLevel,
+            .slope = sample.slope,
+            .waterDepth = sample.waterDepth
         },
         .bathymetry = bathymetry
     };
@@ -252,7 +242,6 @@ static MapSurfaceTerrainSample MapTerrainAt(int x, int z,
 static void MapRefresh(float daylight)
 {
     homeMap.daylight = daylight;
-    TerrainMode terrainMode = WorldTerrainMode();
     float half = homeMap.bounds.span * 0.5f;
     for (int z = 0; z < HOMEWORLD_MAP_RASTER_SIZE; z++) {
         for (int x = 0; x < HOMEWORLD_MAP_RASTER_SIZE; x++) {
@@ -264,8 +253,7 @@ static void MapRefresh(float daylight)
                                             u * homeMap.bounds.span);
             int worldZ = MapWorldCoordinate(homeMap.bounds.centerZ - half +
                                             v * homeMap.bounds.span);
-            MapSurfaceTerrainSample sample =
-                MapTerrainAt(worldX, worldZ, terrainMode);
+            MapSurfaceTerrainSample sample = MapTerrainAt(worldX, worldZ);
             HomeWorldMapTerrainCell *cell =
                 &homeMap.cells[z * HOMEWORLD_MAP_RASTER_SIZE + x];
             *cell = sample.cell;
@@ -287,9 +275,7 @@ static void MapRefresh(float daylight)
             int index = z * HOMEWORLD_MAP_HEAT_SIZE + x;
             homeMap.heat[index] =
                 MapClamp(ecology.suitability.faunaActivity, 0.0f, 1.0f);
-            int surfaceHeight = homeMap.planetSurface
-                ? PlanetTerrainHeight(worldX, worldZ)
-                : TerrainHeight(worldX, worldZ, terrainMode);
+            int surfaceHeight = WorldSurfaceHeightAt(worldX, worldZ);
             homeMap.subsurfaceLiquids[index] =
                 TerrainSubsurfaceLiquidSummaryAt(
                     worldX, worldZ, surfaceHeight);
@@ -1573,7 +1559,7 @@ void HomeWorldMapDraw(void)
         Vector2 world = HomeWorldMapScreenToWorld(
             viewBounds, layout.map, mouse);
         MapSurfaceTerrainSample sample = MapTerrainAt(
-            (int)floorf(world.x), (int)floorf(world.y), WorldTerrainMode());
+            (int)floorf(world.x), (int)floorf(world.y));
         float u = (world.x - (homeMap.bounds.centerX - homeMap.bounds.span * 0.5f)) /
                   homeMap.bounds.span;
         float v = (world.y - (homeMap.bounds.centerZ - homeMap.bounds.span * 0.5f)) /

@@ -39,9 +39,14 @@ typedef struct SurfaceContractSample {
     float elevation;
     float seaLevel;
     float waterSurface;
+    float slope;
     int seabedY;
     int waterDepth;
+    BathymetryZone bathymetryZone;
+    BathymetryMaterial bathymetryMaterial;
     Biome biome;
+    PlanetBiome planetBiome;
+    bool hasPlanetBiome;
 } SurfaceContractSample;
 
 typedef struct SurfaceCoverageCandidate {

@@ -2,6 +2,7 @@
 #define VOXELCRAFT_WORLD_ENVIRONMENT_H
 
 #include "world/surface_topology_version.h"
+#include "world/surface_contract.h"
 #include "world/terrain_types.h"
 #include "world/world_cell.h"
 #include "world/world_location.h"
@@ -75,12 +76,15 @@ int WorldSurfaceMinY(void);
 int WorldSurfaceMaxYExclusive(void);
 bool WorldCanAccessBlockY(int y);
 float WorldGravityScale(void);
+bool WorldSurfaceSampleAt(int x, int z, SurfaceContractSample *outSample);
 int WorldSurfaceHeightAt(int x, int z);
 /* Consumer-facing cell access for entity, ecology and spawn code. The address
  * is derived from the active surface snapshot; no map chunk lookup escapes. */
 bool WorldSurfaceCellAt(int x, int y, int z, WorldCell *outCell);
 bool WorldSurfaceCellKnownAt(int x, int y, int z);
 bool WorldSurfaceBiomeAt(int x, int z, Biome *outBiome);
+bool WorldSurfacePlanetBiomeAt(int x, int z, PlanetBiome *outBiome);
+bool WorldSurfaceBathymetryAt(int x, int z, BathymetrySample *outSample);
 bool WorldSurfaceCellRuntimeAt(SurfaceAddress address,
                                WorldSurfaceCellRuntime *outRuntime);
 bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY);

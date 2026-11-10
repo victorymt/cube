@@ -5,6 +5,7 @@
 #include "space/space_query.h"
 #include "space/space_state.h"
 #include "space/space_units.h"
+#include "world/world_environment.h"
 #include "world/world_state.h"
 
 #include "raymath.h"
@@ -39,7 +40,7 @@ float GameBuildShipHud(GameRuntime *game, ShipHudState *shipHud,
     if (PlanetWorldIsActive()) {
         shipHud->nearPlanet = true;
         shipHud->altitude = game->player.position.y -
-            (float)PlanetTerrainHeight(
+            (float)WorldSurfaceHeightAt(
                 (int)floorf(game->player.position.x),
                 (int)floorf(game->player.position.z));
         shipHud->atmosphere =
@@ -48,9 +49,9 @@ float GameBuildShipHud(GameRuntime *game, ShipHudState *shipHud,
     } else if (HomeWorldSurfaceIsActive()) {
         shipHud->nearPlanet = true;
         shipHud->altitude = game->player.position.y -
-            (float)TerrainHeight(
+            (float)WorldSurfaceHeightAt(
                 (int)floorf(game->player.position.x),
-                (int)floorf(game->player.position.z), WorldTerrainMode());
+                (int)floorf(game->player.position.z));
         shipHud->atmosphere =
             (float)PlanetAtmosphereAtHeight(NULL,
                                            game->player.position.y).densityRatio * 100.0f;

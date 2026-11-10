@@ -22,6 +22,7 @@
 #include "world/block_types.h"
 #include "world/block_edits.h"
 #include "world/terrain.h"
+#include "world/world_environment.h"
 #include "raymath.h"
 #include <inttypes.h>
 #include <math.h>
@@ -561,7 +562,9 @@ static bool SampleSite(SurfaceAddress address, float *potential, int *height, vo
     *potential = mountain.potential;
     BlockType edit;
     int x = cell.x - surface->context.originX, z = cell.z - surface->context.originZ;
-    return *height > PlanetTerrainSeaLevel() &&
+    SurfaceContractSample sample;
+    return WorldSurfaceSampleAt(x, z, &sample) &&
+        *height > sample.seaLevel &&
         GetBlockBaseAt(x, *height, z) == BLOCK_AIR &&
         !WorldGetBlockEditForCurrentDimensionAt(x, *height, z, &edit) &&
         !WorldGetBlockEditForCurrentDimensionAt(x, *height - 1, z, &edit);
@@ -831,8 +834,12 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
                     SurfaceMapOffset delta = SurfaceShortestMapOffset(observer.x, observer.z, cell.x, cell.z);
                     float distance = hypotf(delta.x, delta.z);
                     if (distance >= best) continue;
-                    int height = WorldSurfaceHeightAt(cell.x - s->context.originX, cell.z - s->context.originZ) + 1;
-                    if (height <= PlanetTerrainSeaLevel()) continue;
+                    int localX = cell.x - s->context.originX;
+                    int localZ = cell.z - s->context.originZ;
+                    int height = WorldSurfaceHeightAt(localX, localZ) + 1;
+                    SurfaceContractSample sample;
+                    if (!WorldSurfaceSampleAt(localX, localZ, &sample) ||
+                        height <= sample.seaLevel) continue;
                     best = distance;
                     c->geologyTerrainFound = true;
                     c->geologyTerrainBody = s->context.bodyId; c->geologyTerrainSeed = s->context.seed;

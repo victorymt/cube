@@ -12,6 +12,7 @@
 #include "world/fluid.h"
 #include "world/surface_topology.h"
 #include "world/terrain.h"
+#include "world/world_environment.h"
 #include "world/world_state.h"
 #include "world/block_types.h"
 #include "world/block_edits.h"
@@ -187,15 +188,9 @@ void GameDebugReplyStatus(GameRuntime *game)
         .zone = BATHYMETRY_ZONE_LAND,
         .material = BATHYMETRY_MATERIAL_ROCK
     };
-    if (PlanetWorldIsActive()) {
-        bathymetry = PlanetBathymetryAt(
-            (int)floorf(game->player.position.x),
-            (int)floorf(game->player.position.z));
-    } else if (HomeWorldSurfaceIsActive()) {
-        bathymetry = TerrainBathymetryAt(
-            (int)floorf(game->player.position.x),
-            (int)floorf(game->player.position.z), WorldTerrainMode());
-    }
+    (void)WorldSurfaceBathymetryAt(
+        (int)floorf(game->player.position.x),
+        (int)floorf(game->player.position.z), &bathymetry);
     DebugControlReply(
         &game->debugControl,
         "DEBUG_CONTROL status screen=%s seed=%u dimension=%s "

@@ -370,7 +370,7 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
             Color pixel = GetImageColor(image, px, py);
             int wx = baseX + colDx * px + rowDx * py;
             int wz = baseZ + colDz * px + rowDz * py;
-            int wy = TerrainHeight(wx, wz, WorldTerrainMode());
+            int wy = WorldSurfaceHeightAt(wx, wz);
             if (relief) {
                 int baseY = wy + 1;
                 for (int y = baseY;

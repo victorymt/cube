@@ -314,6 +314,31 @@ int WorldSurfaceHeightAt(int x, int z)
     return 10;
 }
 
+bool WorldSurfaceSampleAt(int x, int z, SurfaceContractSample *outSample)
+{
+    (void)x;
+    (void)z;
+    if (!outSample) return false;
+    *outSample = (SurfaceContractSample){
+        .elevation = 10.0f,
+        .seaLevel = 80.0f,
+        .waterSurface = 81.0f,
+        .biome = BIOME_PLAINS,
+        .planetBiome = PLANET_BIOME_PLAINS,
+        .hasPlanetBiome = false
+    };
+    return true;
+}
+
+bool WorldSurfacePlanetBiomeAt(int x, int z, PlanetBiome *outBiome)
+{
+    (void)x;
+    (void)z;
+    if (!outBiome) return false;
+    *outBiome = PLANET_BIOME_PLAINS;
+    return true;
+}
+
 bool WorldSurfaceCellAt(int x, int y, int z, WorldCell *outCell)
 {
     if (!outCell) return false;

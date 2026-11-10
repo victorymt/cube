@@ -1,7 +1,40 @@
 #include "world/surface_contract.h"
 #include "world/surface_contract_internal.h"
 
+#include <math.h>
 #include <stddef.h>
+
+bool SurfaceContractSampleFromTerrain(
+    const SurfaceTerrainSample *terrain, bool hasPlanetBiome,
+    PlanetBiome planetBiome, SurfaceContractSample *outSample)
+{
+    if (!terrain || !outSample) return false;
+    BathymetrySample bathymetry = terrain->bathymetry;
+    float waterSurface = bathymetry.waterDepth > 0
+        ? (float)bathymetry.seaLevel + 1.0f : terrain->seaLevel;
+    if (bathymetry.waterDepth <= 0 && terrain->landform.hasWater) {
+        waterSurface = terrain->landform.waterLevel;
+        bathymetry.seabedY = (int)lroundf(terrain->elevation);
+        bathymetry.waterDepth = (int)fmaxf(
+            ceilf(terrain->landform.waterLevel - terrain->elevation), 0.0f);
+        bathymetry.zone = BATHYMETRY_ZONE_COAST;
+        bathymetry.material = BATHYMETRY_MATERIAL_SEDIMENT;
+    }
+    *outSample = (SurfaceContractSample){
+        .elevation = terrain->elevation,
+        .seaLevel = terrain->seaLevel,
+        .waterSurface = waterSurface,
+        .slope = terrain->slope,
+        .seabedY = bathymetry.seabedY,
+        .waterDepth = bathymetry.waterDepth,
+        .bathymetryZone = bathymetry.zone,
+        .bathymetryMaterial = bathymetry.material,
+        .biome = terrain->biome,
+        .planetBiome = planetBiome,
+        .hasPlanetBiome = hasPlanetBiome
+    };
+    return true;
+}
 
 static bool ContractIsUsable(const SurfaceContract *contract)
 {

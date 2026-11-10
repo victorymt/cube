@@ -55,6 +55,7 @@ BathymetrySample PlanetBathymetryAt(int x, int z)
 
 
 static int cubeSampleHeight = 42;
+static float cubeSampleSlope = 1.25f;
 static bool cubeSampleOk = true;
 
 static bool FakeContractSample(const SurfaceContract *contract,
@@ -71,7 +72,13 @@ static bool FakeContractSample(const SurfaceContract *contract,
         if (!cubeSampleOk) return false;
         *out = (SurfaceContractSample){
             .elevation = (float)cubeSampleHeight, .seaLevel = 80.0f,
-            .seabedY = 30, .waterDepth = 50, .biome = BIOME_PLAINS
+            .waterSurface = 81.0f, .slope = cubeSampleSlope,
+            .seabedY = 30, .waterDepth = 50,
+            .bathymetryZone = BATHYMETRY_ZONE_SHELF,
+            .bathymetryMaterial = BATHYMETRY_MATERIAL_ROCK,
+            .biome = BIOME_PLAINS,
+            .planetBiome = PLANET_BIOME_PLAINS,
+            .hasPlanetBiome = false
         };
         return true;
     }
@@ -79,7 +86,12 @@ static bool FakeContractSample(const SurfaceContract *contract,
         *out = (SurfaceContractSample){
             .elevation = (float)(100 + cell.x - cell.z),
             .seaLevel = 80.0f, .waterSurface = 81.0f,
-            .seabedY = 30, .waterDepth = 50, .biome = BIOME_DESERT
+            .slope = 0.5f, .seabedY = 30, .waterDepth = 50,
+            .bathymetryZone = BATHYMETRY_ZONE_SHELF,
+            .bathymetryMaterial = BATHYMETRY_MATERIAL_SAND,
+            .biome = BIOME_PLAINS,
+            .planetBiome = PLANET_BIOME_BADLANDS,
+            .hasPlanetBiome = true
         };
         return true;
     }
@@ -88,8 +100,13 @@ static bool FakeContractSample(const SurfaceContract *contract,
         .elevation = (float)(cell.x + cell.z + (int)terrainMode),
         .seaLevel = flat ? -1.0f : (float)HOME_SEA_LEVEL,
         .waterSurface = flat ? -1.0f : 81.0f,
+        .slope = 2.5f,
         .seabedY = 20, .waterDepth = flat ? 0 : HOME_SEA_LEVEL - 20,
-        .biome = BIOME_PLAINS
+        .bathymetryZone = flat ? BATHYMETRY_ZONE_LAND : BATHYMETRY_ZONE_COAST,
+        .bathymetryMaterial = BATHYMETRY_MATERIAL_SEDIMENT,
+        .biome = BIOME_PLAINS,
+        .planetBiome = PLANET_BIOME_PLAINS,
+        .hasPlanetBiome = false
     };
     return true;
 }
@@ -207,6 +224,13 @@ static void TestHomeAndNether(void)
     assert(WorldGravityScale() == 1.0f);
     assert(WorldCurrentSurfaceId() == 0u);
     assert(WorldSurfaceHeightAt(3, 4) == 7 + (int)terrainMode);
+    SurfaceContractSample sample;
+    assert(WorldSurfaceSampleAt(3, 4, &sample));
+    assert((int)lroundf(sample.elevation) == WorldSurfaceHeightAt(3, 4));
+    assert(sample.slope == 2.5f);
+    assert(sample.bathymetryZone == BATHYMETRY_ZONE_COAST);
+    assert(sample.bathymetryMaterial == BATHYMETRY_MATERIAL_SEDIMENT);
+    assert(!sample.hasPlanetBiome);
     float waterSurface = 0.0f;
     assert(WorldProceduralWaterSurfaceAt(3, 4, &waterSurface));
     assert(waterSurface == (float)HOME_SEA_LEVEL + 1.0f);
@@ -248,6 +272,17 @@ static void TestPlanet(void)
     assert(WorldSurfaceMapOriginX() == 1200);
     assert(WorldSurfaceMapOriginZ() == -340);
     assert(WorldSurfaceHeightAt(7, 2) == 105);
+    SurfaceContractSample sample;
+    assert(WorldSurfaceSampleAt(7, 2, &sample));
+    assert(sample.hasPlanetBiome &&
+           sample.planetBiome == PLANET_BIOME_BADLANDS);
+    PlanetBiome planetBiome = PLANET_BIOME_BASALT_PLAINS;
+    assert(WorldSurfacePlanetBiomeAt(7, 2, &planetBiome));
+    assert(planetBiome == PLANET_BIOME_BADLANDS);
+    BathymetrySample bathymetry;
+    assert(WorldSurfaceBathymetryAt(7, 2, &bathymetry));
+    assert(bathymetry.waterDepth == 50);
+    assert(bathymetry.zone == BATHYMETRY_ZONE_SHELF);
     assert(!WorldCanAccessBlockY(-40));
     assert(WorldCanAccessBlockY(SURFACE_GENERATION_MIN_Y));
     assert(WorldCanAccessBlockY(SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 1));
@@ -370,15 +405,50 @@ static void TestCubeHeightRoutesToCubeSampling(void)
         &snapshot, NextFakeContract(&snapshot)));
 
     assert(WorldSurfaceHeightAt(3, 4) == 321);
+    SurfaceContractSample sample;
+    assert(WorldSurfaceSampleAt(3, 4, &sample));
+    assert(sample.slope == 1.25f);
+    assert(sample.bathymetryZone == BATHYMETRY_ZONE_SHELF);
 
     /* Sampling failure must not fabricate a height. */
     cubeSampleOk = false;
     assert(WorldSurfaceHeightAt(3, 4) == 0);
+    assert(!WorldSurfaceSampleAt(3, 4, &sample));
 
     assert(WorldCurrentSurfaceContract() != NULL);
     assert(WorldInstallSurfaceSnapshot(NULL));
     WorldSetCubeRuntimeEnabled(false);
     WorldResetTopologyPolicy();
+}
+
+static void TestLandformWaterlineSample(void)
+{
+    SurfaceTerrainSample terrain = {
+        .elevation = 82.25f,
+        .seaLevel = 80.0f,
+        .slope = 0.75f,
+        .biome = BIOME_SWAMP,
+        .landform = {
+            .hasWater = true,
+            .waterLevel = 84.0f
+        },
+        .bathymetry = {
+            .seaLevel = 80,
+            .seabedY = 82,
+            .waterDepth = 0,
+            .zone = BATHYMETRY_ZONE_LAND,
+            .material = BATHYMETRY_MATERIAL_ROCK
+        }
+    };
+    SurfaceContractSample sample;
+    assert(SurfaceContractSampleFromTerrain(
+        &terrain, false, PLANET_BIOME_PLAINS, &sample));
+    assert(sample.elevation == terrain.elevation);
+    assert(sample.waterSurface == 84.0f);
+    assert(sample.waterDepth == 2);
+    assert(sample.seabedY == 82);
+    assert(sample.bathymetryZone == BATHYMETRY_ZONE_COAST);
+    assert(sample.bathymetryMaterial == BATHYMETRY_MATERIAL_SEDIMENT);
 }
 
 int main(void)
@@ -389,6 +459,7 @@ int main(void)
     TestSpace();
     TestSurfacePoseRebaseEvents();
     TestCubeHeightRoutesToCubeSampling();
+    TestLandformWaterlineSample();
     puts("world_environment tests passed");
     return 0;
 }

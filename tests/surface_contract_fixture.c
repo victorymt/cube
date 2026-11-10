@@ -40,8 +40,16 @@ static void AssertSample(const SurfaceContract *contract,
     assert(isfinite(sample.elevation));
     assert(isfinite(sample.seaLevel));
     assert(isfinite(sample.waterSurface));
+    assert(isfinite(sample.slope) && sample.slope >= 0.0f);
     assert(sample.waterDepth >= 0);
+    assert(sample.bathymetryZone >= BATHYMETRY_ZONE_LAND &&
+           sample.bathymetryZone <= BATHYMETRY_ZONE_SEAMOUNT);
+    assert(sample.bathymetryMaterial >= BATHYMETRY_MATERIAL_SAND &&
+           sample.bathymetryMaterial <= BATHYMETRY_MATERIAL_ROCK);
     assert(sample.biome >= BIOME_PLAINS && sample.biome <= BIOME_SWAMP);
+    assert(!sample.hasPlanetBiome ||
+           (sample.planetBiome >= PLANET_BIOME_BASALT_PLAINS &&
+            sample.planetBiome < PLANET_BIOME_COUNT));
 
     int seabedY = 0;
     int waterDepth = -1;

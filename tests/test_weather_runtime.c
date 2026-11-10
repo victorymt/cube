@@ -214,6 +214,18 @@ int WorldSurfaceHeightAt(int x, int z)
     return testTerrainHeight;
 }
 
+bool WorldSurfaceSampleAt(int x, int z, SurfaceContractSample *outSample)
+{
+    (void)x;
+    (void)z;
+    if (!outSample) return false;
+    *outSample = (SurfaceContractSample){
+        .seaLevel = PlanetWorldIsActive() ? (float)testPlanetSeaLevel
+            : testTerrainMode == TERRAIN_FLAT ? -1.0f : HOME_SEA_LEVEL
+    };
+    return true;
+}
+
 TerrainMode WorldTerrainMode(void) { return testTerrainMode; }
 int TerrainSeaLevel(TerrainMode mode)
 {

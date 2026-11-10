@@ -136,11 +136,10 @@ BlockType NearestImageBlock(Color color)
     return BLOCK_STONE;
 }
 
-int TerrainHeight(int x, int z, TerrainMode mode)
+int WorldSurfaceHeightAt(int x, int z)
 {
     (void)x;
     (void)z;
-    (void)mode;
     return 0;
 }
 

@@ -126,13 +126,20 @@ static bool WorldSurfaceAddressAtLocalMap(int x, int z,
     return SurfaceAddressIsValid(*outAddress);
 }
 
-int WorldSurfaceHeightAt(int x, int z)
+bool WorldSurfaceSampleAt(int x, int z, SurfaceContractSample *outSample)
 {
     SurfaceAddress address;
+    if (!outSample || !WorldSurfaceAddressAtLocalMap(x, z, &address)) {
+        return false;
+    }
+    return SurfaceContractSampleAt(
+        WorldCurrentSurfaceContract(), address, outSample);
+}
+
+int WorldSurfaceHeightAt(int x, int z)
+{
     SurfaceContractSample sample;
-    if (!WorldSurfaceAddressAtLocalMap(x, z, &address) ||
-        !SurfaceContractSampleAt(WorldCurrentSurfaceContract(), address,
-                                 &sample)) return 0;
+    if (!WorldSurfaceSampleAt(x, z, &sample)) return 0;
     return (int)lroundf(sample.elevation);
 }
 
@@ -160,12 +167,32 @@ bool WorldSurfaceCellKnownAt(int x, int y, int z)
 
 bool WorldSurfaceBiomeAt(int x, int z, Biome *outBiome)
 {
-    SurfaceAddress address;
     SurfaceContractSample sample;
-    if (!outBiome || !WorldSurfaceAddressAtLocalMap(x, z, &address) ||
-        !SurfaceContractSampleAt(
-            WorldCurrentSurfaceContract(), address, &sample)) return false;
+    if (!outBiome || !WorldSurfaceSampleAt(x, z, &sample)) return false;
     *outBiome = sample.biome;
+    return true;
+}
+
+bool WorldSurfacePlanetBiomeAt(int x, int z, PlanetBiome *outBiome)
+{
+    SurfaceContractSample sample;
+    if (!outBiome || !WorldSurfaceSampleAt(x, z, &sample) ||
+        !sample.hasPlanetBiome) return false;
+    *outBiome = sample.planetBiome;
+    return true;
+}
+
+bool WorldSurfaceBathymetryAt(int x, int z, BathymetrySample *outSample)
+{
+    SurfaceContractSample sample;
+    if (!outSample || !WorldSurfaceSampleAt(x, z, &sample)) return false;
+    *outSample = (BathymetrySample){
+        .seaLevel = (int)lroundf(sample.seaLevel),
+        .seabedY = sample.seabedY,
+        .waterDepth = sample.waterDepth,
+        .zone = sample.bathymetryZone,
+        .material = sample.bathymetryMaterial
+    };
     return true;
 }
 
@@ -197,18 +224,8 @@ static bool WorldProceduralOceanBathymetryAt(int x, int z,
     if (!outSample || !context.active || WorldNetherIsActive()) {
         return false;
     }
-    SurfaceAddress address;
-    SurfaceContractSample surface;
-    if (!WorldSurfaceAddressAtLocalMap(x, z, &address) ||
-        !SurfaceContractSampleAt(WorldCurrentSurfaceContract(), address,
-                                 &surface)) return false;
-    BathymetrySample sample = {
-        .seaLevel = (int)lroundf(surface.seaLevel),
-        .seabedY = surface.seabedY,
-        .waterDepth = surface.waterDepth,
-        .zone = BATHYMETRY_ZONE_LAND,
-        .material = BATHYMETRY_MATERIAL_ROCK
-    };
+    BathymetrySample sample;
+    if (!WorldSurfaceBathymetryAt(x, z, &sample)) return false;
     if (sample.waterDepth <= 0 || sample.seaLevel < 0 ||
         sample.seabedY >= sample.seaLevel) {
         return false;

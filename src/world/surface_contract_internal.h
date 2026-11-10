@@ -3,9 +3,14 @@
 
 #include "world/surface_contract.h"
 #include "world/surface_topology_version.h"
+#include "world/terrain.h"
 
 struct Chunk;
 struct ChunkSection;
+
+bool SurfaceContractSampleFromTerrain(
+    const SurfaceTerrainSample *terrain, bool hasPlanetBiome,
+    PlanetBiome planetBiome, SurfaceContractSample *outSample);
 
 typedef struct SurfaceCellRuntime {
     struct Chunk *chunk;

@@ -11,10 +11,10 @@
 #include "world/radiation_runtime.h"
 #include "world/hydrology_runtime.h"
 #include "world/terrain.h"
+#include "world/world_environment.h"
 #include "world/world_state.h"
 #include "world/block_lighting.h"
 #include "world/block_edits.h"
-#include "world/world_environment.h"
 #include "world/world_surface_snapshot.h"
 
 #include "raymath.h"
@@ -48,7 +48,7 @@ static Vector3 GameWorldTransitionHomeLandingPosition(void)
     int groundY = 0;
     if (!FindSafeSurfaceLanding(landingX, landingZ, 128, 2,
                                 &landingX, &landingZ, &groundY)) {
-        groundY = TerrainHeight(landingX, landingZ, WorldTerrainMode());
+        groundY = WorldSurfaceHeightAt(landingX, landingZ);
     }
     return (Vector3){
         (float)landingX + 0.5f,
@@ -72,7 +72,7 @@ static Vector3 GameWorldTransitionPlanetLandingPosition(void)
     int playerGround = 0;
     if (!FindSafeSurfaceLanding(playerX, playerZ, 16, 0,
                                 &playerX, &playerZ, &playerGround)) {
-        playerGround = PlanetTerrainHeight(playerX, playerZ);
+        playerGround = WorldSurfaceHeightAt(playerX, playerZ);
     }
     return (Vector3){
         (float)playerX + 0.5f,
@@ -90,10 +90,10 @@ bool GameWorldTransitionBeginDescent(Player *player, bool homeWorldTarget,
     Vector3 landing = Vector3Zero();
     if (homeWorldTarget) {
         if (!HomeWorldCanEnter(player->position)) return false;
-        landing = GameWorldTransitionHomeLandingPosition();
         GameWorldTransitionUnloadSurfaceData();
         if (!HomeWorldEnterSurface()) return false;
         GameWorldTransitionFinishSurfaceActivation();
+        landing = GameWorldTransitionHomeLandingPosition();
 
         player->position = (Vector3){
             landing.x, SPACE_ENTER_Y - 2.0f, landing.z - 96.0f

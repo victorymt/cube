@@ -407,16 +407,19 @@ static bool LegacySampleAt(const SurfaceContract *contract,
     if (!outSample || !LegacyAddressMatches(contract, address) ||
         !LegacyMapCoordinates(legacy, address, &x, &z)) return false;
     SurfaceTerrainSample terrain = SurfaceTerrainAt(x, z, legacy->mode);
-    *outSample = (SurfaceContractSample){
-        .elevation = terrain.elevation,
-        .seaLevel = terrain.seaLevel,
-        .waterSurface = terrain.bathymetry.waterDepth > 0
-            ? (float)terrain.bathymetry.seaLevel + 1.0f : terrain.seaLevel,
-        .seabedY = terrain.bathymetry.seabedY,
-        .waterDepth = terrain.bathymetry.waterDepth,
-        .biome = terrain.biome
-    };
-    return true;
+    bool planet = legacy->snapshot.context.kind == WORLD_SURFACE_PLANET;
+    PlanetBiome planetBiome = PLANET_BIOME_PLAINS;
+    if (planet) {
+        terrain.bathymetry = PlanetBathymetryAt(x, z);
+        terrain.slope = fmaxf(
+            fabsf((float)(PlanetTerrainHeight(x + 1, z) -
+                          PlanetTerrainHeight(x - 1, z))),
+            fabsf((float)(PlanetTerrainHeight(x, z - 1) -
+                          PlanetTerrainHeight(x, z + 1)))) * 0.5f;
+        planetBiome = PlanetBiomeAt(x, z);
+    }
+    return SurfaceContractSampleFromTerrain(
+        &terrain, planet, planetBiome, outSample);
 }
 
 static SurfaceRegionHandle LegacyRegionForAddress(

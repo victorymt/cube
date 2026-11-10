@@ -94,14 +94,19 @@ static PlanetLocalEnvironment EcologyHomeEnvironmentAt(
     float currentStorm, bool dynamic)
 {
     PlanetLocalEnvironment environment = { 0 };
-    int height = WorldSurfaceHeightAt(x, z);
+    SurfaceContractSample sample;
+    if (!WorldSurfaceSampleAt(x, z, &sample)) {
+        sample.elevation = 0.0f;
+        sample.seaLevel = -1.0f;
+        sample.biome = BIOME_PLAINS;
+    }
+    int height = (int)lroundf(sample.elevation);
     int east = WorldSurfaceHeightAt(x + 2, z);
     int west = WorldSurfaceHeightAt(x - 2, z);
     int south = WorldSurfaceHeightAt(x, z + 2);
     int north = WorldSurfaceHeightAt(x, z - 2);
-    int seaLevel = TerrainSeaLevel(WorldTerrainMode());
-    Biome biome = BIOME_PLAINS;
-    (void)WorldSurfaceBiomeAt(x, z, &biome);
+    int seaLevel = (int)lroundf(sample.seaLevel);
+    Biome biome = sample.biome;
     float temperature = 288.0f;
     float moisture = 0.58f;
     float biomeSupport = 0.86f;

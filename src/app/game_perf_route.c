@@ -2,8 +2,7 @@
 
 #include "core/perf.h"
 #include "raymath.h"
-#include "world/terrain.h"
-#include "world/world_state.h"
+#include "world/world_environment.h"
 
 #include <math.h>
 
@@ -25,9 +24,11 @@ void GameApplyPerfRoute(Player *player, int frame)
             z += 58.5f - (float)returning * 0.39f;
         }
     }
-    int terrainY = TerrainHeight((int)floorf(x), (int)floorf(z),
-                                 WorldTerrainMode());
-    int seaLevel = TerrainSeaLevel(WorldTerrainMode());
+    int terrainY = WorldSurfaceHeightAt((int)floorf(x), (int)floorf(z));
+    SurfaceContractSample sample;
+    int seaLevel = WorldSurfaceSampleAt((int)floorf(x), (int)floorf(z),
+                                        &sample)
+        ? (int)lroundf(sample.seaLevel) : -1;
     // The route must remain in the streamed vertical range over ocean cells.
     if (seaLevel >= 0 && terrainY < seaLevel) terrainY = seaLevel;
     player->position = (Vector3){ x, (float)terrainY + 3.0f, z };

@@ -364,17 +364,13 @@ static bool CubeSampleAt(const SurfaceContract *contract,
     const CubeContract *cube = contract->implementation;
     TerrainCubeColumn column;
     if (!TerrainCubeSampleColumn(cube->context, address, &column)) return false;
-    *outSample = (SurfaceContractSample){
-        .elevation = column.terrain.elevation,
-        .seaLevel = column.terrain.seaLevel,
-        .waterSurface = column.terrain.bathymetry.waterDepth > 0
-            ? (float)column.terrain.bathymetry.seaLevel + 1.0f
-            : column.terrain.seaLevel,
-        .seabedY = column.terrain.bathymetry.seabedY,
-        .waterDepth = column.terrain.bathymetry.waterDepth,
-        .biome = column.terrain.biome
-    };
-    return true;
+    const WorldSurfaceSnapshot *snapshot =
+        TerrainCubeContextSnapshot(cube->context);
+    bool planet = snapshot &&
+        snapshot->context.kind == WORLD_SURFACE_PLANET;
+    return SurfaceContractSampleFromTerrain(
+        &column.terrain, planet,
+        planet ? column.planet.biome : PLANET_BIOME_PLAINS, outSample);
 }
 
 static SurfaceRegionHandle CubeRegionForAddress(

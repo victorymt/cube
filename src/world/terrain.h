@@ -21,30 +21,6 @@
 #define BATHYMETRY_MIN_SEABED_Y 8
 #define BATHYMETRY_MAX_WATER_DEPTH 72
 
-typedef enum BathymetryZone {
-    BATHYMETRY_ZONE_LAND = 0,
-    BATHYMETRY_ZONE_COAST,
-    BATHYMETRY_ZONE_SHELF,
-    BATHYMETRY_ZONE_SLOPE,
-    BATHYMETRY_ZONE_ABYSSAL_PLAIN,
-    BATHYMETRY_ZONE_TRENCH,
-    BATHYMETRY_ZONE_SEAMOUNT
-} BathymetryZone;
-
-typedef enum BathymetryMaterial {
-    BATHYMETRY_MATERIAL_SAND = 0,
-    BATHYMETRY_MATERIAL_SEDIMENT,
-    BATHYMETRY_MATERIAL_ROCK
-} BathymetryMaterial;
-
-typedef struct BathymetrySample {
-    int seaLevel;
-    int seabedY;
-    int waterDepth;
-    BathymetryZone zone;
-    BathymetryMaterial material;
-} BathymetrySample;
-
 typedef struct SurfaceTerrainSample {
     float elevation;
     float seaLevel;

@@ -57,9 +57,13 @@ static void LandingTransitionCaptureSummary(LandingTransition *transition,
                  "X %+04d   Z %+04d   ALT %d", landingX, landingZ,
                  (int)floorf(player->position.y));
         const PlanetProfile *profile = PlanetWorldProfile();
+        SurfaceContractSample sample;
+        PlanetBiome biome = PLANET_BIOME_PLAINS;
+        if (WorldSurfaceSampleAt(landingX, landingZ, &sample) &&
+            sample.hasPlanetBiome) biome = sample.planetBiome;
         snprintf(transition->environment, sizeof(transition->environment),
                  "BIOME %s  |  %s  |  AGE %.1f GYR",
-                 PlanetBiomeName(PlanetBiomeAt(landingX, landingZ)),
+                 PlanetBiomeName(biome),
                  PlanetAtmosphereName(profile->atmosphereType), profile->ageGyr);
         snprintf(transition->biosphere, sizeof(transition->biosphere),
                  "BIOSPHERE %s / %s / %s", PlanetEcologyBiomassName(),
@@ -69,9 +73,11 @@ static void LandingTransitionCaptureSummary(LandingTransition *transition,
         snprintf(transition->landingPoint, sizeof(transition->landingPoint),
                  "X %+04d   Z %+04d   ALT %d", landingX, landingZ,
                  (int)floorf(player->position.y));
+        Biome biome = BIOME_PLAINS;
+        (void)WorldSurfaceBiomeAt(landingX, landingZ, &biome);
         snprintf(transition->environment, sizeof(transition->environment),
                  "BIOME %s  |  BREATHABLE ATMOSPHERE",
-                 LandingHomeBiomeName(BiomeAt(landingX, landingZ)));
+                 LandingHomeBiomeName(biome));
         snprintf(transition->biosphere, sizeof(transition->biosphere),
                  "BIOSPHERE NATIVE / CARBON / DIVERSE");
     }

@@ -16,6 +16,7 @@
 #include "space/space_state.h"
 #include "world/chunks.h"
 #include "world/terrain.h"
+#include "world/world_environment.h"
 #include "world/landform_runtime.h"
 #include "world/terrain_generation.h"
 #include <stdlib.h>
@@ -263,13 +264,15 @@ static void GameBuildFrameEnvironmentSample(GameRuntime *game,
     EnvironmentScene environmentScene =
         EnvironmentSceneForDimension(frame->cameraDimension);
     bool forest = false;
-    if (environmentScene == ENVIRONMENT_SCENE_HOME) {
-        forest = BiomeAt((int)floorf(game->player.position.x),
-                         (int)floorf(game->player.position.z)) == BIOME_FOREST;
-    } else if (environmentScene == ENVIRONMENT_SCENE_PLANET) {
-        forest = PlanetBiomeAt((int)floorf(game->player.position.x),
-                               (int)floorf(game->player.position.z)) ==
-                 PLANET_BIOME_FOREST;
+    SurfaceContractSample surface;
+    if ((environmentScene == ENVIRONMENT_SCENE_HOME ||
+         environmentScene == ENVIRONMENT_SCENE_PLANET) &&
+        WorldSurfaceSampleAt((int)floorf(game->player.position.x),
+                             (int)floorf(game->player.position.z), &surface)) {
+        forest = environmentScene == ENVIRONMENT_SCENE_HOME
+            ? surface.biome == BIOME_FOREST
+            : surface.hasPlanetBiome &&
+              surface.planetBiome == PLANET_BIOME_FOREST;
     }
     bool sheltered = GameEnvironmentSheltered(game->camera.position);
     frame->wildfireCount = 0u;
@@ -318,14 +321,17 @@ static void GameBuildFrameEnvironmentSample(GameRuntime *game,
         .zone = BATHYMETRY_ZONE_LAND,
         .material = BATHYMETRY_MATERIAL_ROCK
     };
-    if (PlanetWorldIsActive()) {
-        frame->bathymetry = PlanetBathymetryAt(
-            (int)floorf(game->player.position.x),
-            (int)floorf(game->player.position.z));
-    } else if (HomeWorldSurfaceIsActive()) {
-        frame->bathymetry = TerrainBathymetryAt(
-            (int)floorf(game->player.position.x),
-            (int)floorf(game->player.position.z), WorldTerrainMode());
+    if ((PlanetWorldIsActive() || HomeWorldSurfaceIsActive()) &&
+        !WorldSurfaceBathymetryAt((int)floorf(game->player.position.x),
+                                  (int)floorf(game->player.position.z),
+                                  &frame->bathymetry)) {
+        frame->bathymetry = (BathymetrySample){
+            .seaLevel = -1,
+            .seabedY = (int)floorf(game->player.position.y),
+            .waterDepth = 0,
+            .zone = BATHYMETRY_ZONE_LAND,
+            .material = BATHYMETRY_MATERIAL_ROCK
+        };
     }
 }
 
