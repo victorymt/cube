@@ -38,7 +38,7 @@ Execution state:
 | M2 | complete | Cube mesh vertices, transforms and bounds share the section anchor frame. |
 | M3 | complete | V30 persists topology, canonical pose and complete cell edits. |
 | M4 | complete | Homeworld consumers use the surface contract and new Homeworld worlds default to cube-grid. |
-| M5 | active | M5.0 is complete; unify coverage scheduling and then close visual/performance acceptance. |
+| M5 | active | M5.0–M5.1 complete; align LOD/drawing, then close visual/performance acceptance. |
 | M6 | pending | Remove Homeworld-only transition paths and close the migration. |
 
 This plan deliberately does not migrate planets. The surface interfaces and
@@ -102,6 +102,12 @@ contract. The active backend is selected once when a surface is installed.
 
 - Scheduling, admission, retention, LOD and drawing use one physical coverage
   metric.
+- Coverage admission is the only source that may add resident columns; LOD,
+  main rendering and shadow rendering may cull admitted residents but may not
+  silently expand the admitted set.
+- Diagnostics distinguish terrain readiness, target-LOD readiness, visibility
+  and actual draw submission. `admitted`, `activeLod` or `visible` must never be
+  reported as drawn coverage without a draw/collect observation.
 - The fixed 625-slot capacity remains the default. Saturation is explicit and
   uses the current nearest-first policy; this plan does not add unbounded
   capacity or a new layered LOD scheme.
@@ -573,24 +579,98 @@ run reports 136 passed, 0 failed. Code commit `6fdaa34`.
 
 #### M5.2: align LOD and drawing readiness
 
+**Status:** next
+
 Make LOD selection and drawing consume the same coverage and readiness model.
 Do not report requested or admitted slots as drawn coverage, and do not hide
 saturation behind a larger distance or silent eviction. Commit
 `refactor(render): consume physical coverage readiness`.
 
+Work:
+
+- Replace the cube LOD selector's graph-coordinate distance with the same
+  physical metric used by coverage admission and `ChunkWithinDrawDistance`.
+- Make main rendering and shadow rendering consume the last coverage admission
+  set and the same physical radius. They may cull residents, but must not draw a
+  cube column that the current observation refused to admit.
+- Expose that admission membership as a bounded, read-only snapshot with an
+  observation sequence and opaque chunk handles. Presentation must not receive
+  raw cube keys or introduce a second ownership/admission list.
+- Replace "any resident mesh exists" evidence with explicit readiness for the
+  target LOD. Keep fallback meshes drawable, but never count a fallback as
+  target-LOD readiness.
+- Add a read-only render snapshot that reports target/active LOD histograms,
+  target-LOD-missing sections, physically visible sections, and solid/water/
+  flora draw submissions for the main and shadow passes separately. `drawn`
+  must come from the collect/draw path, not from the admission counters.
+- Extend tests across a face center, face edge and face corner: LOD distance,
+  draw-distance culling and shadow eligibility must agree, and saturation must
+  not enlarge the radius or bypass the 625-slot cap.
+
+Exit: no cube renderer path performs an admission decision outside the coverage
+owner; target-LOD readiness and drawn coverage are separately observable; the
+focused cube, contract, streaming and architecture tests pass; no diagnostic
+claims full visual coverage from requested/admitted values.
+
 #### M5.3: run the six-face visual matrix
+
+**Status:** pending M5.2
 
 Add deterministic Hyprland scenes for all six faces, face edges, corners, both
 poles, high altitude and multiple render distances. Each scene records camera,
 focus, requested/admitted/ready counts, saturation and screenshot artifacts.
 Commit `test(cube): cover the Homeworld visual matrix`.
 
+Implementation and evidence:
+
+- Drive the matrix from one parameterized DSL route and a data table, not
+  copy-pasted scene files.
+- Cover all six face centers, all 12 unique cube edges, all eight corners, both
+  geographic poles, a high-altitude camera and render distances 4, 8 and 12.
+- For every case record the active face/camera/focus, requested/admitted/ready/
+  saturated values, target/active LOD histograms, missing target-LOD sections,
+  visible/drawn sections, draw calls, triangles, queue peaks and screenshot path.
+- Pass only when a non-saturated case has no central terrain gaps, edge and
+  corner routes show no seam gap/overlap, pole views no longer show the legacy
+  narrow strip, and LOD evidence agrees with the drawn sections. Saturated cases
+  remain explicit and may not be asserted as complete visual coverage.
+
 #### M5.4: close coverage and performance evidence
+
+**Status:** pending M5.3
 
 Repeat frame-time, memory, queue and saturation measurements on the same machine
 and scenes. If a budget fails, record the deficit and stop rather than changing
 capacity silently. Update `STATUS.md`, record the M5 evidence here and commit the
 complete G4 closure.
+
+Freeze the same-host baseline before tuning. Use three runs per acceptance scene and
+the median report; keep the raw key/value reports plus the summary table in
+`docs/performance/`. Add process peak RSS to the perf report before collecting
+the final evidence. The following gates are fixed for M5:
+
+| Gate | Budget |
+|---|---|
+| CPU frame p95 at 1280x720, render distance 12 | `<= 16.7 ms` |
+| CPU update p95 / draw p95 | `<= 8.0 ms` each |
+| Mesh upload p95 | `<= 2.0 ms` |
+| GPU frame p95 when supported | `<= 16.7 ms` |
+| Stream settle after focus stops | `<= 300 frames` |
+| Synchronous mesh rebuilds | `0` |
+| Generation/mesh queue peaks | no greater than configured capacities |
+| Local surface gaps at each settled point | `0` outside an explicitly saturated observation |
+| Same-scene regression versus frozen same-host baseline | p95 frame/upload time `<= 5%`; peak estimated mesh bytes and peak RSS `<= 10%` |
+| Repeated-route resource growth | final estimated mesh bytes within `5%` of the repeat checkpoint |
+
+Acceptance scenes must include a face center, a saturated corner and a pole at
+render distance 12, plus the lower-distance matrix cases. If GPU timing is
+unavailable on the test host, record it as unavailable rather than as a pass;
+CPU, queue, memory and settle gates still apply.
+
+Exit evidence records frame time, process RSS, estimated mesh bytes, pending mesh
+snapshot bytes, requested/admitted/ready/drawn counts, saturation and queue peaks
+from the same machine and scene. A failed budget is a G4 result, not permission
+to enlarge the 625-slot capacity or disappear saturation behind a larger radius.
 
 ### M6: close G5
 
