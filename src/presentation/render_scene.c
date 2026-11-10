@@ -21,6 +21,15 @@ static bool worldWaterDebugEnabled;
 static bool worldWaterDebugThrough;
 static WorldWaterRenderDebugInfo worldWaterDebugSnapshot;
 static ChunkRenderCoverageStats worldFrameRenderCoverage;
+static int ModelTriangleCount(const Model *model);
+
+static void AddModelTriangles(uint64_t *total, const Model *model)
+{
+    int count = ModelTriangleCount(model);
+    if (count <= 0) return;
+    if (*total > UINT64_MAX - (uint64_t)count) *total = UINT64_MAX;
+    else *total += (uint64_t)count;
+}
 
 #define MAX_OTHER_TRANSPARENT_ITEMS (MAX_SPACE_CHUNKS + MAX_NETHER_CHUNKS)
 
@@ -163,6 +172,8 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
                     surfaceTransparentItems[surfaceTransparentCount - 1].sectionY =
                         sectionY;
                     worldFrameRenderCoverage.mainWaterDraws++;
+                    AddModelTriangles(&worldFrameRenderCoverage.mainWaterTriangles,
+                                      waterModel);
                     submitted = true;
                 }
             }
@@ -171,6 +182,8 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
             if (solidModel) {
                 PerfRecordDrawCall(PERF_DRAW_SOLID);
                 worldFrameRenderCoverage.mainSolidDraws++;
+                AddModelTriangles(&worldFrameRenderCoverage.mainSolidTriangles,
+                                  solidModel);
                 submitted = true;
                 WorldRendererDrawModelTransformed(
                     solidModel, transform, tint, false);
@@ -179,6 +192,8 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
                 section->hasFloraModel) {
                 PerfRecordDrawCall(PERF_DRAW_FLORA);
                 worldFrameRenderCoverage.mainFloraDraws++;
+                AddModelTriangles(&worldFrameRenderCoverage.mainFloraTriangles,
+                                  &section->floraModel);
                 submitted = true;
                 WorldRendererDrawModelTransformedTwoSided(
                     &section->floraModel, transform, tint);
@@ -187,6 +202,8 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
                        section->lodFloraModelLevel == chunk->activeLod) {
                 PerfRecordDrawCall(PERF_DRAW_FLORA);
                 worldFrameRenderCoverage.mainFloraDraws++;
+                AddModelTriangles(&worldFrameRenderCoverage.mainFloraTriangles,
+                                  &section->lodFloraModel);
                 submitted = true;
                 WorldRendererDrawModelTransformedTwoSided(
                     &section->lodFloraModel, transform, tint);
@@ -208,7 +225,7 @@ void WorldRenderFrameShutdown(void)
     };
 }
 
-static int WaterModelTriangleCount(const Model *model)
+static int ModelTriangleCount(const Model *model)
 {
     if (!model || !model->meshes || model->meshCount <= 0) return 0;
     int total = 0;
@@ -357,7 +374,7 @@ void DrawWorld(const Camera3D *camera, Color tint, bool drawNetherChunks,
             worldWaterDebugSnapshot.nearestChunkZ = water[index].cz;
             worldWaterDebugSnapshot.nearestSectionY = water[index].sectionY;
         }
-        int triangles = WaterModelTriangleCount(water[index].model);
+        int triangles = ModelTriangleCount(water[index].model);
         if (triangles == INT_MAX ||
             worldWaterDebugSnapshot.triangleCount > INT_MAX - triangles) {
             worldWaterDebugSnapshot.triangleCount = INT_MAX;
@@ -440,6 +457,9 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
                     WorldRendererDrawShadowModelTransformed(
                         solidModel, transform);
                     worldFrameRenderCoverage.shadowSolidDraws++;
+                    AddModelTriangles(
+                        &worldFrameRenderCoverage.shadowSolidTriangles,
+                        solidModel);
                     submitted = true;
                 }
                 if (chunk->activeLod == CHUNK_LOD_EXACT &&
@@ -447,6 +467,9 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
                     WorldRendererDrawShadowModelTransformedTwoSided(
                         &section->floraModel, transform);
                     worldFrameRenderCoverage.shadowFloraDraws++;
+                    AddModelTriangles(
+                        &worldFrameRenderCoverage.shadowFloraTriangles,
+                        &section->floraModel);
                     submitted = true;
                 } else if (chunk->activeLod != CHUNK_LOD_EXACT &&
                            section->hasLodFloraModel &&
@@ -454,6 +477,9 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
                     WorldRendererDrawShadowModelTransformedTwoSided(
                         &section->lodFloraModel, transform);
                     worldFrameRenderCoverage.shadowFloraDraws++;
+                    AddModelTriangles(
+                        &worldFrameRenderCoverage.shadowFloraTriangles,
+                        &section->lodFloraModel);
                     submitted = true;
                 }
                 if (submitted) worldFrameRenderCoverage.shadowDrawnSections++;

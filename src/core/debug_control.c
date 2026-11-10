@@ -739,6 +739,10 @@ static DebugControlCommand DebugControlParsePlayerInput(
         control->manualInput = !strcmp(line, "input manual");
         return DEBUG_CONTROL_COMMAND_INPUT_MODE;
     }
+    if (strcmp(line, "fly on") == 0 || strcmp(line, "fly off") == 0) {
+        control->flyEnabled = strcmp(line, "fly on") == 0;
+        return DEBUG_CONTROL_COMMAND_FLY;
+    }
 
     DebugControlInput input = { 0 };
     int sprint = 0;
@@ -941,6 +945,27 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
      * opens the cube gate, so the migration stays opt-in. */
     if (strcmp(line, "surface debug cube") == 0) {
         return DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_CUBE;
+    }
+    int addressFace = 0;
+    int addressU = 0;
+    int addressV = 0;
+    double addressAltitude = 0.0;
+    double addressYaw = 0.0;
+    double addressPitch = 0.0;
+    char addressTrailing = '\0';
+    if (sscanf(line, "surface address %d %d %d %lf %lf %lf %c",
+               &addressFace, &addressU, &addressV, &addressAltitude,
+               &addressYaw, &addressPitch, &addressTrailing) == 6) {
+        control->surfaceAddressFace = addressFace;
+        control->surfaceAddressU = addressU;
+        control->surfaceAddressV = addressV;
+        control->surfaceAddressAltitude = addressAltitude;
+        control->surfaceAddressYaw = addressYaw;
+        control->surfaceAddressPitch = addressPitch;
+        return DEBUG_CONTROL_COMMAND_SURFACE_ADDRESS;
+    }
+    if (!strncmp(line, "surface address", 15u)) {
+        return DEBUG_CONTROL_COMMAND_INVALID;
     }
     double longitude = 0.0;
     double latitude = 0.0;

@@ -379,9 +379,12 @@ test-landform-quality-e2e: $(TARGET)
 test-surface-cube: $(SURFACE_CUBE_TEST_TARGET) $(SURFACE_TOPOLOGY_TEST_TARGET) $(SURFACE_POSE_TEST_TARGET) $(TERRAIN_CUBE_TEST_TARGET) $(SURFACE_GEOMETRY_TEST_TARGET) $(CUBE_STORAGE_TEST_TARGET) $(SURFACE_COVERAGE_TEST_TARGET) $(COVERAGE_EVIDENCE_TEST_TARGET) $(CUBE_GENERATION_TEST_TARGET)
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $^
 
-.PHONY: test-surface-topology-e2e
+.PHONY: test-surface-topology-e2e test-cube-surface-matrix-e2e
 test-surface-topology-e2e: $(TARGET)
 	bash tests/test_surface_topology_e2e.sh $(TARGET)
+
+test-cube-surface-matrix-e2e: $(TARGET)
+	bash tests/test_cube_surface_matrix_e2e.sh $(TARGET)
 
 .PHONY: test-cube-vertical-geometry-e2e
 test-cube-vertical-geometry-e2e: $(TARGET)

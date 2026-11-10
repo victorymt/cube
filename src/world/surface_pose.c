@@ -111,6 +111,34 @@ bool SurfacePoseFromGeographic(uint32_t bodyId, double longitude,
     return true;
 }
 
+bool SurfacePoseFromAddress(SurfaceAddress address, double yaw, double pitch,
+                            SurfacePose *out)
+{
+    const double halfPi = acos(-1.0) * 0.5;
+    if (!out || !SurfaceAddressIsValid(address) || !isfinite(yaw) ||
+        !isfinite(pitch) || fabs(pitch) > halfPi) return false;
+    SurfaceFrame frame = SurfaceFrameAt(address);
+    SurfaceVector position = {frame.origin.x, frame.origin.y, frame.origin.z};
+    SurfaceVector up = SurfaceVectorNormalize(position);
+    SurfaceVector east = {frame.east.x, frame.east.y, frame.east.z};
+    SurfaceVector north = {frame.north.x, frame.north.y, frame.north.z};
+    SurfaceVector heading = SurfaceVectorNormalize(SurfaceVectorAdd(
+        SurfaceVectorScale(north, cos(yaw)),
+        SurfaceVectorScale(east, sin(yaw))));
+    heading = SurfaceVectorNormalize(SurfaceVectorSubtract(
+        heading, SurfaceVectorScale(up, SurfaceVectorDot(heading, up))));
+    SurfacePose pose = {
+        address.bodyId,
+        position,
+        {0, 0, 0},
+        heading,
+        pitch
+    };
+    if (!SurfaceVectorIsFinite(up) || !SurfacePoseIsValid(&pose)) return false;
+    *out = pose;
+    return true;
+}
+
 bool SurfacePoseIsValid(const SurfacePose *pose)
 {
     if (!pose || !SurfaceVectorIsFinite(pose->position) ||

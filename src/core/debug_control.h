@@ -44,6 +44,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET,
     DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_CUBE,
     DEBUG_CONTROL_COMMAND_SURFACE_POSE,
+    DEBUG_CONTROL_COMMAND_SURFACE_ADDRESS,
     DEBUG_CONTROL_COMMAND_MARKER_ADD,
     DEBUG_CONTROL_COMMAND_MARKER_LIST,
     DEBUG_CONTROL_COMMAND_MARKER_TARGET,
@@ -90,6 +91,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_LOOK,
     DEBUG_CONTROL_COMMAND_INPUT,
     DEBUG_CONTROL_COMMAND_INPUT_MODE,
+    DEBUG_CONTROL_COMMAND_FLY,
     DEBUG_CONTROL_COMMAND_MOUSE_LEFT,
     DEBUG_CONTROL_COMMAND_MOUSE_RIGHT,
     DEBUG_CONTROL_COMMAND_UI_CLICK,
@@ -226,6 +228,12 @@ typedef struct DebugControl {
     double surfacePoseRadial;
     double surfacePoseYaw;
     double surfacePosePitch;
+    int surfaceAddressFace;
+    int surfaceAddressU;
+    int surfaceAddressV;
+    double surfaceAddressAltitude;
+    double surfaceAddressYaw;
+    double surfaceAddressPitch;
     float uiX;
     float uiY;
     char uiKey[24];
@@ -241,6 +249,7 @@ typedef struct DebugControl {
     unsigned depositionCase;
     bool depositionReady;
     bool manualInput;
+    bool flyEnabled;
     double depositionSupplied, depositionRetained, depositionLiquid, depositionSolid;
     double depositionVolumeError, depositionEnergyError, depositionOutlet, depositionPool;
     bool geologyTerrainFound;

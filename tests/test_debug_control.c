@@ -236,6 +236,29 @@ static void TestSurfacePoseCommand(void)
            DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&control, "surface pose 1 2 3 4 5 trailing") ==
            DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "surface address 3 4095 2040 3.5 -1.25 -0.75") ==
+           DEBUG_CONTROL_COMMAND_SURFACE_ADDRESS);
+    assert(control.surfaceAddressFace == 3);
+    assert(control.surfaceAddressU == 4095);
+    assert(control.surfaceAddressV == 2040);
+    assert(control.surfaceAddressAltitude == 3.5);
+    assert(control.surfaceAddressYaw == -1.25);
+    assert(control.surfaceAddressPitch == -0.75);
+    assert(DebugControlParseText(
+               &control, "surface address 1 2 3 4 5") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "surface address 1 2 3 4 5 6 trailing") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&control, "fly on") ==
+           DEBUG_CONTROL_COMMAND_FLY);
+    assert(control.flyEnabled);
+    assert(DebugControlParseText(&control, "fly off") ==
+           DEBUG_CONTROL_COMMAND_FLY);
+    assert(!control.flyEnabled);
+    assert(DebugControlParseText(&control, "fly yes") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
 }
 
 static void TestFloraCommands(void)

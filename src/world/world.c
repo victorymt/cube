@@ -896,7 +896,8 @@ bool SurfaceBlockReadyAt(int x, int y, int z)
     if (cubeContext.active &&
         cubeContext.topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
         SurfaceAddress cell = SurfaceAddressFromMapCoordinates(
-            cubeContext.bodyId, (float)x, (float)z, y);
+            cubeContext.bodyId, (float)cubeContext.originX + (float)x,
+            (float)cubeContext.originZ + (float)z, y);
         SurfaceCubeChunkKey key;
         if (!SurfaceCubeChunkAt(cell, &key)) return false;
         return ChunksCubeColumnIsLoaded(key);

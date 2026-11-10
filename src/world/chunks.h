@@ -99,6 +99,9 @@ typedef struct ChunkRenderCoverageStats {
     uint64_t mainSolidDraws;
     uint64_t mainWaterDraws;
     uint64_t mainFloraDraws;
+    uint64_t mainSolidTriangles;
+    uint64_t mainWaterTriangles;
+    uint64_t mainFloraTriangles;
     uint64_t shadowAdmissionCulledColumns;
     uint64_t shadowDistanceCulledColumns;
     uint64_t shadowCandidateSections;
@@ -109,6 +112,9 @@ typedef struct ChunkRenderCoverageStats {
     uint64_t shadowSolidDraws;
     uint64_t shadowWaterDraws;
     uint64_t shadowFloraDraws;
+    uint64_t shadowSolidTriangles;
+    uint64_t shadowWaterTriangles;
+    uint64_t shadowFloraTriangles;
 } ChunkRenderCoverageStats;
 
 typedef struct ChunkStreamingRequest {

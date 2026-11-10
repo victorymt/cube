@@ -228,7 +228,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=12\n");
+    REPORT_LINE("format.version=13\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -699,6 +699,109 @@ static bool ScreenshotWriteDebugFields(
     REPORT_LINE("streaming.upload_cpu_ms=%.6f\n", info->streaming.uploadCpuMs);
     REPORT_LINE("streaming.max_upload_cpu_ms=%.6f\n",
                 info->streaming.maxUploadCpuMs);
+    REPORT_LINE("coverage.cube.active=%s\n",
+                ScreenshotBool(info->coverage.active));
+    REPORT_LINE("coverage.cube.available=%s\n",
+                ScreenshotBool(info->coverage.available));
+    REPORT_LINE("coverage.cube.observation_sequence=%" PRIu64 "\n",
+                info->coverage.evidence.observationSequence);
+    REPORT_LINE("coverage.cube.requested=%u\n",
+                info->coverage.evidence.requested);
+    REPORT_LINE("coverage.cube.admitted=%u\n",
+                info->coverage.evidence.admitted);
+    REPORT_LINE("coverage.cube.ready=%u\n", info->coverage.evidence.ready);
+    REPORT_LINE("coverage.cube.pending=%u\n", info->coverage.evidence.pending);
+    REPORT_LINE("coverage.cube.missing=%u\n", info->coverage.evidence.missing);
+    REPORT_LINE("coverage.cube.submitted=%u\n", info->coverage.evidence.submitted);
+    REPORT_LINE("coverage.cube.released=%u\n", info->coverage.evidence.released);
+    REPORT_LINE("coverage.cube.duplicates=%u\n", info->coverage.evidence.duplicates);
+    REPORT_LINE("coverage.cube.stale=%u\n", info->coverage.evidence.stale);
+    REPORT_LINE("coverage.cube.target_lod_ready=%u\n",
+                info->coverage.evidence.targetLodReady);
+    REPORT_LINE("coverage.cube.target_lod_missing_sections=%u\n",
+                info->coverage.evidence.targetLodMissingSections);
+    REPORT_LINE("coverage.cube.saturated=%s\n",
+                ScreenshotBool(info->coverage.evidence.saturated));
+    REPORT_LINE("coverage.cube.local_terrain_ready=%s\n",
+                ScreenshotBool(info->coverage.evidence.localTerrainReady));
+    REPORT_LINE("coverage.cube.visual_ready=%s\n",
+                ScreenshotBool(info->coverage.evidence.visualReady));
+    REPORT_LINE("render.coverage.frame_sequence=%" PRIu64 "\n",
+                info->coverage.render.frameSequence);
+    REPORT_LINE("render.coverage.observation_sequence=%" PRIu64 "\n",
+                info->coverage.render.observationSequence);
+    REPORT_LINE("render.coverage.requested=%u\n",
+                info->coverage.render.requested);
+    REPORT_LINE("render.coverage.admitted=%u\n",
+                info->coverage.render.admitted);
+    REPORT_LINE("render.coverage.saturated=%s\n",
+                ScreenshotBool(info->coverage.render.saturated));
+    REPORT_LINE("render.coverage.target_missing_sections=%" PRIu64 "\n",
+                info->coverage.render.lod.targetMissingSections);
+    REPORT_LINE("render.coverage.target_exact=%" PRIu64 "\n",
+                info->coverage.render.lod.targetChunks[CHUNK_LOD_EXACT]);
+    REPORT_LINE("render.coverage.target_half=%" PRIu64 "\n",
+                info->coverage.render.lod.targetChunks[CHUNK_LOD_HALF]);
+    REPORT_LINE("render.coverage.target_quarter=%" PRIu64 "\n",
+                info->coverage.render.lod.targetChunks[CHUNK_LOD_QUARTER]);
+    REPORT_LINE("render.coverage.active_exact=%" PRIu64 "\n",
+                info->coverage.render.lod.activeChunks[CHUNK_LOD_EXACT]);
+    REPORT_LINE("render.coverage.active_half=%" PRIu64 "\n",
+                info->coverage.render.lod.activeChunks[CHUNK_LOD_HALF]);
+    REPORT_LINE("render.coverage.active_quarter=%" PRIu64 "\n",
+                info->coverage.render.lod.activeChunks[CHUNK_LOD_QUARTER]);
+    REPORT_LINE("render.coverage.main_admission_culled_columns=%" PRIu64 "\n",
+                info->coverage.render.mainAdmissionCulledColumns);
+    REPORT_LINE("render.coverage.main_distance_culled_columns=%" PRIu64 "\n",
+                info->coverage.render.mainDistanceCulledColumns);
+    REPORT_LINE("render.coverage.main_candidate_sections=%" PRIu64 "\n",
+                info->coverage.render.mainCandidateSections);
+    REPORT_LINE("render.coverage.main_frustum_culled_sections=%" PRIu64 "\n",
+                info->coverage.render.mainFrustumCulledSections);
+    REPORT_LINE("render.coverage.main_visible_sections=%" PRIu64 "\n",
+                info->coverage.render.mainVisibleSections);
+    REPORT_LINE("render.coverage.main_target_lod_missing_sections=%" PRIu64 "\n",
+                info->coverage.render.mainTargetLodMissingSections);
+    REPORT_LINE("render.coverage.main_drawn_sections=%" PRIu64 "\n",
+                info->coverage.render.mainDrawnSections);
+    REPORT_LINE("render.coverage.main_solid_draws=%" PRIu64 "\n",
+                info->coverage.render.mainSolidDraws);
+    REPORT_LINE("render.coverage.main_water_draws=%" PRIu64 "\n",
+                info->coverage.render.mainWaterDraws);
+    REPORT_LINE("render.coverage.main_flora_draws=%" PRIu64 "\n",
+                info->coverage.render.mainFloraDraws);
+    REPORT_LINE("render.coverage.main_solid_triangles=%" PRIu64 "\n",
+                info->coverage.render.mainSolidTriangles);
+    REPORT_LINE("render.coverage.main_water_triangles=%" PRIu64 "\n",
+                info->coverage.render.mainWaterTriangles);
+    REPORT_LINE("render.coverage.main_flora_triangles=%" PRIu64 "\n",
+                info->coverage.render.mainFloraTriangles);
+    REPORT_LINE("render.coverage.shadow_admission_culled_columns=%" PRIu64 "\n",
+                info->coverage.render.shadowAdmissionCulledColumns);
+    REPORT_LINE("render.coverage.shadow_distance_culled_columns=%" PRIu64 "\n",
+                info->coverage.render.shadowDistanceCulledColumns);
+    REPORT_LINE("render.coverage.shadow_candidate_sections=%" PRIu64 "\n",
+                info->coverage.render.shadowCandidateSections);
+    REPORT_LINE("render.coverage.shadow_frustum_culled_sections=%" PRIu64 "\n",
+                info->coverage.render.shadowFrustumCulledSections);
+    REPORT_LINE("render.coverage.shadow_visible_sections=%" PRIu64 "\n",
+                info->coverage.render.shadowVisibleSections);
+    REPORT_LINE("render.coverage.shadow_target_lod_missing_sections=%" PRIu64 "\n",
+                info->coverage.render.shadowTargetLodMissingSections);
+    REPORT_LINE("render.coverage.shadow_drawn_sections=%" PRIu64 "\n",
+                info->coverage.render.shadowDrawnSections);
+    REPORT_LINE("render.coverage.shadow_solid_draws=%" PRIu64 "\n",
+                info->coverage.render.shadowSolidDraws);
+    REPORT_LINE("render.coverage.shadow_water_draws=%" PRIu64 "\n",
+                info->coverage.render.shadowWaterDraws);
+    REPORT_LINE("render.coverage.shadow_flora_draws=%" PRIu64 "\n",
+                info->coverage.render.shadowFloraDraws);
+    REPORT_LINE("render.coverage.shadow_solid_triangles=%" PRIu64 "\n",
+                info->coverage.render.shadowSolidTriangles);
+    REPORT_LINE("render.coverage.shadow_water_triangles=%" PRIu64 "\n",
+                info->coverage.render.shadowWaterTriangles);
+    REPORT_LINE("render.coverage.shadow_flora_triangles=%" PRIu64 "\n",
+                info->coverage.render.shadowFloraTriangles);
 #undef REPORT_LINE
     return true;
 }

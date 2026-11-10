@@ -8,6 +8,7 @@
 
 #include "core/diagnostics.h"
 #include "world/chunks.h"
+#include "world/surface_coverage.h"
 
 #define SCREENSHOT_DIRECTORY "screenshots"
 #define SCREENSHOT_WEATHER_CLOUD_LAYER_CAPACITY 3
@@ -330,6 +331,13 @@ typedef struct ScreenshotEvolutionDebugInfo {
     float carnivoreDensity;
 } ScreenshotEvolutionDebugInfo;
 
+typedef struct ScreenshotCoverageDebugInfo {
+    bool active;
+    bool available;
+    SurfaceCoverageEvidence evidence;
+    ChunkRenderCoverageStats render;
+} ScreenshotCoverageDebugInfo;
+
 typedef struct ScreenshotDebugInfo {
     ScreenshotCaptureIdentity identity;
     ChunkDiagnostics chunks;
@@ -346,6 +354,7 @@ typedef struct ScreenshotDebugInfo {
     ScreenshotUiDebugInfo ui;
     ScreenshotStreamingDebugInfo streaming;
     ScreenshotEvolutionDebugInfo evolution;
+    ScreenshotCoverageDebugInfo coverage;
 } ScreenshotDebugInfo;
 
 ScreenshotResult ScreenshotNextPath(

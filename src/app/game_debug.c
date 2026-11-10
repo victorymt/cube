@@ -811,6 +811,14 @@ static GameDebugDispatchResult GameDebugDispatchMapCommand(
                 "DEBUG_CONTROL surface pose error reason=invalid_pose\n");
         }
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_SURFACE_ADDRESS:
+        if (!GameDebugSetSurfaceAddress(game)) {
+            GameDebugMarkCommandError(game, "surface_address_failed");
+            DebugControlReply(
+                &game->debugControl,
+                "DEBUG_CONTROL surface address error reason=invalid_address\n");
+        }
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_MARKER_ADD:
         GameDebugMarkerAdd(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
@@ -863,6 +871,13 @@ static GameDebugDispatchResult GameDebugDispatchMotionCommand(
         game->scriptedShipInputFrameCarry = 0;
         DebugControlReply(&game->debugControl, "DEBUG_CONTROL input mode=%s\n",
                           game->manualInputEnabled ? "manual" : "scripted");
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_FLY:
+        game->player.floating = game->debugControl.flyEnabled;
+        game->player.velocity = (Vector3){ 0 };
+        game->player.onGround = false;
+        DebugControlReply(&game->debugControl, "DEBUG_CONTROL fly enabled=%d\n",
+                          game->player.floating ? 1 : 0);
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_INPUT:
         GameDebugApplyInput(game);
@@ -1621,6 +1636,12 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
         RENDER_COVERAGE_NUMBER("main_solid_draws", coverage.mainSolidDraws);
         RENDER_COVERAGE_NUMBER("main_water_draws", coverage.mainWaterDraws);
         RENDER_COVERAGE_NUMBER("main_flora_draws", coverage.mainFloraDraws);
+        RENDER_COVERAGE_NUMBER("main_solid_triangles",
+                               coverage.mainSolidTriangles);
+        RENDER_COVERAGE_NUMBER("main_water_triangles",
+                               coverage.mainWaterTriangles);
+        RENDER_COVERAGE_NUMBER("main_flora_triangles",
+                               coverage.mainFloraTriangles);
         RENDER_COVERAGE_NUMBER("shadow_admission_culled_columns",
                                coverage.shadowAdmissionCulledColumns);
         RENDER_COVERAGE_NUMBER("shadow_distance_culled_columns",
@@ -1638,6 +1659,12 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
         RENDER_COVERAGE_NUMBER("shadow_solid_draws", coverage.shadowSolidDraws);
         RENDER_COVERAGE_NUMBER("shadow_water_draws", coverage.shadowWaterDraws);
         RENDER_COVERAGE_NUMBER("shadow_flora_draws", coverage.shadowFloraDraws);
+        RENDER_COVERAGE_NUMBER("shadow_solid_triangles",
+                               coverage.shadowSolidTriangles);
+        RENDER_COVERAGE_NUMBER("shadow_water_triangles",
+                               coverage.shadowWaterTriangles);
+        RENDER_COVERAGE_NUMBER("shadow_flora_triangles",
+                               coverage.shadowFloraTriangles);
 #undef RENDER_COVERAGE_NUMBER
         return false;
     }

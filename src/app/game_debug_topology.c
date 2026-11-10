@@ -10,9 +10,12 @@
 #include "app/game_world_transition.h"
 #include "app/game_internal.h"
 #include "world/world_surface_snapshot.h"
+#include "world/surface_contract.h"
 #include "world/surface_cube.h"
+#include "world/surface_pose.h"
 
 #include <math.h>
+#include <limits.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -337,5 +340,56 @@ bool GameDebugSetSurfacePose(GameRuntime *game)
         "longitude=%.9f latitude=%.9f radial=%.6f\n",
         local.x, local.y, local.z, control->surfacePoseLongitude,
         control->surfacePoseLatitude, control->surfacePoseRadial);
+    return true;
+}
+
+bool GameDebugSetSurfaceAddress(GameRuntime *game)
+{
+    if (!game || !WorldIsSurfaceActive()) return false;
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
+    const DebugControl *control = &game->debugControl;
+    if (!contract || strcmp(SurfaceContractBackendName(contract), "cube-grid") != 0 ||
+        control->surfaceAddressFace < 0 ||
+        control->surfaceAddressFace >= SURFACE_FACE_COUNT ||
+        control->surfaceAddressU < 0 ||
+        control->surfaceAddressU >= SURFACE_FACE_BLOCKS ||
+        control->surfaceAddressV < 0 ||
+        control->surfaceAddressV >= SURFACE_FACE_BLOCKS ||
+        !isfinite(control->surfaceAddressAltitude)) return false;
+    SurfaceAddress address = {
+        WorldCurrentSurfaceId(), (SurfaceFace)control->surfaceAddressFace,
+        control->surfaceAddressU, control->surfaceAddressV, 0
+    };
+    SurfaceContractSample sample;
+    if (!SurfaceContractSampleAt(contract, address, &sample)) return false;
+    double absoluteRadial = (double)sample.elevation +
+        control->surfaceAddressAltitude;
+    if (!isfinite(absoluteRadial) ||
+        absoluteRadial < INT_MIN || absoluteRadial > INT_MAX) return false;
+    address.radial = (int)floor(absoluteRadial);
+    SurfaceChunkHandle chunk;
+    if (!SurfaceContractChunkFromAddress(contract, address, &chunk)) return false;
+    SurfacePose pose;
+    if (!SurfacePoseFromAddress(address, control->surfaceAddressYaw,
+                                control->surfaceAddressPitch, &pose)) return false;
+    Vector3 local;
+    if (!PlayerLocalFromSurfacePose(&pose, &local)) return false;
+    game->player.position = local;
+    game->player.velocity = (Vector3){ 0 };
+    game->player.yaw = (float)control->surfaceAddressYaw;
+    game->player.pitch = (float)control->surfaceAddressPitch;
+    game->player.onGround = false;
+    PlayerResetRuntimeState(&game->player);
+    game->scriptedInputFrames = 0u;
+    game->scriptedInputFirstFrame = false;
+    GameDebugTraceEvent(game, "surface-address");
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL surface address ok face=%d u=%d v=%d radial=%d "
+        "altitude=%.6f sample_elevation=%.6f position=%.6f,%.6f,%.6f\n",
+        control->surfaceAddressFace, control->surfaceAddressU,
+        control->surfaceAddressV, address.radial,
+        control->surfaceAddressAltitude, sample.elevation,
+        local.x, local.y, local.z);
     return true;
 }

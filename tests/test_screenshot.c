@@ -360,6 +360,40 @@ static void TestDebugReport(void)
             .herbivoreDensity = 0.2f,
             .omnivoreDensity = 0.1f,
             .carnivoreDensity = 0.05f
+        },
+        .coverage = {
+            .active = true,
+            .available = true,
+            .evidence = {
+                .observationSequence = 1234u,
+                .requested = 800u,
+                .admitted = 625u,
+                .ready = 625u,
+                .targetLodReady = 625u,
+                .saturated = false,
+                .localTerrainReady = true,
+                .visualReady = true
+            },
+            .render = {
+                .frameSequence = 88u,
+                .observationSequence = 1234u,
+                .requested = 800u,
+                .admitted = 625u,
+                .mainVisibleSections = 6u,
+                .mainDrawnSections = 5u,
+                .mainSolidDraws = 4u,
+                .mainWaterDraws = 1u,
+                .mainFloraDraws = 2u,
+                .mainSolidTriangles = 400u,
+                .mainWaterTriangles = 20u,
+                .mainFloraTriangles = 10u,
+                .shadowVisibleSections = 4u,
+                .shadowDrawnSections = 3u,
+                .shadowSolidDraws = 3u,
+                .shadowFloraDraws = 1u,
+                .shadowSolidTriangles = 300u,
+                .shadowFloraTriangles = 8u
+            }
         }
     };
 
@@ -370,9 +404,9 @@ static void TestDebugReport(void)
            SCREENSHOT_RESULT_OK);
     assert(strstr(reportPath, "/capture.txt") != NULL);
 
-    char contents[16384];
+    char contents[65536];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=12\n"));
+    assert(strstr(contents, "format.version=13\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "capture.id=11\n"));
     assert(strstr(contents, "capture.frame_id=77\n"));
@@ -487,6 +521,14 @@ static void TestDebugReport(void)
     assert(strstr(contents, "streaming.water_nearest_chunk=-181,1\n"));
     assert(strstr(contents, "streaming.water_nearest_section_y=4\n"));
     assert(strstr(contents, "streaming.mesh_completed=456\n"));
+    assert(strstr(contents, "coverage.cube.observation_sequence=1234\n"));
+    assert(strstr(contents, "coverage.cube.admitted=625\n"));
+    assert(strstr(contents, "coverage.cube.target_lod_ready=625\n"));
+    assert(strstr(contents, "render.coverage.observation_sequence=1234\n"));
+    assert(strstr(contents, "render.coverage.main_visible_sections=6\n"));
+    assert(strstr(contents, "render.coverage.main_drawn_sections=5\n"));
+    assert(strstr(contents, "render.coverage.main_solid_triangles=400\n"));
+    assert(strstr(contents, "render.coverage.shadow_solid_triangles=300\n"));
     assert(strstr(contents, "evolution.organism_id=71\n"));
     assert(strstr(contents, "evolution.scan_locked=true\n"));
     assert(strstr(contents, "evolution.atlas_open=true\n"));

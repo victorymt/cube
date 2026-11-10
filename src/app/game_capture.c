@@ -1,5 +1,6 @@
 #include "app/game_internal.h"
 
+#include "app/game_coverage_evidence.h"
 #include "app/screenshot.h"
 #include "core/debug_control.h"
 #include "core/game_notice.h"
@@ -99,6 +100,9 @@ void GameCaptureScreenshot(GameRuntime *game,
         TornadoStats screenshotTornadoStats = TornadoGetStats();
         int screenshotMissingSurfaceChunks =
             PlayerMissingSurfaceChunkCount(game->player.position);
+        GameCoverageEvidence screenshotCoverage = { 0 };
+        bool haveScreenshotCoverage = GameCoverageEvidenceCapture(
+            game, &screenshotCoverage);
         ScreenshotDebugInfo debugInfo = {
             .identity = identity,
             .chunks = chunkDiagnostics,
@@ -455,6 +459,12 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .herbivoreDensity = screenshotRegion.herbivoreDensity,
                 .omnivoreDensity = screenshotRegion.omnivoreDensity,
                 .carnivoreDensity = screenshotRegion.carnivoreDensity
+            },
+            .coverage = {
+                .active = haveScreenshotCoverage && screenshotCoverage.active,
+                .available = haveScreenshotCoverage && screenshotCoverage.available,
+                .evidence = screenshotCoverage.coverage,
+                .render = ChunksGetRenderCoverageStats()
             }
         };
         ScreenshotResult screenshotResult = ScreenshotCaptureFrame(

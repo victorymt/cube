@@ -117,6 +117,39 @@ static void TestAddresses(void)
     assert(!WorldBlockNeighbor(a, WORLD_BLOCK_U_PLUS, &b, NULL));
 }
 
+static void TestPoseFromAddress(void)
+{
+    SurfaceAddress address = {7, SURFACE_FACE_POS_X, 123, 456, 42};
+    SurfacePose pose;
+    assert(SurfacePoseFromAddress(address, 0.37, -0.62, &pose));
+    assert(SurfacePoseIsValid(&pose));
+    assert(pose.bodyId == address.bodyId);
+    assert(fabs(SurfacePoseAltitude(&pose) - 42.0) < 1e-4);
+    SurfaceFrame frame = SurfaceFrameAt(address);
+    assert(fabs(SurfaceVectorDot(pose.heading,
+        (SurfaceVector){frame.north.x, frame.north.y, frame.north.z}) -
+        cos(0.37)) < 1e-5);
+    assert(fabs(SurfaceVectorDot(pose.heading,
+        (SurfaceVector){frame.east.x, frame.east.y, frame.east.z}) -
+        sin(0.37)) < 1e-5);
+    assert(pose.pitch == -0.62);
+
+    SurfacePose before = pose;
+    address.face = SURFACE_FACE_COUNT;
+    assert(!SurfacePoseFromAddress(address, 0, 0, &pose));
+    assert(memcmp(&before, &pose, sizeof(pose)) == 0);
+    address.face = SURFACE_FACE_POS_X;
+    assert(!SurfacePoseFromAddress(address, 0, 2.0, &pose));
+    assert(memcmp(&before, &pose, sizeof(pose)) == 0);
+
+    for (int face = 0; face < SURFACE_FACE_COUNT; face++) {
+        SurfaceAddress edge = {7, (SurfaceFace)face, 8, 2040, 42};
+        assert(SurfacePoseFromAddress(edge, -1.570796, -1.0, &pose));
+        edge.u = 4088; edge.v = 8;
+        assert(SurfacePoseFromAddress(edge, 2.356194, -1.0, &pose));
+    }
+}
+
 static void TestInvalid(void)
 {
     SurfacePose pose;
@@ -136,7 +169,8 @@ static void TestInvalid(void)
 int main(void)
 {
     assert(InstallTestSurfaceContract(99));
-    TestProjection(); TestTransport(); TestMotion(); TestAddresses(); TestInvalid();
+    TestProjection(); TestTransport(); TestMotion(); TestAddresses();
+    TestPoseFromAddress(); TestInvalid();
     assert(WorldInstallSurfaceSnapshot(NULL));
     puts("surface pose and block address tests passed");
     return 0;

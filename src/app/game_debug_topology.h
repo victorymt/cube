@@ -19,6 +19,7 @@ bool GameDebugEnterCubeWorld(struct GameRuntime *game);
 bool GameDebugTransitionSurface(struct GameRuntime *game, bool homeWorld,
                                 SolarBodyStyle style, uint32_t seed);
 bool GameDebugSetSurfacePose(struct GameRuntime *game);
+bool GameDebugSetSurfaceAddress(struct GameRuntime *game);
 bool GameDebugTopologyDslResolve(const struct GameRuntime *game,
                                  const char *name,
                                  DebugDslValue *outValue);

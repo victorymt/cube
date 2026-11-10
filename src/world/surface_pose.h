@@ -46,6 +46,8 @@ bool SurfaceCellCenter(SurfaceAddress cell, SurfaceVector *outPoint);
 bool SurfacePoseFromGeographic(uint32_t bodyId, double longitude,
                                double latitude, double radial, double yaw,
                                double pitch, SurfacePose *outPose);
+bool SurfacePoseFromAddress(SurfaceAddress address, double yaw, double pitch,
+                            SurfacePose *outPose);
 bool SurfacePoseIsValid(const SurfacePose *pose);
 double SurfacePoseAltitude(const SurfacePose *pose);
 bool SurfacePoseBasis(const SurfacePose *pose, SurfaceBasis *outBasis);

@@ -8,6 +8,7 @@
 #include <string.h>
 
 #define CGA_CUBE_PLAN_MARGIN 72
+#define CGA_CUBE_POLAR_MAX_MAP_SPAN (SURFACE_EQUATOR_BLOCKS / 16)
 
 typedef struct CgaCubeSampleContext {
     const TerrainCubeContext *terrain;
@@ -101,7 +102,14 @@ static bool GenerateCubeStructures(const TerrainCubeContext *context,
         return true;
     }
     int minX, minZ, maxX, maxZ;
-    if (!CubeChunkMapBounds(key, &minX, &minZ, &maxX, &maxZ)) return false;
+    /* A cube face edge can have no single canonical map rectangle. In that
+     * case keep the cube base terrain and omit map-space CGA structures. */
+    if (!CubeChunkMapBounds(key, &minX, &minZ, &maxX, &maxZ)) return true;
+    /* CGA planning still uses a map-space rectangle. A polar cube chunk spans
+     * nearly every longitude and would overflow that contract with unrelated
+     * global anchors. Keep the cube base terrain and omit CGA structures for
+     * this explicitly global-wrap case until topology-native planning lands. */
+    if (maxX - minX > CGA_CUBE_POLAR_MAX_MAP_SPAN) return true;
     CgaWorkspace workspace;
     CgaWorkspaceReset(&workspace);
     CgaCubeSampleContext sampleContext = {
@@ -112,7 +120,12 @@ static bool GenerateCubeStructures(const TerrainCubeContext *context,
     if (!snapshot || !CgaPlanStructureFeaturesForBounds(
             &workspace, minX, minZ, maxX, maxZ,
             snapshot->context.seed, TerrainCubeContextMode(context),
-            NULL, SampleCubeTerrainForCga, &sampleContext)) return false;
+            NULL, SampleCubeTerrainForCga, &sampleContext)) {
+        /* Map-space CGA can overflow its bounded feature workspace around a
+         * cube seam even when the rectangular span check above is local. Keep
+         * the cube base terrain and omit structures for that explicit overflow. */
+        return workspace.overflow;
+    }
     for (size_t i = 0; i < workspace.featureCount; i++) {
         if (!CgaExpandFeature(&workspace, workspace.features[i])) return false;
     }
@@ -216,7 +229,8 @@ bool TerrainCubeGenerateChunk(const TerrainCubeContext *context,
     for (int u = 0; u < CHUNK_SIZE; u++) for (int v = 0; v < CHUNK_SIZE; v++) {
         TerrainCubeColumn column;
         SurfaceAddress cell = {key.bodyId, key.face, key.u*CHUNK_SIZE + u, key.v*CHUNK_SIZE + v, 0};
-        if (!TerrainCubeSampleColumn(context, cell, &column)) return false;
+        if (!TerrainCubeSampleColumn(context, cell, &column))
+            return false;
         float surfaces[] = {column.terrain.elevation, column.terrain.seaLevel,
             column.terrain.landform.hasWater ? column.terrain.landform.waterLevel : column.terrain.elevation};
         for (unsigned i = 0; i < sizeof(surfaces)/sizeof(surfaces[0]); i++) {

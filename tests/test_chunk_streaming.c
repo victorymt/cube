@@ -651,6 +651,9 @@ static void TestRenderCoverageSnapshotKeepsCommittedCounters(void)
     frame.mainSolidDraws = 4u;
     frame.mainWaterDraws = 1u;
     frame.mainFloraDraws = 2u;
+    frame.mainSolidTriangles = 400u;
+    frame.mainWaterTriangles = 20u;
+    frame.mainFloraTriangles = 10u;
     frame.shadowAdmissionCulledColumns = 7u;
     frame.shadowDistanceCulledColumns = 4u;
     frame.shadowCandidateSections = 9u;
@@ -660,6 +663,8 @@ static void TestRenderCoverageSnapshotKeepsCommittedCounters(void)
     frame.shadowDrawnSections = 4u;
     frame.shadowSolidDraws = 4u;
     frame.shadowFloraDraws = 1u;
+    frame.shadowSolidTriangles = 300u;
+    frame.shadowFloraTriangles = 8u;
     ChunksRenderCoverageCommit(&frame);
     ChunkRenderCoverageStats committed = ChunksGetRenderCoverageStats();
     assert(committed.frameSequence == 1u &&
@@ -673,7 +678,10 @@ static void TestRenderCoverageSnapshotKeepsCommittedCounters(void)
            committed.mainDrawnSections == 5u &&
            committed.mainSolidDraws == 4u &&
            committed.mainWaterDraws == 1u &&
-           committed.mainFloraDraws == 2u);
+           committed.mainFloraDraws == 2u &&
+           committed.mainSolidTriangles == 400u &&
+           committed.mainWaterTriangles == 20u &&
+           committed.mainFloraTriangles == 10u);
     assert(committed.shadowAdmissionCulledColumns == 7u &&
            committed.shadowDistanceCulledColumns == 4u &&
            committed.shadowCandidateSections == 9u &&
@@ -683,7 +691,10 @@ static void TestRenderCoverageSnapshotKeepsCommittedCounters(void)
            committed.shadowDrawnSections == 4u &&
            committed.shadowSolidDraws == 4u &&
            committed.shadowWaterDraws == 0u &&
-           committed.shadowFloraDraws == 1u);
+           committed.shadowFloraDraws == 1u &&
+           committed.shadowWaterTriangles == 0u &&
+           committed.shadowSolidTriangles == 300u &&
+           committed.shadowFloraTriangles == 8u);
 }
 
 static void TestChunkLodRenderModelUsesActiveLevelAndFallbacks(void)

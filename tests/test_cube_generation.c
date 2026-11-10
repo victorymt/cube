@@ -204,15 +204,20 @@ static void TestCgaSurfacePlanningDeterministic(void)
     }
 }
 
-static TerrainCubeContext *Context(void)
+static TerrainCubeContext *ContextWithMode(TerrainMode mode)
 {
     WorldSurfaceSnapshot snapshot = {.context = {.active = true,
         .kind = WORLD_SURFACE_HOME, .topology = {SURFACE_TOPOLOGY_CUBE_GRID, 1},
         .bodyId = 0, .seed = 1234}};
     TerrainCubeContext *context = TerrainCubeContextCreate(
-        &snapshot, TERRAIN_FLAT, WorldCurrentGeneration());
+        &snapshot, mode, WorldCurrentGeneration());
     assert(context);
     return context;
+}
+
+static TerrainCubeContext *Context(void)
+{
+    return ContextWithMode(TERRAIN_FLAT);
 }
 
 static ChunkGenJob Prepare(TerrainCubeContext *context, int slot,
@@ -296,6 +301,69 @@ static void TestWorkerQueue(void)
     assert(ChunkGetLocalBlock(&chunks[0], 0, TERRAIN_CUBE_MIN_RADIAL, 0) == BLOCK_BEDROCK);
     assert(ChunkTerrainSectionIsResolved(&chunks[1], 3));
     assert(!ChunkGetSectionConst(&chunks[1], 3));
+    ChunksShutdownGenThread();
+    Reset();
+}
+
+static void TestPoleWorkerGeneration(void)
+{
+    Reset();
+    assert(ChunksConfigureWorkerCount(2));
+    assert(ChunksStartGenThread());
+    TerrainCubeContext *context = ContextWithMode(TERRAIN_VARIED);
+    SurfaceCubeChunkKey key = {0, SURFACE_FACE_POS_Y, 128, 128};
+    assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_PENDING);
+    DrainChunkGen();
+    assert(ChunksCubeColumnIsLoaded(key));
+    Chunk *chunk = FindCubeChunk(key);
+    assert(chunk && chunk->loaded && chunk->cubeWorldGeneration ==
+           WorldCurrentGeneration());
+    TerrainCubeContextRelease(context);
+    ChunksShutdownGenThread();
+    Reset();
+}
+
+static void TestSeamWorkerGeneration(void)
+{
+    Reset();
+    assert(ChunksConfigureWorkerCount(2));
+    assert(ChunksStartGenThread());
+    TerrainCubeContext *context = ContextWithMode(TERRAIN_VARIED);
+    const SurfaceCubeChunkKey keys[] = {
+        {0, SURFACE_FACE_POS_X, 0, 127},
+        {0, SURFACE_FACE_POS_X, 127, 0}
+    };
+    for (size_t index = 0; index < sizeof(keys) / sizeof(keys[0]); index++) {
+        assert(ChunksRequestCubeColumn(context, keys[index], false) ==
+               CUBE_CHUNK_PENDING);
+        DrainChunkGen();
+        assert(ChunksCubeColumnIsLoaded(keys[index]));
+        Chunk *chunk = FindCubeChunk(keys[index]);
+        assert(chunk && chunk->loaded);
+        assert(chunk->sectionCount > 0);
+    }
+    TerrainCubeContextRelease(context);
+    ChunksShutdownGenThread();
+    Reset();
+}
+
+static void TestPoleCoverageWithWorkers(void)
+{
+    Reset();
+    assert(ChunksConfigureWorkerCount(2));
+    assert(ChunksStartGenThread());
+    TerrainCubeContext *context = ContextWithMode(TERRAIN_VARIED);
+    SurfaceVector north = {0, SURFACE_RADIUS_BLOCKS + 10, 0};
+    CubeCoverageStatus status;
+    for (int frame = 0; frame < 200; frame++) {
+        assert(ChunksUpdateCubeCoverage(context, north, 24, 8, &status));
+        DrainChunkGen();
+        if (status.ready == status.admitted && status.pending == 0 &&
+            status.missing == 0) break;
+    }
+    assert(status.ready == status.admitted && status.pending == 0 &&
+           status.missing == 0 && !status.saturated);
+    TerrainCubeContextRelease(context);
     ChunksShutdownGenThread();
     Reset();
 }
@@ -1254,6 +1322,9 @@ int main(void)
     TestQueuedCancellationAndCapacity();
     TestCrossFaceDirtyPropagation();
     TestWorkerQueue();
+    TestPoleWorkerGeneration();
+    TestSeamWorkerGeneration();
+    TestPoleCoverageWithWorkers();
     TestCubeEditPersistence();
     TestCubeEditIndex();
     TestCubeRuntimeReload();
