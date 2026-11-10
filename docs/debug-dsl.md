@@ -480,7 +480,7 @@ Runtime values are sampled when an expression is evaluated:
 | `ui.scale_x`, `ui.scale_y` | number | Raylib window DPI scale |
 | `world.seed` | number | Current world seed (default `1448040515`; override with `world seed SEED` before `start`) |
 | `world.dimension` | string | Current dimension name |
-| `world.surface_topology` | string | `legacy-map` by default; `cube-grid` after `surface debug cube`; `none` outside surface dimensions |
+| `world.surface_topology` | string | `cube-grid` for a fresh Homeworld, `legacy-map` after `surface debug home`, and `none` outside surface dimensions |
 | `world.surface_topology_version` | number | `1` for both `legacy-map` and `cube-grid`; `0` for no active surface |
 | `world.surface_body` | number | Canonical ID of the active solid body |
 | `world.longitude` | number | Canonical longitude in radians |
@@ -819,10 +819,10 @@ file next to the PNG. Debug-controlled sessions start with the help overlay
 hidden so visual captures remain unobstructed. `map` toggles the surface map
 and requires an active surface world. `map layer liquids` controls the
 map's water-cave/lava-cavity
-overlay. `surface debug home` switches directly to Homeworld; `surface debug
-cube` is the only runtime entry into the cube-grid Homeworld (it opens the
-cube runtime gate and installs a cube topology policy, rolling both back if
-activation fails). The planet form
+overlay. `surface debug home` switches directly to the legacy Homeworld baseline;
+`surface debug cube` switches directly to cube-grid (it opens the cube runtime
+gate and installs a cube topology policy, rolling both back if activation fails).
+A fresh normal Homeworld already starts on cube-grid. The planet form
 creates a deterministic solid surface for the requested style and seed. These
 surface commands use normal chunk teardown and surface activation, and require
 the playing screen. `save` and `load` require the playing screen.
@@ -842,8 +842,8 @@ successful load. Follow it with state assertions when testing rejection. Late
 payload errors restore the full V30 checkpoint. Neither failed path deletes the
 file or resets caller clocks/input.
 `make test-surface-topology-e2e` runs these checks in a temporary directory.
-The topology fields are read-only, but `surface debug cube` installs a
-cube-grid policy as a side effect.
+The topology fields are read-only. `surface debug home` installs a legacy policy
+and `surface debug cube` installs a cube-grid policy as side effects.
 
 `map`, `map layer liquids`, `view`, and `look` report their resulting state in
 their `DEBUG_CONTROL` reply; they do not currently expose dedicated typed

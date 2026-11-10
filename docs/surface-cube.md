@@ -84,12 +84,15 @@ path, so a fresh process does not require the debug gate. Existing map/cube key
 hashes are unchanged.
 
 Every `WorldSurfaceContext` carries its topology. The world policy contains
-Homeworld and planetary defaults; both are legacy-map/1 unless
-`surface debug cube` installs a cube policy, and every
-planet inherits the planetary policy. There are no per-body overrides. New-world
-reset restores these defaults. Snapshot installation rejects unknown, unsupported,
-or active/inactive-inconsistent descriptors without changing state or generation.
-Valid snapshots remain value copies and use the existing stale-job generation.
+Homeworld and planetary defaults: Home is cube-grid/1 and planets are
+legacy-map/1. Every planet inherits the planetary policy; there are no per-body
+overrides. New-world reset restores these defaults, while `surface debug home`
+can install an explicit legacy Home baseline and `surface debug cube` can switch
+back. Normal composition opens the cube runtime gate before creating the Home
+contract, and V30 load installs the saved policy first. Snapshot installation
+rejects unknown, unsupported, or active/inactive-inconsistent descriptors
+without changing state or generation. Valid snapshots remain value copies and
+use the existing stale-job generation.
 
 Only V30 world files load. After the 19-byte `VOXELCRAFT_SAVE_V30` magic comes
 8-byte `TOPOL002`, followed by four little-endian uint32 values: home kind,

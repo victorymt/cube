@@ -37,8 +37,8 @@ Execution state:
 | M1 | complete | Legacy and cube share the topology-neutral `SurfaceContract`. |
 | M2 | complete | Cube mesh vertices, transforms and bounds share the section anchor frame. |
 | M3 | complete | V30 persists topology, canonical pose and complete cell edits. |
-| M4 | active | M4.0-M4.9 are complete; switch the default Homeworld backend in M4.10. |
-| M5 | pending | Close physical coverage, visual and performance acceptance. |
+| M4 | complete | Homeworld consumers use the surface contract and new Homeworld worlds default to cube-grid. |
+| M5 | next | Close physical coverage, visual and performance acceptance. |
 | M6 | pending | Remove Homeworld-only transition paths and close the migration. |
 
 This plan deliberately does not migrate planets. The surface interfaces and
@@ -494,6 +494,8 @@ pass. Commit M4.9.
 
 #### M4.10: default Homeworld cube switch
 
+**Status:** complete (2026-11-10)
+
 Change only the new-Homeworld default to cube-grid. Planets continue to select
 the legacy adapter. Keep the debug activation route temporarily for explicit
 cube tests, but normal Homeworld creation, save, load, streaming and gameplay
@@ -503,6 +505,21 @@ Exit: a fresh normal Homeworld starts as cube-grid; a planet round trip still
 uses legacy; every M4 consumer scenario passes; production consumers have no
 Homeworld topology branch. Record the final M4 evidence in this section and
 `STATUS.md`. Commit `feat(world): default Homeworld to cube-grid`.
+
+Exit evidence: `WORLD_SURFACE_TOPOLOGY_DEFAULT` is now Home cube-grid/1 plus
+planets legacy-map/1. Normal new-world creation opens the cube runtime gate,
+samples spawn terrain through `WorldSurfaceSampleAt`, and streams through the
+contract's physical coverage path without `surface debug cube`. V30 load installs
+the saved per-surface policy before creating its contract. `surface debug home`
+is the explicit legacy baseline; `surface debug cube` remains the explicit cube
+switch. The Hyprland `test-surface-topology-e2e` verifies normal-start cube
+topology and coverage, cube edit save/load, legacy planet behavior, explicit
+legacy Home debugging, retired/unsupported headers, transactional rollback and a
+non-surface save. `test-cube-fluid-face-edge-e2e`,
+`test-cube-v30-reload-e2e`, `test-chunk-diagnostics-e2e`,
+`test-debug-graphics-e2e`, `test-cube-vertical-geometry-e2e`,
+`make test-headers`, `make test-werror`, `make test-architecture` and the
+complete `make test` run (135 passed, 0 failed) pass. Commit M4.10.
 
 ### M5: close G4
 
