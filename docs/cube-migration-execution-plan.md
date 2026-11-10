@@ -22,7 +22,7 @@ The repository has two live surface representations:
 The cube runtime path already supports landing, walking, picking, edits,
 physical coverage streaming, generation and rendering behind that debug entry.
 V30 also restores a saved cube topology in a fresh process without that debug
-entry. The migration is not complete:
+entry. At the M0 baseline, the migration was not complete:
 
 - fluid refuses to run on cube surfaces because its queue keys do not include
   the face identity;
@@ -37,7 +37,7 @@ Execution state:
 | M1 | complete | Legacy and cube share the topology-neutral `SurfaceContract`. |
 | M2 | complete | Cube mesh vertices, transforms and bounds share the section anchor frame. |
 | M3 | complete | V30 persists topology, canonical pose and complete cell edits. |
-| M4 | active | M4.0 is complete; migrate the remaining Homeworld consumers, then switch its default. |
+| M4 | active | M4.0-M4.9 are complete; switch the default Homeworld backend in M4.10. |
 | M5 | pending | Close physical coverage, visual and performance acceptance. |
 | M6 | pending | Remove Homeworld-only transition paths and close the migration. |
 
@@ -465,6 +465,8 @@ preservation after save/load. `test_hydrology_runtime`,
 
 #### M4.9: terrain sampling cleanup
 
+**Status:** complete (2026-11-10)
+
 Migrate the remaining elevation, waterline, bathymetry and biome callers to one
 surface sampling path. Remove obsolete map-only aliases from consumer modules
 and shrink `tests/surface_contract_boundary_allowlist.txt` to the exact paths
@@ -473,6 +475,22 @@ that still require app composition or explicit diagnostics.
 Exit: no gameplay, ecology or presentation consumer calls map chunk lookup or a
 cube chunk key; sampling fixtures agree across adapters; architecture tests use
 the reduced allowlist. Commit `refactor(world): finish surface sampling migration`.
+
+Exit evidence: `SurfaceContractSample` now carries elevation, sea level, water
+surface, slope, seabed, water depth, bathymetry zone/material and optional
+planet biome. Both legacy and cube adapters construct it through one shared
+conversion routine, including lake and river waterlines. `WorldSurfaceSampleAt`
+is the consumer-facing sample; `WorldSurfaceBathymetryAt`,
+`WorldSurfacePlanetBiomeAt`, `WorldSurfaceBiomeAt` and `WorldSurfaceHeightAt`
+are typed views over it. Home map rendering, image import, HUD altitude, landing
+selection, environment feedback, hydrology inputs, geology checks, discovery
+and ecology now use that path. `tests/test_surface_contract.c` compares the
+world facade with both adapters and rejects planet-biome leakage on Home;
+`test_world_environment` pins landform waterline conversion and typed views.
+The architecture gate rejects raw terrain, waterline and planet-biome sampling
+in gameplay, ecology and presentation. `make test-headers`, `make test-werror`,
+`make test-architecture` and the complete `make test` run (135 passed, 0 failed)
+pass. Commit M4.9.
 
 #### M4.10: default Homeworld cube switch
 
