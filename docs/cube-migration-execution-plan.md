@@ -433,6 +433,8 @@ Commit M4.7.
 
 #### M4.8: hydrology and radiation
 
+**Status:** complete (2026-11-10)
+
 Bind precipitation, groundwater, runoff, radiation regions and activity to
 opaque surface region handles. A region transition must use the contract's
 semantic region operation rather than comparing backend chunk coordinates.
@@ -441,6 +443,25 @@ Exit: hydrology and radiation fixtures run on both adapters with equivalent
 region results; cube face-edge regions do not leak across faces; no consumer
 branches on topology for Homeworld behavior. Commit
 `refactor(hydrology): bind activity to surface regions`.
+
+Exit evidence: hydrology and radiation locations now carry
+`SurfaceRegionHandle`, with address-based bind/feedback APIs for the local and
+global runtimes. Gameplay composition binds the player surface address instead
+of a canonical map cell. `test_surface_contract` installs both adapters, binds
+the same hydrology and radiation region through the contract, verifies
+address-based feedback, and proves an adjacent face does not satisfy the bound
+region. Review follow-up made weather, debug and plugin queries address-native;
+hydrology feedback now maps `SurfaceAddress` back to its canonical 128x128
+sampling cell, and same-face movement into another sampling region resets the
+solver. Radiation state v2 persists the region handle so save/load rebinding
+does not discard the column. The fixture also verifies non-zero feedback at one
+cell, zero feedback at a neighboring cell in the same semantic region, and
+preservation after save/load. `test_hydrology_runtime`,
+`test_radiation_runtime`, `test_surface_contract`, `test_interaction_raycast`,
+`test_weather_runtime`, `test_game_save_spherical`, `test_save_format`,
+`make test-werror`, `make test-architecture`,
+`make test-v30-cell-reload-e2e` and the complete `make test` run (135 passed,
+0 failed) pass. Commit M4.8.
 
 #### M4.9: terrain sampling cleanup
 
