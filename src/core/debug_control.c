@@ -263,6 +263,20 @@ static DebugControlCommand DebugControlParseBlock(DebugControl *control,
 static DebugControlCommand DebugControlParseFlora(DebugControl *control,
                                                   const char *line)
 {
+    if (strcmp(line, "flora near") == 0) {
+        control->floraNearbyRadius = DEBUG_CONTROL_FLORA_NEAR_DEFAULT_RADIUS;
+        return DEBUG_CONTROL_COMMAND_FLORA_NEAR;
+    }
+    unsigned radius = 0u;
+    char radiusTrailing = '\0';
+    if (sscanf(line, "flora near %u %c", &radius, &radiusTrailing) == 1 &&
+        radius >= 1u && radius <= DEBUG_CONTROL_FLORA_NEAR_MAX_RADIUS) {
+        control->floraNearbyRadius = radius;
+        return DEBUG_CONTROL_COMMAND_FLORA_NEAR;
+    }
+    if (!strncmp(line, "flora near", 10u)) {
+        return DEBUG_CONTROL_COMMAND_INVALID;
+    }
     int x = 0;
     int y = 0;
     int z = 0;
@@ -1031,6 +1045,24 @@ static DebugControlCommand DebugControlParseView(DebugControl *control,
     return DEBUG_CONTROL_COMMAND_VIEW;
 }
 
+static DebugControlCommand DebugControlParseRender(DebugControl *control,
+                                                   const char *line)
+{
+    int x = 0;
+    int y = 0;
+    char trailing = '\0';
+    if (sscanf(line, "render pick %d %d %c", &x, &y, &trailing) == 2 &&
+        x >= 0 && x <= 16384 && y >= 0 && y <= 16384) {
+        control->renderPickX = x;
+        control->renderPickY = y;
+        return DEBUG_CONTROL_COMMAND_RENDER_PICK;
+    }
+    if (!strncmp(line, "render pick", 11u)) {
+        return DEBUG_CONTROL_COMMAND_INVALID;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
 static DebugControlCommand DebugControlParseLine(DebugControl *control,
                                                  char *line)
 {
@@ -1057,6 +1089,8 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
     command = DebugControlParseShip(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseView(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseRender(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseFluid(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
@@ -1260,6 +1294,7 @@ static const DebugControlCommandGroup debugControlCommandGroups[] = {
     { "ui", "ui click 0 0" },
     { "ship", "ship begin" },
     { "view", "view first" },
+    { "render", "render pick 0 0" },
     { "fluid", "fluid inspect" },
     { "water", "water debug" },
     { "weather", "weather inspect" },

@@ -267,6 +267,10 @@ bool BuildChunkFloraMeshData(
     FloraVisualInstance **outInstances, int *outInstanceCount);
 bool ChunkFloraStructureOwnsBlock(
     const Chunk *chunk, int worldX, int y, int worldZ, BlockType block);
+/* Returns the owning generated flora structure index, or -1 for edited or
+ * ordinary terrain blocks. */
+int ChunkFloraStructureOwnerAtBlock(
+    const Chunk *chunk, int worldX, int y, int worldZ, BlockType block);
 /* Removes one generated flora structure and clears only blocks that it still
  * owns. Water volume in those cells is preserved. */
 bool ChunkRemoveFloraStructure(Chunk *chunk, int structureIndex);

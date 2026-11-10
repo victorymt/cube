@@ -302,7 +302,7 @@ by `DebugControlCommandGroups()`, so it always describes what the binary in
 front of you accepts; `make docs-probe` fails when this example drifts from it.
 
 ```text
-DEBUG_CONTROL ready mode=dsl plugins=0 commands=start,terrain,screenshot,status,pause,hud,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ui,ship,view,fluid,water,weather,geology,landform,cga,evolution,cell,block,flora statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl plugins=0 commands=start,terrain,screenshot,status,pause,hud,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ui,ship,view,render,fluid,water,weather,geology,landform,cga,evolution,cell,block,flora statements=let,assert,wait,repeat,exit
 ```
 
 `--debug-trace [PATH]` can be combined with either debug entry point. Omitting
@@ -708,8 +708,33 @@ Runtime values are sampled when an expression is evaluated:
 | `flora.gallery_placed` | number | Blocks placed by the latest flora gallery command |
 | `flora.gallery_trees` | number | Tree specimens in the latest flora gallery |
 | `flora.gallery_ground` | number | Ground-plant specimens in the latest flora gallery |
+| `flora.near_active` | bool | Whether `flora near` has completed in this process |
+| `flora.near_count` | number | Unique loaded flora roots within the latest `flora near` radius |
+| `flora.near_nearest_kind` | string | Structure kind of the nearest flora root, or `none` |
+| `flora.near_nearest_taxon` | string | Taxon common name of the nearest flora root, or `none` |
+| `flora.near_nearest_root` | vec3 | World X/Y/Z of the nearest generated root |
+| `flora.near_nearest_bounds_min` | vec3 | Minimum world-space bounds of the nearest structure |
+| `flora.near_nearest_bounds_max` | vec3 | Maximum world-space bounds of the nearest structure |
+| `flora.near_nearest_distance` | number | Horizontal distance from the player to the nearest structure bounds, or -1 when none |
+| `flora.near_nearest_primary` | string | Primary block of the nearest structure |
+| `flora.near_nearest_accent` | string | Accent block of the nearest structure |
+| `flora.near_nearest_wind_response` | number | Wind response of the nearest structure |
 | `ship.driving` | bool | Player is driving a ship |
 | `ship.mode` | string | Current ship drive mode |
+| `render.pick.active` | bool | Whether `render pick` has completed in this process |
+| `render.pick.hit` | bool | Whether the latest screen-space pick hit a block |
+| `render.pick.screen` | vec3 | Screen X/Y used by the latest pick; Z is zero |
+| `render.pick.ray_origin` | vec3 | Camera ray origin in render-world coordinates |
+| `render.pick.ray_direction` | vec3 | Normalized camera ray direction |
+| `render.pick.position` | vec3 | Integer block position hit by the latest pick |
+| `render.pick.normal` | vec3 | Hit-cell normal reported by the raycast |
+| `render.pick.distance` | number | Ray distance to the hit block center, or -1 on a miss |
+| `render.pick.block` | string | Block name at the pick position, or `Air` |
+| `render.pick.liquid` | bool | Whether the picked block is liquid |
+| `render.pick.flora` | bool | Whether the picked block belongs to a generated flora structure |
+| `render.pick.flora_kind` | string | Flora structure kind at the pick, or `none` |
+| `render.pick.flora_taxon` | string | Flora taxon common name at the pick, or `none` |
+| `render.pick.flora_root` | vec3 | Root position of the picked flora structure |
 | `render.water_debug` | bool | Water section bounds are enabled |
 | `render.water_debug_through` | bool | Water bounds draw through terrain |
 | `render.water_triangles` | number | Water debug pass triangle count |
@@ -821,6 +846,7 @@ water debug through
 water debug through on|off
 view first|third
 view distance CHUNKS
+render pick SCREEN_X SCREEN_Y
 world time PHASE
 world time auto
 ```
@@ -834,6 +860,16 @@ It does not persist settings. For distant terrain screenshots, warm normal
 streaming with `input 0 0 0 0 180` and
 `wait until player.input_frames == 0 timeout 1200`; `stream wait` settles
 only the nearby surface, not every distant mesh.
+`render pick SCREEN_X SCREEN_Y` casts the current camera ray through one screen
+pixel and reports the hit cell, block identity, normal, center-ray distance and
+the exact ray used. When the picked block is owned by a generated tree or alien
+flora structure, the reply also names its structure kind, taxon and root. It is
+a read-only probe for connecting a visible artifact to world data; a miss is
+reported as `hit=0`. The pick range is the current render maximum plus two
+chunks so geometry outside the active draw range is still distinguishable from
+a screen-space-only artifact. This is a world-cell raycast, not a framebuffer
+depth read: if a visible mesh reports a miss, its rendered geometry is not backed
+by a readable cell on that camera ray.
 
 `water debug` and `water debug through` toggle their current setting when the
 `on`/`off` argument is omitted. `start` is valid on the start screen.
@@ -1107,6 +1143,7 @@ or mutation leaves no partial gallery.
 flora inspect NAME_OR_ID
 flora sample X Z
 flora gallery X Y Z
+flora near [RADIUS]
 ```
 
 `flora inspect` accepts a numeric taxon ID or a common/scientific name, with
@@ -1123,6 +1160,11 @@ requires an active surface world, an accessible Y coordinate, and a fully
 loaded, empty bounded region. It validates every trunk, canopy, and understory
 cell before placing six distinct tree forms and seven ground plants as one
 undo group. A failed validation or mutation leaves no partial flora gallery.
+`flora near [RADIUS]` lists canonical loaded flora structures whose root lies
+within the player's horizontal radius. `RADIUS` defaults to 32 and accepts
+1–256 blocks. Each item reports taxonomy, root, bounds, primary/accent blocks,
+wind response, owning chunk and active LOD. The scan skips duplicate or stale
+chunk aliases so one seam-crossing tree is reported once.
 
 ### Atmospheric layers
 

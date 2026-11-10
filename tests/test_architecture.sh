@@ -359,6 +359,7 @@ for split_file in \
     src/app/game_capture.c \
     src/app/game_debug_weather.c \
     src/app/game_debug_diagnostics.c \
+    src/app/game_debug_render.c \
     src/app/game_hydrology.c \
     src/app/game_perf_route.c \
     src/app/game_plugins.c
@@ -635,6 +636,14 @@ grep -q '^bool GameDebugWorldDispatch(' src/app/game_debug_world.c ||
 if grep -q 'selectedSeed = ' src/app/game_debug.c; then
     fail "new-world seed selection must remain in game_debug_world.c"
 fi
+grep -q 'GameDebugRenderDispatch(game, command)' src/app/game_debug.c ||
+    fail "game debug must delegate screen-pick commands"
+grep -q '^bool GameDebugRenderDispatch(' src/app/game_debug_render.c ||
+    fail "render debug module must own screen-pick commands"
+grep -q 'GameDebugRenderDslResolve,' src/app/game_debug.c ||
+    fail "game debug DSL must delegate screen-pick values"
+grep -q '^bool GameDebugRenderDslResolve(' src/app/game_debug_render.c ||
+    fail "render debug module must own screen-pick DSL values"
 
 render_frame_body=$(sed -n '/^static void GameRenderFrame(/,/^}/p' src/app/game.c)
 for render_stage in \

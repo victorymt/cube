@@ -53,7 +53,7 @@ static void TestCommandStream(void)
         "block inspect Coral Limestone\nblock set 17 81 -9 Glass\n"
         "block gallery -8 81 14\n"
         "flora inspect Silver Birch\nflora sample 12 -9\n"
-        "flora gallery -20 80 30\n"
+        "flora gallery -20 80 30\nflora near 48\n"
         "teleport 1.5 72.0 -4.25 3.14 -0.4\n"
         "look 1.25 -0.3\nlook delta -0.5 0.1\n"
         "input 1 -0.5 1 1 120\n"
@@ -63,7 +63,7 @@ static void TestCommandStream(void)
         "ship begin\nship enter\nship input 0.75 -0.25 1 180\n"
         "ship exhaust 0.65\n"
         "ship dust\n"
-        "view third\nview first\nunknown\nquit\n";
+        "view third\nview first\nrender pick 640 360\nunknown\nquit\n";
     assert(write(inputPipe[1], commands, strlen(commands)) ==
            (ssize_t)strlen(commands));
 
@@ -130,6 +130,8 @@ static void TestCommandStream(void)
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLORA_GALLERY);
     assert(control.floraGalleryX == -20 && control.floraGalleryY == 80 &&
            control.floraGalleryZ == 30);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLORA_NEAR);
+    assert(control.floraNearbyRadius == 48u);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_TELEPORT);
     assert(control.teleport.x == 1.5f);
     assert(control.teleport.y == 72.0f);
@@ -167,6 +169,9 @@ static void TestCommandStream(void)
     assert(control.thirdPerson);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_VIEW);
     assert(!control.thirdPerson);
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_RENDER_PICK);
+    assert(control.renderPickX == 640 && control.renderPickY == 360);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_QUIT);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_NONE);
@@ -278,6 +283,13 @@ static void TestFloraCommands(void)
            DEBUG_CONTROL_COMMAND_FLORA_GALLERY);
     assert(control.floraGalleryX == 1 && control.floraGalleryY == -32 &&
            control.floraGalleryZ == 3);
+    assert(DebugControlParseText(&control, "flora near") ==
+           DEBUG_CONTROL_COMMAND_FLORA_NEAR);
+    assert(control.floraNearbyRadius ==
+           DEBUG_CONTROL_FLORA_NEAR_DEFAULT_RADIUS);
+    assert(DebugControlParseText(&control, "flora near 48") ==
+           DEBUG_CONTROL_COMMAND_FLORA_NEAR);
+    assert(control.floraNearbyRadius == 48u);
     assert(DebugControlParseText(&control, "flora inspect") ==
            DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&control, "flora sample 1") ==
@@ -286,6 +298,13 @@ static void TestFloraCommands(void)
            DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&control, "flora gallery 1 2") ==
            DEBUG_CONTROL_COMMAND_INVALID);
+    const char *invalidNear[] = {
+        "flora near 0", "flora near 257", "flora near 12x",
+        "flora near 12 extra", "flora nearby 12"
+    };
+    for (unsigned i = 0; i < sizeof(invalidNear) / sizeof(invalidNear[0]); i++)
+        assert(DebugControlParseText(&control, invalidNear[i]) ==
+               DEBUG_CONTROL_COMMAND_INVALID);
 }
 
 static void TestTerrainMapCommands(void)
@@ -707,6 +726,17 @@ int main(void)
         "view distance 1.5", "view distance nan", "view distance 12 extra", "view distance" };
     for (unsigned i = 0; i < sizeof(invalidDistance)/sizeof(invalidDistance[0]); i++)
         assert(DebugControlParseText(&geology, invalidDistance[i]) == DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&geology, "render pick 640 360") ==
+           DEBUG_CONTROL_COMMAND_RENDER_PICK);
+    assert(geology.renderPickX == 640 && geology.renderPickY == 360);
+    const char *invalidPick[] = {
+        "render pick", "render pick 1", "render pick -1 2",
+        "render pick 1 -2", "render pick 16385 2",
+        "render pick 1 2 extra", "render peek 1 2"
+    };
+    for (unsigned i = 0; i < sizeof(invalidPick) / sizeof(invalidPick[0]); i++)
+        assert(DebugControlParseText(&geology, invalidPick[i]) ==
+               DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "world time 0.5") == DEBUG_CONTROL_COMMAND_WORLD_TIME);
     assert(geology.worldTime == 0.5f);
     assert(DebugControlParseText(&geology, "world time 0") == DEBUG_CONTROL_COMMAND_WORLD_TIME);

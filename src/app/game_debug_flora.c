@@ -20,6 +20,7 @@
 #define FLORA_GALLERY_WIDTH 45
 #define FLORA_GALLERY_DEPTH 12
 #define FLORA_GALLERY_MAX_BLOCKS 1024
+#define FLORA_NEAR_MAX_RESULTS 64u
 
 typedef struct FloraGalleryBlock {
     int x;
@@ -27,6 +28,14 @@ typedef struct FloraGalleryBlock {
     int z;
     BlockType type;
 } FloraGalleryBlock;
+
+typedef struct FloraNearbyEntry {
+    FloraStructureInstance structure;
+    int chunkX;
+    int chunkZ;
+    ChunkLodLevel activeLod;
+    float distance;
+} FloraNearbyEntry;
 
 static void FloraCommandError(GameRuntime *game, const char *reason)
 {
@@ -89,6 +98,76 @@ static const char *FloraTaxonName(FloraTaxonId id)
 {
     const FloraTaxon *taxon = FloraTaxonAt(id);
     return taxon ? taxon->commonName : "none";
+}
+
+static const char *FloraStructureKindName(FloraStructureKind kind)
+{
+    switch (kind) {
+    case FLORA_STRUCTURE_ALIEN_CANOPY: return "alien_canopy";
+    case FLORA_STRUCTURE_CRYSTAL: return "crystal";
+    case FLORA_STRUCTURE_SPORE: return "spore";
+    case FLORA_STRUCTURE_THERMAL_VENT: return "thermal_vent";
+    case FLORA_STRUCTURE_HOME_TREE: return "home_tree";
+    }
+    return "unknown";
+}
+
+static const char *FloraLodName(ChunkLodLevel lod)
+{
+    switch (lod) {
+    case CHUNK_LOD_EXACT: return "exact";
+    case CHUNK_LOD_HALF: return "half";
+    case CHUNK_LOD_QUARTER: return "quarter";
+    case CHUNK_LOD_COUNT: break;
+    }
+    return "unknown";
+}
+
+static float FloraStructureHorizontalDistance(
+    const FloraStructureInstance *structure, Vector3 position)
+{
+    float dx = position.x < (float)structure->minX
+        ? (float)structure->minX - position.x
+        : position.x > (float)structure->maxX
+            ? position.x - (float)structure->maxX : 0.0f;
+    float dz = position.z < (float)structure->minZ
+        ? (float)structure->minZ - position.z
+        : position.z > (float)structure->maxZ
+            ? position.z - (float)structure->maxZ : 0.0f;
+    return sqrtf(dx * dx + dz * dz);
+}
+
+static bool FloraNearbyBefore(const FloraNearbyEntry *left,
+                              const FloraNearbyEntry *right)
+{
+    if (left->distance != right->distance) return left->distance < right->distance;
+    if (left->structure.rootX != right->structure.rootX)
+        return left->structure.rootX < right->structure.rootX;
+    if (left->structure.rootZ != right->structure.rootZ)
+        return left->structure.rootZ < right->structure.rootZ;
+    if (left->structure.groundY != right->structure.groundY)
+        return left->structure.groundY < right->structure.groundY;
+    return left->structure.kind < right->structure.kind;
+}
+
+static void FloraNearbyInsert(FloraNearbyEntry entries[], unsigned *count,
+                              FloraNearbyEntry entry)
+{
+    unsigned insert = *count;
+    for (unsigned index = 0u; index < *count; index++) {
+        if (FloraNearbyBefore(&entry, &entries[index])) {
+            insert = index;
+            break;
+        }
+    }
+    if (insert >= FLORA_NEAR_MAX_RESULTS) return;
+    unsigned last = *count < FLORA_NEAR_MAX_RESULTS
+        ? *count : FLORA_NEAR_MAX_RESULTS - 1u;
+    for (unsigned index = last; index > insert; index--) {
+        entries[index] = entries[index - 1u];
+    }
+    entries[insert] = entry;
+    if (*count < FLORA_NEAR_MAX_RESULTS) (*count)++;
 }
 
 static void FloraInspect(GameRuntime *game)
@@ -162,6 +241,109 @@ static void FloraSample(GameRuntime *game)
         FloraDisturbanceStageName(game->floraSampleBurnStage),
         FloraTaxonName(tree), treeSuitability, FloraTaxonName(ground),
         groundSuitability);
+}
+
+static void FloraNear(GameRuntime *game)
+{
+    FloraNearbyEntry entries[FLORA_NEAR_MAX_RESULTS] = { 0 };
+    unsigned returned = 0u;
+    unsigned total = 0u;
+    float radius = (float)game->debugControl.floraNearbyRadius;
+    float radiusSquared = radius * radius;
+    const Chunk *chunks = ChunksView();
+    for (int chunkIndex = 0; chunkIndex < MAX_ACTIVE_CHUNKS; chunkIndex++) {
+        const Chunk *chunk = &chunks[chunkIndex];
+        if (!chunk->loaded || chunk->floraStructureCount <= 0) continue;
+        int minChunkX = chunk->cx * CHUNK_SIZE;
+        int minChunkZ = chunk->cz * CHUNK_SIZE;
+        for (int structureIndex = 0;
+             structureIndex < chunk->floraStructureCount; structureIndex++) {
+            const FloraStructureInstance *structure =
+                &chunk->floraStructures[structureIndex];
+            /* A structure is repeated in every intersecting chunk. Count it
+             * through the chunk that contains its root so seam trees appear
+             * once in this diagnostic. */
+            if (structure->rootX < minChunkX ||
+                structure->rootX >= minChunkX + CHUNK_SIZE ||
+                structure->rootZ < minChunkZ ||
+                structure->rootZ >= minChunkZ + CHUNK_SIZE) continue;
+            float rootX = (float)structure->rootX + 0.5f;
+            float rootZ = (float)structure->rootZ + 0.5f;
+            float rootDx = rootX - game->player.position.x;
+            float rootDz = rootZ - game->player.position.z;
+            float distance = FloraStructureHorizontalDistance(
+                structure, game->player.position);
+            if (rootDx * rootDx + rootDz * rootDz > radiusSquared) continue;
+            total++;
+            FloraNearbyInsert(entries, &returned, (FloraNearbyEntry){
+                .structure = *structure,
+                .chunkX = chunk->cx,
+                .chunkZ = chunk->cz,
+                .activeLod = chunk->activeLod,
+                .distance = distance
+            });
+        }
+    }
+
+    game->floraNearbyActive = true;
+    game->floraNearbyCount = total;
+    game->floraNearbyNearestRoot = (Vector3){ 0 };
+    game->floraNearbyNearestBoundsMin = (Vector3){ 0 };
+    game->floraNearbyNearestBoundsMax = (Vector3){ 0 };
+    game->floraNearbyNearestPrimary = BLOCK_AIR;
+    game->floraNearbyNearestAccent = BLOCK_AIR;
+    game->floraNearbyNearestKind = FLORA_STRUCTURE_ALIEN_CANOPY;
+    game->floraNearbyNearestTaxon = FLORA_TAXON_COUNT;
+    game->floraNearbyNearestDistance = 0.0f;
+    game->floraNearbyNearestWindResponse = 0.0f;
+    if (returned > 0u) {
+        const FloraNearbyEntry *nearest = &entries[0];
+        game->floraNearbyNearestRoot = (Vector3){
+            (float)nearest->structure.rootX,
+            (float)nearest->structure.groundY,
+            (float)nearest->structure.rootZ
+        };
+        game->floraNearbyNearestBoundsMin = (Vector3){
+            (float)nearest->structure.minX,
+            (float)nearest->structure.minY,
+            (float)nearest->structure.minZ
+        };
+        game->floraNearbyNearestBoundsMax = (Vector3){
+            (float)nearest->structure.maxX,
+            (float)nearest->structure.maxY,
+            (float)nearest->structure.maxZ
+        };
+        game->floraNearbyNearestPrimary = nearest->structure.primaryBlock;
+        game->floraNearbyNearestAccent = nearest->structure.accentBlock;
+        game->floraNearbyNearestKind = nearest->structure.kind;
+        game->floraNearbyNearestTaxon =
+            (FloraTaxonId)nearest->structure.taxonId;
+        game->floraNearbyNearestDistance = nearest->distance;
+        game->floraNearbyNearestWindResponse = nearest->structure.windResponse;
+    }
+
+    DebugControlReply(&game->debugControl,
+                      "DEBUG_CONTROL flora near ok radius=%u count=%u "
+                      "returned=%u\n",
+                      game->debugControl.floraNearbyRadius, total, returned);
+    for (unsigned index = 0u; index < returned; index++) {
+        const FloraNearbyEntry *entry = &entries[index];
+        const FloraStructureInstance *structure = &entry->structure;
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL flora near item index=%u kind=%s "
+            "taxon=\"%s\" root=%d,%d,%d bounds=%d,%d,%d,%d,%d,%d "
+            "distance=%.3f primary=\"%s\" accent=\"%s\" wind=%.3f "
+            "chunk=%d,%d lod=%s\n",
+            index, FloraStructureKindName(structure->kind),
+            FloraTaxonName((FloraTaxonId)structure->taxonId),
+            structure->rootX, structure->groundY, structure->rootZ,
+            structure->minX, structure->minY, structure->minZ,
+            structure->maxX, structure->maxY, structure->maxZ,
+            entry->distance, BlockName(structure->primaryBlock),
+            BlockName(structure->accentBlock), structure->windResponse,
+            entry->chunkX, entry->chunkZ, FloraLodName(entry->activeLod));
+    }
 }
 
 static bool FloraGalleryAppend(FloraGalleryBlock *blocks, unsigned *count,
@@ -398,6 +580,10 @@ bool GameDebugFloraDispatch(GameRuntime *game, DebugControlCommand command)
         FloraGallery(game);
         return true;
     }
+    if (command == DEBUG_CONTROL_COMMAND_FLORA_NEAR) {
+        FloraNear(game);
+        return true;
+    }
     return false;
 }
 
@@ -497,6 +683,53 @@ bool GameDebugFloraDslResolve(const GameRuntime *game, const char *name,
     }
     if (strcmp(name, "flora.gallery_ground") == 0) {
         return FloraDslNumber(outValue, game->floraGalleryGroundCount);
+    }
+    if (strcmp(name, "flora.near_active") == 0) {
+        return FloraDslBool(outValue, game->floraNearbyActive);
+    }
+    if (strcmp(name, "flora.near_count") == 0) {
+        return FloraDslNumber(outValue, game->floraNearbyActive ?
+                              game->floraNearbyCount : 0u);
+    }
+    if (strcmp(name, "flora.near_nearest_kind") == 0) {
+        return FloraDslString(outValue, game->floraNearbyActive ?
+                              FloraStructureKindName(
+                                  game->floraNearbyNearestKind) : "none");
+    }
+    if (strcmp(name, "flora.near_nearest_taxon") == 0) {
+        return FloraDslString(outValue, game->floraNearbyActive ?
+                              FloraTaxonName(game->floraNearbyNearestTaxon) :
+                              "none");
+    }
+    if (strcmp(name, "flora.near_nearest_root") == 0) {
+        return FloraDslVec3(outValue, game->floraNearbyActive ?
+                            game->floraNearbyNearestRoot : (Vector3){ 0 });
+    }
+    if (strcmp(name, "flora.near_nearest_bounds_min") == 0) {
+        return FloraDslVec3(outValue, game->floraNearbyActive ?
+                            game->floraNearbyNearestBoundsMin : (Vector3){ 0 });
+    }
+    if (strcmp(name, "flora.near_nearest_bounds_max") == 0) {
+        return FloraDslVec3(outValue, game->floraNearbyActive ?
+                            game->floraNearbyNearestBoundsMax : (Vector3){ 0 });
+    }
+    if (strcmp(name, "flora.near_nearest_distance") == 0) {
+        return FloraDslNumber(outValue, game->floraNearbyActive ?
+                              game->floraNearbyNearestDistance : -1.0);
+    }
+    if (strcmp(name, "flora.near_nearest_primary") == 0) {
+        return FloraDslString(outValue, game->floraNearbyActive ?
+                              BlockName(game->floraNearbyNearestPrimary) :
+                              "air");
+    }
+    if (strcmp(name, "flora.near_nearest_accent") == 0) {
+        return FloraDslString(outValue, game->floraNearbyActive ?
+                              BlockName(game->floraNearbyNearestAccent) :
+                              "air");
+    }
+    if (strcmp(name, "flora.near_nearest_wind_response") == 0) {
+        return FloraDslNumber(outValue, game->floraNearbyActive ?
+                              game->floraNearbyNearestWindResponse : 0.0);
     }
     return false;
 }

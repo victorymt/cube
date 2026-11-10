@@ -1664,6 +1664,12 @@ static void TestNamedTaxonTreeShapes(void)
                     bool accent = ChunkFloraStructureOwnsBlock(
                         &tree, x, y, z, taxon->accentBlock);
                     assert(!(primary && accent));
+                    assert(ChunkFloraStructureOwnerAtBlock(
+                               &tree, x, y, z, taxon->primaryBlock) ==
+                           (primary ? 0 : -1));
+                    assert(ChunkFloraStructureOwnerAtBlock(
+                               &tree, x, y, z, taxon->accentBlock) ==
+                           (accent ? 0 : -1));
                     int cx = 0;
                     int cz = 0;
                     int lx = 0;

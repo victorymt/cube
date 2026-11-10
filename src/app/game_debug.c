@@ -13,6 +13,7 @@
 #include "app/game_debug_flora.h"
 #include "app/game_debug_gate.h"
 #include "app/game_debug_lod.h"
+#include "app/game_debug_render.h"
 #include "app/game_debug_diagnostics.h"
 #include "app/game_debug_topology.h"
 #include "app/game_debug_trace.h"
@@ -1079,6 +1080,8 @@ static GameDebugDispatchResult GameDispatchDebugCommandValue(
         GameDebugBlockDispatch(game, command)) result = GAME_DEBUG_DISPATCH_HANDLED;
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED &&
         GameDebugFloraDispatch(game, command)) result = GAME_DEBUG_DISPATCH_HANDLED;
+    if (result == GAME_DEBUG_DISPATCH_UNHANDLED &&
+        GameDebugRenderDispatch(game, command)) result = GAME_DEBUG_DISPATCH_HANDLED;
     if (result == GAME_DEBUG_DISPATCH_HANDLED && game->debugCommandFailed) {
         GameDebugInvalidateDiagnostics(game);
         return GAME_DEBUG_DISPATCH_ERROR;
@@ -1711,6 +1714,7 @@ static const GameDebugDslResolverFn gameDebugDslResolvers[] = {
     GameDebugDslResolveHydrology,
     GameDebugDslResolveStream,
     GameDebugDslResolveLod,
+    GameDebugRenderDslResolve,
     GameDebugDslResolveTail
 };
 

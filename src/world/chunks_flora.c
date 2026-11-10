@@ -163,6 +163,14 @@ bool ChunkFloraStructureOwnsBlock(
         worldX, y, worldZ, block) >= 0;
 }
 
+int ChunkFloraStructureOwnerAtBlock(
+    const Chunk *chunk, int worldX, int y, int worldZ, BlockType block)
+{
+    return chunk ? FloraStructureOwnerAt(
+        chunk->floraStructures, chunk->floraStructureCount,
+        worldX, y, worldZ, block) : -1;
+}
+
 bool ChunkRemoveFloraStructure(Chunk *chunk, int structureIndex)
 {
     if (!chunk || structureIndex < 0 ||
