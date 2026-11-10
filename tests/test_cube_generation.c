@@ -718,14 +718,40 @@ static void TestCubePoolAdmission(void)
     Reset();
 }
 
+static void AssertCoverageStatusEqual(const CubeCoverageStatus *expected,
+                                      const CubeCoverageStatus *actual)
+{
+    assert(expected && actual);
+    assert(expected->requested == actual->requested);
+    assert(expected->admitted == actual->admitted);
+    assert(expected->ready == actual->ready);
+    assert(expected->pending == actual->pending);
+    assert(expected->missing == actual->missing);
+    assert(expected->submitted == actual->submitted);
+    assert(expected->released == actual->released);
+    assert(expected->duplicates == actual->duplicates);
+    assert(expected->stale == actual->stale);
+    assert(expected->saturated == actual->saturated);
+}
+
 static void TestPhysicalCoverage(void)
 {
     Reset();
     TerrainCubeContext *context = Context();
     SurfaceVector north = {0, SURFACE_RADIUS_BLOCKS + 10, 0};
+    SurfaceCubeCoverageCandidate candidates[MAX_ACTIVE_CHUNKS];
+    SurfaceCubeCoverageResult collected;
+    assert(SurfaceCoverageCollect(0, north, 24, candidates,
+                                  MAX_ACTIVE_CHUNKS, &collected));
+    SurfaceCubeChunkKey focusKey = candidates[0].key;
+    chunks[0] = (Chunk){.loaded = true, .spherical = true, .cubeGrid = true,
+        .cubeKey = focusKey, .cubeWorldGeneration = WorldCurrentGeneration() + 1u,
+        .generation = 1u};
     CubeCoverageStatus status;
     assert(ChunksUpdateCubeCoverage(context, north, 24, 2, &status));
     assert(status.submitted == 2 && status.ready == 2 && status.missing > 0);
+    assert(status.released == 1 && status.stale == 1 && status.duplicates == 0);
+    assert(ChunksCubeColumnIsLoaded(focusKey));
     unsigned expected = status.admitted;
     assert(status.requested == expected && !status.saturated);
     for (int i = 0; i < 30 && status.ready < expected; i++)
@@ -733,12 +759,14 @@ static void TestPhysicalCoverage(void)
     assert(status.ready == expected && status.pending == 0 && status.missing == 0);
     assert(ChunksUpdateCubeCoverage(context, north, 24, 0, &status));
     assert(status.submitted == 0 && status.released == 0 && status.ready == expected);
+    assert(status.duplicates == expected && status.stale == 0);
     SurfaceVector south = {0, -SURFACE_RADIUS_BLOCKS - 10, 0};
     assert(ChunksUpdateCubeCoverage(context, south, 24, 1, &status));
     assert(status.released == expected && status.ready == 1 && status.submitted == 1);
     CubeCoverageStatus before = status;
     assert(!ChunksUpdateCubeCoverage(context, south, NAN, 100, &status));
-    assert(memcmp(&before, &status, sizeof(status)) == 0 && GetActiveChunkCount() == 1);
+    AssertCoverageStatusEqual(&before, &status);
+    assert(GetActiveChunkCount() == 1);
     SurfaceVector corner = {1, 1, 1};
     corner = SurfaceVectorScale(SurfaceVectorNormalize(corner), SURFACE_RADIUS_BLOCKS + 10);
     assert(ChunksUpdateCubeCoverage(context, corner, 208, 0, &status));
@@ -749,21 +777,12 @@ static void TestPhysicalCoverage(void)
     assert(WorldInstallSurfaceSnapshot(NULL));
     before = status;
     assert(!ChunksUpdateCubeCoverage(context, north, 24, 10, &status));
-    assert(memcmp(&before, &status, sizeof(status)) == 0);
+    AssertCoverageStatusEqual(&before, &status);
     // Diagnostics retain the last successful observation and never invent one.
     CubeCoverageStatus observed;
     assert(ChunksCubeCoverageIsActive());
     assert(ChunksLastCubeCoverage(&observed));
-    /* Compare fields, not raw bytes: CubeCoverageStatus has padding whose
-     * contents are unspecified, so memcmp can differ on equal values. */
-    assert(observed.requested == before.requested);
-    assert(observed.admitted == before.admitted);
-    assert(observed.ready == before.ready);
-    assert(observed.pending == before.pending);
-    assert(observed.missing == before.missing);
-    assert(observed.submitted == before.submitted);
-    assert(observed.released == before.released);
-    assert(observed.saturated == before.saturated);
+    AssertCoverageStatusEqual(&before, &observed);
     assert(observed.ready == before.ready);
     assert(ChunksCubeMeshReadyCount() >= observed.ready);
     TerrainCubeContextRelease(context);

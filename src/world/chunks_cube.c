@@ -63,11 +63,11 @@ static CubeChunkRequestResult Submit(TerrainCubeContext *context, Chunk *chunk,
     return ready ? CUBE_CHUNK_READY : CUBE_CHUNK_UNAVAILABLE;
 }
 
-bool ChunksReleaseCubeColumn(SurfaceCubeChunkKey key)
+static bool ReleaseCubeResident(Chunk *chunk)
 {
-    if (!SurfaceCubeChunkKeyIsValid(key)) return false;
-    Chunk *chunk = Resident(key);
-    if (!chunk) return false;
+    if (!chunk || !chunk->cubeGrid || (!chunk->loaded && !chunk->generating))
+        return false;
+    SurfaceCubeChunkKey key = chunk->cubeKey;
     for (int i = 0; i < chunk->sectionCount; i++)
         MarkGeneratedSectionAndNeighborsDirty(chunk, chunk->sections[i]->sectionY);
     ChunkIndexRemove(chunk);
@@ -90,13 +90,19 @@ bool ChunksReleaseCubeColumn(SurfaceCubeChunkKey key)
     return true;
 }
 
+bool ChunksReleaseCubeColumn(SurfaceCubeChunkKey key)
+{
+    if (!SurfaceCubeChunkKeyIsValid(key)) return false;
+    return ReleaseCubeResident(Resident(key));
+}
+
 CubeChunkRequestResult ChunksRequestCubeColumn(TerrainCubeContext *context,
                                                SurfaceCubeChunkKey key, bool preload)
 {
     if (!ContextMatches(context, key)) return CUBE_CHUNK_UNAVAILABLE;
     Chunk *chunk = Resident(key);
     if (chunk && chunk->cubeWorldGeneration != WorldCurrentGeneration()) {
-        ChunksReleaseCubeColumn(key);
+        ReleaseCubeResident(chunk);
         chunk = NULL;
     }
     if (chunk) {
@@ -161,6 +167,61 @@ static CubeCoverageStatus lastCubeCoverage;
 static bool lastCubeCoverageValid;
 static bool cubeCoverageActive;
 
+typedef struct CubeCoveragePlan {
+    Chunk *releases[MAX_ACTIVE_CHUNKS];
+    bool requests[MAX_ACTIVE_CHUNKS];
+    unsigned releaseCount;
+    unsigned duplicates;
+    unsigned stale;
+} CubeCoveragePlan;
+
+static int CandidateIndexForKey(const SurfaceCubeCoverageCandidate *candidates,
+                                unsigned count, SurfaceCubeChunkKey key)
+{
+    for (unsigned i = 0; i < count; i++)
+        if (SurfaceCubeChunkKeyEqual(candidates[i].key, key)) return (int)i;
+    return -1;
+}
+
+static bool BuildCubeCoveragePlan(TerrainCubeContext *context,
+                                  const SurfaceCubeCoverageCandidate *candidates,
+                                  unsigned admitted, CubeCoveragePlan *plan)
+{
+    if (!context || !candidates || !plan || admitted > MAX_ACTIVE_CHUNKS)
+        return false;
+    *plan = (CubeCoveragePlan){ 0 };
+    for (unsigned i = 0; i < admitted; i++) {
+        if (!ContextMatches(context, candidates[i].key)) return false;
+        for (unsigned previous = 0; previous < i; previous++)
+            if (SurfaceCubeChunkKeyEqual(candidates[previous].key,
+                                         candidates[i].key)) return false;
+    }
+
+    Chunk *residentForCandidate[MAX_ACTIVE_CHUNKS] = { 0 };
+    uint64_t generation = WorldCurrentGeneration();
+    for (int slot = 0; slot < MAX_ACTIVE_CHUNKS; slot++) {
+        Chunk *chunk = &chunks[slot];
+        if (!chunk->cubeGrid || (!chunk->loaded && !chunk->generating)) continue;
+        int candidate = CandidateIndexForKey(candidates, admitted, chunk->cubeKey);
+        if (candidate < 0) {
+            plan->releases[plan->releaseCount++] = chunk;
+        } else if (chunk->cubeWorldGeneration != generation) {
+            plan->stale++;
+            plan->releases[plan->releaseCount++] = chunk;
+        } else if (residentForCandidate[candidate]) {
+            plan->duplicates++;
+            plan->releases[plan->releaseCount++] = chunk;
+        } else {
+            residentForCandidate[candidate] = chunk;
+        }
+    }
+    for (unsigned i = 0; i < admitted; i++) {
+        if (residentForCandidate[i]) plan->duplicates++;
+        else plan->requests[i] = true;
+    }
+    return true;
+}
+
 bool ChunksLastCubeCoverage(CubeCoverageStatus *out)
 {
     if (!out || !lastCubeCoverageValid) return false;
@@ -187,29 +248,24 @@ bool ChunksUpdateCubeCoverage(TerrainCubeContext *context, SurfaceVector focus,
         cell.radial < TERRAIN_CUBE_MIN_RADIAL || cell.radial >= SURFACE_MAX_Y_EXCLUSIVE ||
         !SurfaceCoverageCollect(focusKey.bodyId, focus, radius, candidates,
                                  MAX_ACTIVE_CHUNKS, &coverage)) return false;
+    CubeCoveragePlan plan;
+    if (!BuildCubeCoveragePlan(context, candidates, coverage.admitted, &plan))
+        return false;
     CubeCoverageStatus status = {.requested = coverage.requested,
-        .admitted = coverage.admitted, .saturated = coverage.saturated};
-    for (int slot = 0; slot < MAX_ACTIVE_CHUNKS; slot++) {
-        Chunk *chunk = &chunks[slot];
-        if (!chunk->cubeGrid || (!chunk->loaded && !chunk->generating)) continue;
-        bool keep = false;
-        if (chunk->cubeWorldGeneration == WorldCurrentGeneration())
-            for (unsigned i = 0; i < coverage.admitted; i++)
-                if (SurfaceCubeChunkKeyEqual(chunk->cubeKey, candidates[i].key)) {
-                    keep = true;
-                    break;
-                }
-        if (!keep && ChunksReleaseCubeColumn(chunk->cubeKey)) status.released++;
-    }
-    // Nearest-first admission uses the same physical cap as retention. Already
-    // pending columns do not consume this frame's submission budget.
+        .admitted = coverage.admitted, .saturated = coverage.saturated,
+        .duplicates = plan.duplicates, .stale = plan.stale};
+    for (unsigned i = 0; i < plan.releaseCount; i++)
+        if (ReleaseCubeResident(plan.releases[i])) status.released++;
+
+    // The physical result selects both retention and nearest-first scheduling.
+    // A current-generation resident absorbs its request; stale or missing
+    // columns consume the caller's submission budget in candidate order.
     for (unsigned i = 0; i < coverage.admitted; i++) {
-        Chunk *chunk = Resident(candidates[i].key);
-        if (!chunk && status.submitted < budget) {
+        if (plan.requests[i] && status.submitted < budget) {
             CubeChunkRequestResult result = ChunksRequestCubeColumn(context, candidates[i].key, false);
             if (result != CUBE_CHUNK_UNAVAILABLE) status.submitted++;
-            chunk = Resident(candidates[i].key);
         }
+        Chunk *chunk = Resident(candidates[i].key);
         if (chunk && chunk->loaded) status.ready++;
         else if (chunk && chunk->generating) status.pending++;
         else status.missing++;

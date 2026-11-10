@@ -41,6 +41,7 @@ bool GameCoverageEvidenceCapture(const struct GameRuntime *game,
     out->coverage = SurfaceCoverageEvidenceBuild(
         status.requested, status.admitted, status.ready, status.pending,
         status.missing, status.submitted, status.released, status.saturated,
+        status.duplicates, status.stale,
         ChunksCubeMeshReadyCount(), localTerrainReady);
     return true;
 }
@@ -77,6 +78,10 @@ bool GameCoverageEvidenceDslResolve(const char *name,
         return CoverageNumber(outValue, coverage->submitted);
     if (strcmp(field, "released") == 0)
         return CoverageNumber(outValue, coverage->released);
+    if (strcmp(field, "duplicates") == 0)
+        return CoverageNumber(outValue, coverage->duplicates);
+    if (strcmp(field, "stale") == 0)
+        return CoverageNumber(outValue, coverage->stale);
     if (strcmp(field, "mesh_ready") == 0)
         return CoverageNumber(outValue, coverage->meshReady);
     return false;

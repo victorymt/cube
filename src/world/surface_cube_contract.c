@@ -429,8 +429,16 @@ static bool CubeCoverageStatusForContract(const SurfaceContract *contract,
     if (!outStatus || !cube ||
         !ChunksLastCubeCoverage(&status)) return false;
     *outStatus = (SurfaceCoverageStatus){
-        status.requested, status.admitted, status.ready, status.pending,
-        status.missing, status.submitted, status.released, status.saturated
+        .requested = status.requested,
+        .admitted = status.admitted,
+        .ready = status.ready,
+        .pending = status.pending,
+        .missing = status.missing,
+        .submitted = status.submitted,
+        .released = status.released,
+        .duplicates = status.duplicates,
+        .stale = status.stale,
+        .saturated = status.saturated
     };
     return true;
 }
@@ -448,8 +456,16 @@ static bool CubeCoverageUpdateForContract(const SurfaceContract *contract,
     if (!ChunksUpdateCubeCoverage(cube->context, point, radius,
                                   submissionBudget, &status)) return false;
     *outStatus = (SurfaceCoverageStatus){
-        status.requested, status.admitted, status.ready, status.pending,
-        status.missing, status.submitted, status.released, status.saturated
+        .requested = status.requested,
+        .admitted = status.admitted,
+        .ready = status.ready,
+        .pending = status.pending,
+        .missing = status.missing,
+        .submitted = status.submitted,
+        .released = status.released,
+        .duplicates = status.duplicates,
+        .stale = status.stale,
+        .saturated = status.saturated
     };
     return true;
 }

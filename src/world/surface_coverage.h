@@ -31,6 +31,9 @@ typedef struct SurfaceCoverageEvidence {
     unsigned missing;
     unsigned submitted;
     unsigned released;
+    // Admitted requests already resident vs. old-generation residents evicted.
+    unsigned duplicates;
+    unsigned stale;
     unsigned meshReady;
     bool saturated;
     bool localTerrainReady;
@@ -57,6 +60,7 @@ bool SurfaceCoverageCollect(uint32_t bodyId, SurfaceVector focus, double radius,
 SurfaceCoverageEvidence SurfaceCoverageEvidenceBuild(
     unsigned requested, unsigned admitted, unsigned ready, unsigned pending,
     unsigned missing, unsigned submitted, unsigned released, bool saturated,
-    unsigned meshReady, bool localTerrainReady);
+    unsigned duplicates, unsigned stale, unsigned meshReady,
+    bool localTerrainReady);
 
 #endif

@@ -25,7 +25,9 @@ bool ChunksCubeColumnIsLoaded(SurfaceCubeChunkKey key);
 
 typedef struct CubeCoverageStatus {
     unsigned requested, admitted, ready, pending, missing;
-    unsigned submitted, released;
+    /* duplicates counts admitted columns absorbed by a current-generation
+     * resident; stale counts old-world residents evicted by this observation. */
+    unsigned submitted, released, duplicates, stale;
     bool saturated;
 } CubeCoverageStatus;
 

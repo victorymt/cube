@@ -69,6 +69,9 @@ typedef struct SurfaceCoverageStatus {
     unsigned missing;
     unsigned submitted;
     unsigned released;
+    /* Current-generation resident requests vs. old-generation evictions. */
+    unsigned duplicates;
+    unsigned stale;
     bool saturated;
 } SurfaceCoverageStatus;
 

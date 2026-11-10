@@ -55,6 +55,8 @@ static void ResetCapture(void)
         .missing = 0u,
         .submitted = 4u,
         .released = 2u,
+        .duplicates = 5u,
+        .stale = 1u,
         .saturated = false
     };
     cubeMeshReady = 625u;
@@ -72,6 +74,8 @@ static void TestCaptureSeparatesReadiness(void)
     assert(evidence.active && evidence.available);
     assert(evidence.coverage.localTerrainReady);
     assert(evidence.coverage.visualReady);
+    assert(evidence.coverage.duplicates == 5u);
+    assert(evidence.coverage.stale == 1u);
 
     missingSurfaceChunks = 1;
     assert(GameCoverageEvidenceCapture(&game, &evidence));
