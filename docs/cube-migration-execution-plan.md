@@ -547,10 +547,29 @@ M5.0.
 
 #### M5.1: unify scheduling, admission and eviction
 
+**Status:** complete (2026-11-10)
+
 Make scheduling, admission, retention and eviction consume one physical
 coverage result while preserving the 625-slot nearest-first policy. Stale,
 duplicate and saturated requests must remain explicit and atomic. Commit
 `refactor(streaming): share one physical coverage result`.
+
+Exit evidence: `ChunksUpdateCubeCoverage` now validates the physical candidate
+set and builds a complete retention/submission plan before mutating the pool.
+The same admitted list chooses survivors, exact-slot evictions and nearest-first
+column jobs; invalid or stale coverage input leaves the pool and last diagnostic
+observation untouched. A current-generation resident absorbs its request as
+`duplicates`; an old-generation resident increments `stale`, is released and is
+replaced without exceeding the fixed 625-slot capacity. `duplicates` and `stale`
+flow through `CubeCoverageStatus`, `SurfaceCoverageStatus`,
+`SurfaceCoverageEvidence`, `stream.cube.duplicates` and `stream.cube.stale`.
+`test_cube_generation` covers stale replacement, repeat-request absorption,
+saturation and invalid-input atomicity; `test_coverage_evidence` and the shared
+fixture pin the expanded evidence schema. `make test-surface-cube` reports 9
+passed, 0 failed, the Hyprland `test-surface-topology-e2e` passes,
+`make docs-probe` resolves 306 of 306 fields, `make test-headers`,
+`make test-werror`, `make test-architecture` pass, and the complete `make test`
+run reports 136 passed, 0 failed. Code commit `6fdaa34`.
 
 #### M5.2: align LOD and drawing readiness
 

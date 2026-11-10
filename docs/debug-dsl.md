@@ -534,8 +534,10 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.cube.pending` | number | Admitted columns still generating |
 | `stream.cube.missing` | number | Admitted columns not submitted or unavailable |
 | `stream.cube.saturated` | bool | Latest request exceeded the admission cap; never treat this as full coverage |
-| `stream.cube.submitted` | number | Columns submitted by the latest update |
+| `stream.cube.submitted` | number | Column and nearby collision-section jobs submitted by the latest update |
 | `stream.cube.released` | number | Columns evicted by the latest update |
+| `stream.cube.duplicates` | number | Admitted columns already backed by a current-generation resident when the latest update was planned |
+| `stream.cube.stale` | number | Old-generation cube columns evicted before the latest update scheduled replacement work |
 | `stream.cube.mesh_ready` | number | Resident cube columns whose current-generation section already owns a mesh |
 | `stream.cube.local_terrain_ready` | bool | No local surface terrain chunks are missing; collision/terrain readiness only |
 | `stream.cube.visual_ready` | bool | Conservative local mesh-readiness evidence; not a full viewport, occlusion or draw-coverage certificate |
@@ -717,7 +719,10 @@ last values when a later call is rejected. `ready` is terrain readiness;
 `mesh_ready` is resident mesh presence; `visual_ready` is the conservative local
 combination of both, not proof of full-viewport drawing. `stream.surface_ready`
 is also local terrain readiness and is never a visual or full-coverage
-certificate. When `stream.cube.saturated` is true, a route must not assert
+certificate. `duplicates` and `stale` describe the latest planning pass: a
+duplicate is an admitted request already satisfied by a current-generation
+resident, while stale residents are evicted before replacement. When
+`stream.cube.saturated` is true, a route must not assert
 `requested == admitted == ready`. See the
 [activation contract](cube-contract.md).
 

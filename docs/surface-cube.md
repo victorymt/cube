@@ -220,11 +220,14 @@ Progress as of 2026-10-23 is marked per item; unmarked text is the original
    and drawing. Derive conservative bounds from curved mesh geometry. Keep
    `surface_ready`'s existing local readiness meaning and expose separate
    requested/ready coverage diagnostics instead of claiming visual readiness.
-   **The evidence schema is frozen** through `SurfaceCoverageEvidence` and
-   `stream.cube.*`, separating terrain readiness from conservative local visual
-   readiness; LOD and drawing policy are still not unified. The M2
-   transform/bounds repair now makes mesh vertices and frustum centers use the
-   same section anchor frame, closing the vertical stretch.
+   **M5.1 is done**: one physical candidate list now drives retention,
+   exact-slot eviction, duplicate absorption, stale replacement and
+   nearest-first submission under the fixed 625-slot cap. Invalid input leaves
+   the resident pool and last observation untouched. `SurfaceCoverageEvidence`
+   and `stream.cube.*` expose the full result, separating terrain readiness from
+   conservative local visual readiness; LOD and drawing policy are still not
+   unified. The M2 transform/bounds repair now makes mesh vertices and frustum
+   centers use the same section anchor frame, closing the vertical stretch.
 4. Replay the existing temperate and dry polar scenes using geographic
    targets, then cross poles/face edges on foot, edit blocks, unload/reload,
    and save/reload. Pin the v9 output and enforce memory budgets. Complete V30
@@ -309,13 +312,19 @@ main-thread edits before publication, including edits made during worker executi
   synchronous path when workers are unavailable. Results distinguish ready,
   pending and unavailable; duplicate requests do not reserve extra slots.
 - Allocation uses only free slots. Saturation does not silently evict existing
-  columns; the upcoming physical-coverage scheduler owns eviction policy.
+  columns; the physical-coverage scheduler owns explicit eviction policy.
 - Context generation and body identity are checked before admission. Resident
   cube columns retain their world generation, so old snapshot data cannot be
   mistaken for current terrain. Preload promotion survives worker completion.
 - Release invalidates the chunk incarnation and cancels queued tasks. Running
   jobs retain their input until completion and fail the stale-result guard if
   their slot has been reused. Edits survive release and subsequent regeneration.
+- `ChunksUpdateCubeCoverage` validates and plans against its admitted physical
+  candidates before mutation, then releases unwanted or old-generation slots
+  and schedules missing columns nearest-first. A repeat request absorbed by a
+  current-generation resident increments `duplicates`; an evicted old-world
+  resident increments `stale`; saturation remains visible as requested greater
+  than admitted.
 
 The expanded `test_cube_generation` fixture covers hash-index growth/replacement,
 invalid-address rejection, reserve failure without changing resident terrain,
