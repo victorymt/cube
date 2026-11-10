@@ -320,7 +320,10 @@ bool SurfaceContractSupportsPhysicalCoverage(const SurfaceContract *contract)
     return ContractIsUsable(contract) &&
            contract->ops->coverage_collect &&
            contract->ops->coverage_status &&
-           contract->ops->coverage_update;
+           contract->ops->coverage_update &&
+           contract->ops->coverage_observation &&
+           contract->ops->coverage_admission_at &&
+           contract->ops->coverage_admission_contains;
 }
 
 bool SurfaceContractSupportsPhysicalRaycast(const SurfaceContract *contract)
@@ -364,6 +367,31 @@ bool SurfaceContractCoverageUpdate(const SurfaceContract *contract,
            contract->ops->coverage_update &&
            contract->ops->coverage_update(contract, focus, radius,
                                           submissionBudget, outStatus);
+}
+
+bool SurfaceContractCoverageObservation(
+    const SurfaceContract *contract, SurfaceCoverageObservation *outObservation)
+{
+    return ContractIsUsable(contract) && outObservation &&
+           contract->ops->coverage_observation &&
+           contract->ops->coverage_observation(contract, outObservation);
+}
+
+bool SurfaceContractCoverageAdmissionAt(
+    const SurfaceContract *contract, unsigned index,
+    SurfaceCoverageAdmission *outAdmission)
+{
+    return ContractIsUsable(contract) && outAdmission &&
+           contract->ops->coverage_admission_at &&
+           contract->ops->coverage_admission_at(contract, index, outAdmission);
+}
+
+bool SurfaceContractCoverageAdmissionContains(
+    const SurfaceContract *contract, SurfaceChunkHandle chunk)
+{
+    return ContractIsUsable(contract) &&
+           contract->ops->coverage_admission_contains &&
+           contract->ops->coverage_admission_contains(contract, chunk);
 }
 
 bool SurfaceContractMatchesTopology(const SurfaceContract *contract,

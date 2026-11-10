@@ -64,6 +64,8 @@ bool GameDebugLodDslResolveSnapshot(const ChunkDiagnostics *diagnostics,
                    stats->readySections[CHUNK_LOD_HALF])
     LOD_DSL_NUMBER("stream.lod_ready_quarter_sections",
                    stats->readySections[CHUNK_LOD_QUARTER])
+    LOD_DSL_NUMBER("stream.lod_target_missing_sections",
+                   stats->targetMissingSections)
     LOD_DSL_NUMBER("stream.lod_proxy_flora_half",
                    stats->proxyFloraSections[CHUNK_LOD_HALF])
     LOD_DSL_NUMBER("stream.lod_proxy_flora_quarter",

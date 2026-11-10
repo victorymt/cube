@@ -9,8 +9,8 @@
 struct GameRuntime;
 
 /* Frozen diagnostic snapshot for physical coverage. `coverage.ready` is terrain
- * readiness; `coverage.meshReady` and `coverage.visualReady` are separate visual
- * evidence and never imply requested/admitted columns were drawn. */
+ * readiness; `coverage.targetLodReady` is section-level target-LOD readiness.
+ * `coverage.visualReady` never implies requested/admitted columns were drawn. */
 typedef struct GameCoverageEvidence {
     SurfaceCoverageEvidence coverage;
     bool active;

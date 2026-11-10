@@ -43,16 +43,23 @@ static bool CubeAddressMatches(const SurfaceContract *contract,
            address.radial < SURFACE_MAX_Y_EXCLUSIVE;
 }
 
+static SurfaceChunkHandle CubeChunkHandleForKey(uint32_t bodyId,
+                                                SurfaceCubeChunkKey key)
+{
+    return (SurfaceChunkHandle){ .opaque = {
+        CUBE_CHUNK_TAG, bodyId, (uint64_t)key.face,
+        (uint64_t)key.u, (uint64_t)key.v
+    } };
+}
+
 static bool CubeChunkFromAddress(const SurfaceContract *contract,
                                  SurfaceAddress address,
                                  SurfaceChunkHandle *outChunk)
 {
     if (!outChunk || !CubeAddressMatches(contract, address)) return false;
-    *outChunk = (SurfaceChunkHandle){ .opaque = {
-        CUBE_CHUNK_TAG, contract->bodyId, (uint64_t)address.face,
-        (uint64_t)FloorDivInt(address.u, CHUNK_SIZE),
-        (uint64_t)FloorDivInt(address.v, CHUNK_SIZE)
-    } };
+    SurfaceCubeChunkKey key;
+    if (!SurfaceCubeChunkAt(address, &key)) return false;
+    *outChunk = CubeChunkHandleForKey(contract->bodyId, key);
     return true;
 }
 
@@ -406,11 +413,7 @@ static bool CubeCoverageCollect(const SurfaceContract *contract,
                                 capacity, &result)) return false;
     for (unsigned i = 0; i < result.admitted; i++) {
         out[i] = (SurfaceCoverageCandidate){
-            .chunk = { .opaque = {
-                CUBE_CHUNK_TAG, contract->bodyId,
-                (uint64_t)cube[i].key.face, (uint64_t)cube[i].key.u,
-                (uint64_t)cube[i].key.v
-            } },
+            .chunk = CubeChunkHandleForKey(contract->bodyId, cube[i].key),
             .centerDistance = cube[i].centerDistance,
             .minimumDistance = cube[i].minimumDistance
         };
@@ -470,6 +473,53 @@ static bool CubeCoverageUpdateForContract(const SurfaceContract *contract,
     return true;
 }
 
+static bool CubeCoverageObservationForContract(
+    const SurfaceContract *contract, SurfaceCoverageObservation *outObservation)
+{
+    CubeCoverageObservation observation;
+    if (!contract || !contract->implementation || !outObservation ||
+        !ChunksCubeCoverageObservation(&observation) ||
+        observation.bodyId != contract->bodyId) return false;
+    *outObservation = (SurfaceCoverageObservation){
+        .sequence = observation.sequence,
+        .bodyId = observation.bodyId,
+        .requested = observation.requested,
+        .admitted = observation.admitted,
+        .saturated = observation.saturated
+    };
+    return true;
+}
+
+static bool CubeCoverageAdmissionAtForContract(
+    const SurfaceContract *contract, unsigned index,
+    SurfaceCoverageAdmission *outAdmission)
+{
+    SurfaceCubeCoverageCandidate candidate;
+    CubeCoverageObservation observation;
+    if (!contract || !contract->implementation || !outAdmission ||
+        !ChunksCubeCoverageObservation(&observation) ||
+        observation.bodyId != contract->bodyId ||
+        !ChunksCubeCoverageAdmissionAt(index, &candidate)) return false;
+    *outAdmission = (SurfaceCoverageAdmission){
+        .sequence = observation.sequence,
+        .candidate = {
+            .chunk = CubeChunkHandleForKey(contract->bodyId, candidate.key),
+            .centerDistance = candidate.centerDistance,
+            .minimumDistance = candidate.minimumDistance
+        }
+    };
+    return true;
+}
+
+static bool CubeCoverageAdmissionContainsForContract(
+    const SurfaceContract *contract, SurfaceChunkHandle chunk)
+{
+    SurfaceCubeChunkKey key;
+    return contract && contract->implementation &&
+        CubeDecodeChunk(contract, chunk, &key) &&
+        ChunksCubeCoverageContains(key);
+}
+
 static void CubeRelease(SurfaceContract *contract)
 {
     if (!contract) return;
@@ -505,6 +555,9 @@ static const SurfaceContractOps cubeOps = {
     .coverage_collect = CubeCoverageCollect,
     .coverage_status = CubeCoverageStatusForContract,
     .coverage_update = CubeCoverageUpdateForContract,
+    .coverage_observation = CubeCoverageObservationForContract,
+    .coverage_admission_at = CubeCoverageAdmissionAtForContract,
+    .coverage_admission_contains = CubeCoverageAdmissionContainsForContract,
     .supports_physical_raycast = true,
     .supports_physical_pose = true,
     .release = CubeRelease

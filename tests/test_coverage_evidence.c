@@ -12,7 +12,9 @@
 static bool cubeActive;
 static bool cubeHasCoverage;
 static CubeCoverageStatus cubeStatus;
-static unsigned cubeMeshReady;
+static CubeCoverageObservation cubeObservation;
+static unsigned cubeTargetLodReady;
+static unsigned cubeTargetLodMissingSections;
 static int missingSurfaceChunks;
 
 bool ChunksCubeCoverageIsActive(void)
@@ -27,9 +29,21 @@ bool ChunksLastCubeCoverage(CubeCoverageStatus *outStatus)
     return true;
 }
 
-unsigned ChunksCubeMeshReadyCount(void)
+unsigned ChunksCubeTargetLodReadyCount(void)
 {
-    return cubeMeshReady;
+    return cubeTargetLodReady;
+}
+
+unsigned ChunksCubeTargetLodMissingSections(void)
+{
+    return cubeTargetLodMissingSections;
+}
+
+bool ChunksCubeCoverageObservation(CubeCoverageObservation *outObservation)
+{
+    if (!cubeHasCoverage || !outObservation) return false;
+    *outObservation = cubeObservation;
+    return true;
 }
 
 int PlayerMissingSurfaceChunkCount(Vector3 position)
@@ -59,7 +73,15 @@ static void ResetCapture(void)
         .stale = 1u,
         .saturated = false
     };
-    cubeMeshReady = 625u;
+    cubeObservation = (CubeCoverageObservation){
+        .sequence = 77u,
+        .bodyId = 0u,
+        .requested = 650u,
+        .admitted = 625u,
+        .saturated = false
+    };
+    cubeTargetLodReady = 625u;
+    cubeTargetLodMissingSections = 0u;
     missingSurfaceChunks = 0;
 }
 
@@ -76,6 +98,9 @@ static void TestCaptureSeparatesReadiness(void)
     assert(evidence.coverage.visualReady);
     assert(evidence.coverage.duplicates == 5u);
     assert(evidence.coverage.stale == 1u);
+    assert(evidence.coverage.targetLodReady == 625u);
+    assert(evidence.coverage.targetLodMissingSections == 0u);
+    assert(evidence.coverage.observationSequence == 77u);
 
     missingSurfaceChunks = 1;
     assert(GameCoverageEvidenceCapture(&game, &evidence));
@@ -83,7 +108,8 @@ static void TestCaptureSeparatesReadiness(void)
     assert(!evidence.coverage.visualReady);
 
     ResetCapture();
-    cubeMeshReady = 624u;
+    cubeTargetLodReady = 624u;
+    cubeTargetLodMissingSections = 1u;
     assert(GameCoverageEvidenceCapture(&game, &evidence));
     assert(evidence.coverage.localTerrainReady);
     assert(!evidence.coverage.visualReady);

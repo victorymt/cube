@@ -91,6 +91,14 @@ typedef struct SurfaceContractOps {
                             SurfaceAddress focus, double radius,
                             unsigned submissionBudget,
                             SurfaceCoverageStatus *outStatus);
+    bool (*coverage_observation)(
+        const SurfaceContract *contract,
+        SurfaceCoverageObservation *outObservation);
+    bool (*coverage_admission_at)(
+        const SurfaceContract *contract, unsigned index,
+        SurfaceCoverageAdmission *outAdmission);
+    bool (*coverage_admission_contains)(
+        const SurfaceContract *contract, SurfaceChunkHandle chunk);
 
     bool supports_physical_raycast;
     bool supports_physical_pose;

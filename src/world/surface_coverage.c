@@ -133,13 +133,16 @@ bool SurfaceCoverageCollect(uint32_t bodyId, SurfaceVector focus, double radius,
 SurfaceCoverageEvidence SurfaceCoverageEvidenceBuild(
     unsigned requested, unsigned admitted, unsigned ready, unsigned pending,
     unsigned missing, unsigned submitted, unsigned released, bool saturated,
-    unsigned duplicates, unsigned stale, unsigned meshReady,
+    unsigned duplicates, unsigned stale, unsigned targetLodReady,
+    unsigned targetLodMissingSections,
+    uint64_t observationSequence,
     bool localTerrainReady)
 {
     bool visualReady = localTerrainReady && admitted > 0u && !saturated &&
         ready == admitted && pending == 0u && missing == 0u &&
-        meshReady >= admitted;
+        targetLodReady >= admitted && targetLodMissingSections == 0u;
     return (SurfaceCoverageEvidence){
+        .observationSequence = observationSequence,
         .requested = requested,
         .admitted = admitted,
         .ready = ready,
@@ -149,7 +152,8 @@ SurfaceCoverageEvidence SurfaceCoverageEvidenceBuild(
         .released = released,
         .duplicates = duplicates,
         .stale = stale,
-        .meshReady = meshReady,
+        .targetLodReady = targetLodReady,
+        .targetLodMissingSections = targetLodMissingSections,
         .saturated = saturated,
         .localTerrainReady = localTerrainReady,
         .visualReady = visualReady

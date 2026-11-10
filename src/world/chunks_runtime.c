@@ -1,4 +1,5 @@
 #include "world/world_surface_snapshot.h"
+#include "world/chunks_cube.h"
 #include "world/surface_coverage.h"
 #include "world/chunks_internal.h"
 #include "world/flora_taxa.h"
@@ -909,25 +910,23 @@ bool RebuildDirtyChunkMeshAt(int x, int y, int z)
 bool ChunkWithinDrawDistance(const Chunk *chunk, Vector3 cameraPosition, int effectiveRenderDistance)
 {
     if (!chunk) return false;
-    if (chunk->cubeGrid) {
-        Vector3 direction = SurfaceDirectionFromMapCoordinates(
-            WorldSurfaceMapOriginX() + cameraPosition.x,
-            WorldSurfaceMapOriginZ() + cameraPosition.z);
-        SurfaceCubeCoverageCandidate distance;
-        return SurfaceCubeChunkDistance(chunk->cubeKey,
-            (SurfaceVector){direction.x, direction.y, direction.z}, &distance) &&
-            distance.minimumDistance <= effectiveRenderDistance * (double)CHUNK_SIZE + 1e-7;
-    }
-    int cameraX = (int)floorf(cameraPosition.x);
-    int cameraZ = (int)floorf(cameraPosition.z);
-    int cameraCx = 0;
-    int cameraCz = 0;
-    int cameraLx = 0;
-    int cameraLz = 0;
-    WorldToChunkLocal(cameraX, cameraZ, &cameraCx, &cameraCz, &cameraLx, &cameraLz);
+    if (!ChunkWithinCoverageAdmission(chunk)) return false;
+    double minimumDistance;
+    int distanceChunks;
+    if (!ChunkPhysicalDistanceFromFocus(chunk, cameraPosition,
+                                        &minimumDistance, &distanceChunks))
+        return false;
+    if (chunk->cubeGrid)
+        return minimumDistance <=
+            effectiveRenderDistance * (double)CHUNK_SIZE + 1e-7;
+    return distanceChunks <= effectiveRenderDistance;
+}
 
-    return ChunkGridDistanceFrom(chunk, cameraCx, cameraCz) <=
-           effectiveRenderDistance;
+bool ChunkWithinCoverageAdmission(const Chunk *chunk)
+{
+    if (!chunk) return false;
+    if (!chunk->cubeGrid) return true;
+    return ChunksCubeCoverageContains(chunk->cubeKey);
 }
 
 static bool SphereInFrustumWithAspect(const Camera3D *camera, Vector3 center,

@@ -2,6 +2,8 @@
 
 static uint64_t chunkLodTargetChanges = 0u;
 static bool chunkLodCoarseAllowed = false;
+static ChunkRenderCoverageStats committedRenderCoverage;
+static uint64_t renderCoverageFrameSequence = 0u;
 
 bool MeshPendingLookupVisit(MeshPendingLookup *lookup, int slot, int y,
                             ChunkLodLevel lod, bool insert)
@@ -79,6 +81,31 @@ bool ChunkSectionLodReady(const ChunkSection *section, ChunkLodLevel lod)
            section->lodModelLevel == lod;
 }
 
+bool ChunkTargetLodReady(const Chunk *chunk)
+{
+    if (!chunk || !chunk->loaded || chunk->sectionCount <= 0) return false;
+    ChunkLodLevel target = ChunkLodSanitize(chunk->targetLod);
+    for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+         sectionIndex++) {
+        if (!ChunkSectionLodReady(chunk->sections[sectionIndex], target))
+            return false;
+    }
+    return true;
+}
+
+unsigned ChunkTargetLodMissingSections(const Chunk *chunk)
+{
+    if (!chunk || !chunk->loaded) return 0u;
+    ChunkLodLevel target = ChunkLodSanitize(chunk->targetLod);
+    unsigned missing = 0u;
+    for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+         sectionIndex++) {
+        if (!ChunkSectionLodReady(chunk->sections[sectionIndex], target))
+            missing++;
+    }
+    return missing;
+}
+
 void ChunkRefreshActiveLod(Chunk *chunk)
 {
     if (!chunk || !chunk->loaded || chunk->sectionCount == 0) return;
@@ -149,22 +176,19 @@ static void QueueChunkLodTarget(Chunk *chunk, ChunkLodLevel target)
 
 void ChunksUpdateLodTargets(Vector3 focusPosition, bool coarseAllowed)
 {
-    int focusCx = 0;
-    int focusCz = 0;
-    int localX = 0;
-    int localZ = 0;
-    WorldToChunkLocal((int)floorf(focusPosition.x),
-                      (int)floorf(focusPosition.z),
-                      &focusCx, &focusCz, &localX, &localZ);
     chunkLodCoarseAllowed = coarseAllowed;
 
     for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
         Chunk *chunk = &chunks[index];
         if (!chunk->loaded) continue;
+        double minimumDistance;
+        int distance;
+        if (!ChunkPhysicalDistanceFromFocus(chunk, focusPosition,
+                                            &minimumDistance, &distance))
+            continue;
         ChunkLodLevel previous = ChunkLodSanitize(chunk->targetLod);
         ChunkLodLevel next = ChunkLodSelect(
-            previous, chunk->lodInitialized,
-            ChunkGridDistanceFrom(chunk, focusCx, focusCz), coarseAllowed);
+            previous, chunk->lodInitialized, distance, coarseAllowed);
         if (chunk->lodInitialized && previous != next) {
             chunkLodTargetChanges++;
         }
@@ -189,6 +213,7 @@ ChunkLodStats ChunksGetLodStatsLocked(void)
         ChunkLodLevel active = ChunkLodSanitize(chunk->activeLod);
         stats.targetChunks[target]++;
         stats.activeChunks[active]++;
+        stats.targetMissingSections += ChunkTargetLodMissingSections(chunk);
         for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
              sectionIndex++) {
             const ChunkSection *section = chunk->sections[sectionIndex];
@@ -223,10 +248,40 @@ ChunkLodStats ChunksGetLodStats(void)
     return stats;
 }
 
+void ChunksRenderCoverageBeginFrame(ChunkRenderCoverageStats *out,
+                                    uint64_t observationSequence,
+                                    unsigned requested, unsigned admitted,
+                                    bool saturated)
+{
+    if (!out) return;
+    renderCoverageFrameSequence = renderCoverageFrameSequence == UINT64_MAX
+        ? 1u : renderCoverageFrameSequence + 1u;
+    *out = (ChunkRenderCoverageStats){
+        .frameSequence = renderCoverageFrameSequence,
+        .observationSequence = observationSequence,
+        .requested = requested,
+        .admitted = admitted,
+        .saturated = saturated,
+        .lod = ChunksGetLodStats()
+    };
+}
+
+void ChunksRenderCoverageCommit(const ChunkRenderCoverageStats *snapshot)
+{
+    if (snapshot) committedRenderCoverage = *snapshot;
+}
+
+ChunkRenderCoverageStats ChunksGetRenderCoverageStats(void)
+{
+    return committedRenderCoverage;
+}
+
 void ChunksResetLodState(void)
 {
     chunkLodTargetChanges = 0u;
     chunkLodCoarseAllowed = false;
+    committedRenderCoverage = (ChunkRenderCoverageStats){ 0 };
+    renderCoverageFrameSequence = 0u;
 }
 
 #ifdef CHUNKS_TESTING

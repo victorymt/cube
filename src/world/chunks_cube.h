@@ -31,6 +31,14 @@ typedef struct CubeCoverageStatus {
     bool saturated;
 } CubeCoverageStatus;
 
+typedef struct CubeCoverageObservation {
+    uint64_t sequence;
+    uint32_t bodyId;
+    unsigned requested;
+    unsigned admitted;
+    bool saturated;
+} CubeCoverageObservation;
+
 // Main-thread physical coverage owner. Invalid input leaves the pool untouched.
 // Evicts only cube columns outside the admitted cap (or from stale worlds).
 // The caller supplies the per-update work budget; zero performs no generation.
@@ -43,7 +51,12 @@ bool ChunksUpdateCubeCoverage(TerrainCubeContext *context, SurfaceVector focus,
 // must not re-derive "complete coverage" from these counters.
 bool ChunksLastCubeCoverage(CubeCoverageStatus *outStatus);
 bool ChunksCubeCoverageIsActive(void);
-// Resident cube columns whose current-generation sections already own a mesh.
-unsigned ChunksCubeMeshReadyCount(void);
+bool ChunksCubeCoverageObservation(CubeCoverageObservation *outObservation);
+bool ChunksCubeCoverageAdmissionAt(unsigned index,
+                                   SurfaceCubeCoverageCandidate *outCandidate);
+bool ChunksCubeCoverageContains(SurfaceCubeChunkKey key);
+// Admitted cube columns whose materialized sections are ready at target LOD.
+unsigned ChunksCubeTargetLodReadyCount(void);
+unsigned ChunksCubeTargetLodMissingSections(void);
 
 #endif

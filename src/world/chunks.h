@@ -72,11 +72,44 @@ typedef struct ChunkLodStats {
     uint64_t targetChunks[CHUNK_LOD_COUNT];
     uint64_t activeChunks[CHUNK_LOD_COUNT];
     uint64_t readySections[CHUNK_LOD_COUNT];
+    uint64_t targetMissingSections;
     uint64_t proxyFloraSections[CHUNK_LOD_COUNT];
     uint64_t pendingJobs[CHUNK_LOD_COUNT];
     uint64_t targetChanges;
     bool coarseAllowed;
 } ChunkLodStats;
+
+/* Per-render-frame evidence from the actual surface collect/draw paths. LOD
+ * histograms are copied at frame start; draw counters are committed only after
+ * the corresponding models were submitted. */
+typedef struct ChunkRenderCoverageStats {
+    uint64_t frameSequence;
+    uint64_t observationSequence;
+    unsigned requested;
+    unsigned admitted;
+    bool saturated;
+    ChunkLodStats lod;
+    uint64_t mainAdmissionCulledColumns;
+    uint64_t mainDistanceCulledColumns;
+    uint64_t mainCandidateSections;
+    uint64_t mainFrustumCulledSections;
+    uint64_t mainVisibleSections;
+    uint64_t mainTargetLodMissingSections;
+    uint64_t mainDrawnSections;
+    uint64_t mainSolidDraws;
+    uint64_t mainWaterDraws;
+    uint64_t mainFloraDraws;
+    uint64_t shadowAdmissionCulledColumns;
+    uint64_t shadowDistanceCulledColumns;
+    uint64_t shadowCandidateSections;
+    uint64_t shadowFrustumCulledSections;
+    uint64_t shadowVisibleSections;
+    uint64_t shadowTargetLodMissingSections;
+    uint64_t shadowDrawnSections;
+    uint64_t shadowSolidDraws;
+    uint64_t shadowWaterDraws;
+    uint64_t shadowFloraDraws;
+} ChunkRenderCoverageStats;
 
 typedef struct ChunkStreamingRequest {
     Vector3 position;
@@ -267,8 +300,18 @@ void ProcessFinishedMeshJobs(double uploadBudgetMs);
 int GetActiveChunkCount(void);
 ChunkCanonicalIdentityStats ChunksGetCanonicalIdentityStats(void);
 ChunkLodStats ChunksGetLodStats(void);
+void ChunksRenderCoverageBeginFrame(ChunkRenderCoverageStats *out,
+                                    uint64_t observationSequence,
+                                    unsigned requested, unsigned admitted,
+                                    bool saturated);
+void ChunksRenderCoverageCommit(const ChunkRenderCoverageStats *snapshot);
+ChunkRenderCoverageStats ChunksGetRenderCoverageStats(void);
 ChunkLodLevel ChunkLodSelect(ChunkLodLevel current, bool initialized,
                              int distance, bool coarseAllowed);
+void ChunksUpdateLodTargets(Vector3 focusPosition, bool coarseAllowed);
+bool ChunkSectionLodReady(const ChunkSection *section, ChunkLodLevel lod);
+bool ChunkTargetLodReady(const Chunk *chunk);
+unsigned ChunkTargetLodMissingSections(const Chunk *chunk);
 const Model *ChunksSectionSolidModel(const Chunk *chunk,
                                      const ChunkSection *section);
 const Model *ChunksSectionWaterModel(const Chunk *chunk,
@@ -307,6 +350,10 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition);
 bool RebuildDirtyChunkMeshAt(int x, int y, int z);
 void UnloadAllChunks(void);
 bool ChunkWithinDrawDistance(const Chunk *chunk, Vector3 cameraPosition, int effectiveRenderDistance);
+bool ChunkWithinCoverageAdmission(const Chunk *chunk);
+bool ChunkPhysicalDistanceFromFocus(const Chunk *chunk, Vector3 focusPosition,
+                                    double *outMinimumDistance,
+                                    int *outDistanceChunks);
 bool ChunkIntersectsCameraView(const Chunk *chunk, const Camera3D *camera);
 bool ChunkSectionIntersectsCameraView(const Chunk *chunk,
                                       const ChunkSection *section,

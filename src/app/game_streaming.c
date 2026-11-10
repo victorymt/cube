@@ -37,6 +37,7 @@ int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive)
         (void)SurfaceContractCoverageUpdate(
             contract, playerCell,
             (double)effectiveRenderDistance * CHUNK_SIZE, 8u, &status);
+        ChunksUpdateLodTargets(game->player.position, true);
         return effectiveRenderDistance;
     }
     if (*localWorldActive) {

@@ -549,6 +549,7 @@ static void TestChunkLodTargetsAndStatsTrackLoadedChunks(void)
     assert(stats.readySections[CHUNK_LOD_EXACT] == 0u);
     assert(stats.readySections[CHUNK_LOD_HALF] == 0u);
     assert(stats.readySections[CHUNK_LOD_QUARTER] == 0u);
+    assert(stats.targetMissingSections == 0u);
     assert(stats.pendingJobs[CHUNK_LOD_EXACT] == 0u);
     assert(stats.pendingJobs[CHUNK_LOD_HALF] == 0u);
     assert(stats.pendingJobs[CHUNK_LOD_QUARTER] == 0u);
@@ -568,6 +569,7 @@ static void TestChunkLodTargetsAndStatsTrackLoadedChunks(void)
     AssertLodDslNumber("stream.lod_ready_exact_sections", 0.0);
     AssertLodDslNumber("stream.lod_ready_half_sections", 0.0);
     AssertLodDslNumber("stream.lod_ready_quarter_sections", 0.0);
+    AssertLodDslNumber("stream.lod_target_missing_sections", 0.0);
     AssertLodDslNumber("stream.lod_proxy_flora_half", 0.0);
     AssertLodDslNumber("stream.lod_proxy_flora_quarter", 0.0);
     AssertLodDslNumber("stream.lod_jobs_exact", 0.0);
@@ -609,6 +611,7 @@ static void TestChunkLodSwitchKeepsPreviousLevelUntilCacheIsReady(void)
     assert(stats.activeChunks[CHUNK_LOD_QUARTER] == 1u);
     assert(stats.readySections[CHUNK_LOD_QUARTER] == 1u);
     assert(stats.proxyFloraSections[CHUNK_LOD_QUARTER] == 1u);
+    assert(stats.targetMissingSections == 0u);
     AssertLodDslNumber("stream.lod_proxy_flora_quarter", 1.0);
     assert(!section->dirty);
 
@@ -617,6 +620,8 @@ static void TestChunkLodSwitchKeepsPreviousLevelUntilCacheIsReady(void)
     assert(stats.targetChunks[CHUNK_LOD_EXACT] == 1u);
     assert(stats.activeChunks[CHUNK_LOD_QUARTER] == 1u);
     assert(section->dirty);
+    assert(stats.targetMissingSections == 1u);
+    AssertLodDslNumber("stream.lod_target_missing_sections", 1.0);
 
     section->exactModelReady = true;
     section->exactModelStamp = section->dirtyStamp;
@@ -626,6 +631,59 @@ static void TestChunkLodSwitchKeepsPreviousLevelUntilCacheIsReady(void)
     assert(stats.readySections[CHUNK_LOD_EXACT] == 1u);
     assert(stats.readySections[CHUNK_LOD_QUARTER] == 1u);
     assert(!section->dirty);
+}
+
+static void TestRenderCoverageSnapshotKeepsCommittedCounters(void)
+{
+    ChunksTestResetScheduler();
+    ChunkRenderCoverageStats frame = { 0 };
+    ChunksRenderCoverageBeginFrame(&frame, 41u, 800u, 625u, true);
+    assert(frame.frameSequence == 1u);
+    assert(frame.observationSequence == 41u);
+    assert(frame.requested == 800u && frame.admitted == 625u && frame.saturated);
+    frame.mainAdmissionCulledColumns = 2u;
+    frame.mainDistanceCulledColumns = 3u;
+    frame.mainCandidateSections = 11u;
+    frame.mainFrustumCulledSections = 5u;
+    frame.mainVisibleSections = 6u;
+    frame.mainTargetLodMissingSections = 1u;
+    frame.mainDrawnSections = 5u;
+    frame.mainSolidDraws = 4u;
+    frame.mainWaterDraws = 1u;
+    frame.mainFloraDraws = 2u;
+    frame.shadowAdmissionCulledColumns = 7u;
+    frame.shadowDistanceCulledColumns = 4u;
+    frame.shadowCandidateSections = 9u;
+    frame.shadowFrustumCulledSections = 3u;
+    frame.shadowVisibleSections = 6u;
+    frame.shadowTargetLodMissingSections = 2u;
+    frame.shadowDrawnSections = 4u;
+    frame.shadowSolidDraws = 4u;
+    frame.shadowFloraDraws = 1u;
+    ChunksRenderCoverageCommit(&frame);
+    ChunkRenderCoverageStats committed = ChunksGetRenderCoverageStats();
+    assert(committed.frameSequence == 1u &&
+           committed.observationSequence == 41u);
+    assert(committed.mainAdmissionCulledColumns == 2u &&
+           committed.mainDistanceCulledColumns == 3u &&
+           committed.mainCandidateSections == 11u &&
+           committed.mainFrustumCulledSections == 5u &&
+           committed.mainVisibleSections == 6u &&
+           committed.mainTargetLodMissingSections == 1u &&
+           committed.mainDrawnSections == 5u &&
+           committed.mainSolidDraws == 4u &&
+           committed.mainWaterDraws == 1u &&
+           committed.mainFloraDraws == 2u);
+    assert(committed.shadowAdmissionCulledColumns == 7u &&
+           committed.shadowDistanceCulledColumns == 4u &&
+           committed.shadowCandidateSections == 9u &&
+           committed.shadowFrustumCulledSections == 3u &&
+           committed.shadowVisibleSections == 6u &&
+           committed.shadowTargetLodMissingSections == 2u &&
+           committed.shadowDrawnSections == 4u &&
+           committed.shadowSolidDraws == 4u &&
+           committed.shadowWaterDraws == 0u &&
+           committed.shadowFloraDraws == 1u);
 }
 
 static void TestChunkLodRenderModelUsesActiveLevelAndFallbacks(void)
@@ -2163,6 +2221,7 @@ int main(void)
     TestChunkLodTargetsAndStatsTrackLoadedChunks();
     TestChunkLodSwitchKeepsPreviousLevelUntilCacheIsReady();
     TestChunkLodRenderModelUsesActiveLevelAndFallbacks();
+    TestRenderCoverageSnapshotKeepsCommittedCounters();
     TestMeshJobsIncludeLodIdentityAndPrioritizeExactUpgrades();
     TestMeshJobPayloadUsesLodAccessoryPolicy();
     TestSingleChunkUsesSingleJobAndNearestFirst();

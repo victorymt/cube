@@ -28,7 +28,7 @@ void CoverageEvidenceFixtureAssert(void)
 {
     SurfaceCoverageEvidence coverage = SurfaceCoverageEvidenceBuild(
         800u, 625u, 625u, 0u, 0u, 7u, 3u, false,
-        4u, 2u, 625u, true);
+        4u, 2u, 625u, 0u, 1234u, true);
     GameCoverageEvidence evidence = {
         .coverage = coverage,
         .active = true,
@@ -42,6 +42,7 @@ void CoverageEvidenceFixtureAssert(void)
     AssertBool(&evidence, "stream.cube.saturated", false);
     AssertBool(&evidence, "stream.cube.local_terrain_ready", true);
     AssertBool(&evidence, "stream.cube.visual_ready", true);
+    AssertNumber(&evidence, "stream.cube.observation_sequence", 1234.0);
     AssertNumber(&evidence, "stream.cube.requested", 800.0);
     AssertNumber(&evidence, "stream.cube.admitted", 625.0);
     AssertNumber(&evidence, "stream.cube.ready", 625.0);
@@ -51,21 +52,26 @@ void CoverageEvidenceFixtureAssert(void)
     AssertNumber(&evidence, "stream.cube.released", 3.0);
     AssertNumber(&evidence, "stream.cube.duplicates", 4.0);
     AssertNumber(&evidence, "stream.cube.stale", 2.0);
-    AssertNumber(&evidence, "stream.cube.mesh_ready", 625.0);
+    AssertNumber(&evidence, "stream.cube.target_lod_ready", 625.0);
+    AssertNumber(&evidence, "stream.cube.target_lod_missing_sections", 0.0);
     DebugDslValue unknown = { 0 };
     assert(!GameCoverageEvidenceDslResolve(
         "stream.cube.drawn", &evidence, &unknown));
 
     coverage = SurfaceCoverageEvidenceBuild(
-        625u, 625u, 625u, 0u, 0u, 0u, 0u, false, 0u, 0u, 624u, true);
+        625u, 625u, 625u, 0u, 0u, 0u, 0u, false,
+        0u, 0u, 624u, 1u, 0u, true);
     assert(!coverage.visualReady);
     coverage = SurfaceCoverageEvidenceBuild(
-        625u, 625u, 625u, 0u, 0u, 0u, 0u, false, 0u, 0u, 625u, false);
+        625u, 625u, 625u, 0u, 0u, 0u, 0u, false,
+        0u, 0u, 625u, 0u, 0u, false);
     assert(!coverage.visualReady);
     coverage = SurfaceCoverageEvidenceBuild(
-        625u, 625u, 624u, 1u, 0u, 0u, 0u, false, 0u, 0u, 625u, true);
+        625u, 625u, 624u, 1u, 0u, 0u, 0u, false,
+        0u, 0u, 624u, 1u, 0u, true);
     assert(!coverage.visualReady);
     coverage = SurfaceCoverageEvidenceBuild(
-        625u, 625u, 625u, 0u, 0u, 0u, 0u, true, 0u, 0u, 625u, true);
+        625u, 625u, 625u, 0u, 0u, 0u, 0u, true,
+        0u, 0u, 625u, 0u, 0u, true);
     assert(!coverage.visualReady);
 }

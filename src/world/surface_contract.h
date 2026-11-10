@@ -75,6 +75,19 @@ typedef struct SurfaceCoverageStatus {
     bool saturated;
 } SurfaceCoverageStatus;
 
+typedef struct SurfaceCoverageObservation {
+    uint64_t sequence;
+    uint32_t bodyId;
+    unsigned requested;
+    unsigned admitted;
+    bool saturated;
+} SurfaceCoverageObservation;
+
+typedef struct SurfaceCoverageAdmission {
+    uint64_t sequence;
+    SurfaceCoverageCandidate candidate;
+} SurfaceCoverageAdmission;
+
 /* Releases a contract owned by the caller. The world snapshot module releases
  * the previously installed contract after a successful transactional swap. */
 void SurfaceContractRelease(SurfaceContract *contract);
@@ -170,5 +183,12 @@ bool SurfaceContractCoverageUpdate(const SurfaceContract *contract,
                                    SurfaceAddress focus, double radius,
                                    unsigned submissionBudget,
                                    SurfaceCoverageStatus *outStatus);
+bool SurfaceContractCoverageObservation(
+    const SurfaceContract *contract, SurfaceCoverageObservation *outObservation);
+bool SurfaceContractCoverageAdmissionAt(
+    const SurfaceContract *contract, unsigned index,
+    SurfaceCoverageAdmission *outAdmission);
+bool SurfaceContractCoverageAdmissionContains(
+    const SurfaceContract *contract, SurfaceChunkHandle chunk);
 
 #endif

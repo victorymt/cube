@@ -16,7 +16,7 @@ static bool CoverageBool(DebugDslValue *outValue, bool value)
     return true;
 }
 
-static bool CoverageNumber(DebugDslValue *outValue, unsigned value)
+static bool CoverageNumber(DebugDslValue *outValue, uint64_t value)
 {
     *outValue = (DebugDslValue){
         .type = DEBUG_DSL_VALUE_NUMBER,
@@ -35,6 +35,8 @@ bool GameCoverageEvidenceCapture(const struct GameRuntime *game,
     CubeCoverageStatus status = { 0 };
     out->available = out->active && ChunksLastCubeCoverage(&status);
     if (!out->available) return true;
+    CubeCoverageObservation observation = { 0 };
+    (void)ChunksCubeCoverageObservation(&observation);
     bool localTerrainReady = game->screen == SCREEN_PLAYING &&
         WorldIsSurfaceActive() &&
         PlayerMissingSurfaceChunkCount(game->player.position) == 0;
@@ -42,7 +44,9 @@ bool GameCoverageEvidenceCapture(const struct GameRuntime *game,
         status.requested, status.admitted, status.ready, status.pending,
         status.missing, status.submitted, status.released, status.saturated,
         status.duplicates, status.stale,
-        ChunksCubeMeshReadyCount(), localTerrainReady);
+        ChunksCubeTargetLodReadyCount(),
+        ChunksCubeTargetLodMissingSections(), observation.sequence,
+        localTerrainReady);
     return true;
 }
 
@@ -58,6 +62,8 @@ bool GameCoverageEvidenceDslResolve(const char *name,
         return CoverageBool(outValue, evidence->active);
     if (strcmp(field, "available") == 0)
         return CoverageBool(outValue, evidence->available);
+    if (strcmp(field, "observation_sequence") == 0)
+        return CoverageNumber(outValue, coverage->observationSequence);
     if (strcmp(field, "saturated") == 0)
         return CoverageBool(outValue, coverage->saturated);
     if (strcmp(field, "local_terrain_ready") == 0)
@@ -82,7 +88,9 @@ bool GameCoverageEvidenceDslResolve(const char *name,
         return CoverageNumber(outValue, coverage->duplicates);
     if (strcmp(field, "stale") == 0)
         return CoverageNumber(outValue, coverage->stale);
-    if (strcmp(field, "mesh_ready") == 0)
-        return CoverageNumber(outValue, coverage->meshReady);
+    if (strcmp(field, "target_lod_ready") == 0)
+        return CoverageNumber(outValue, coverage->targetLodReady);
+    if (strcmp(field, "target_lod_missing_sections") == 0)
+        return CoverageNumber(outValue, coverage->targetLodMissingSections);
     return false;
 }

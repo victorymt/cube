@@ -752,6 +752,36 @@ static void TestPhysicalCoverage(void)
     assert(status.submitted == 2 && status.ready == 2 && status.missing > 0);
     assert(status.released == 1 && status.stale == 1 && status.duplicates == 0);
     assert(ChunksCubeColumnIsLoaded(focusKey));
+    CubeCoverageObservation observation;
+    assert(ChunksCubeCoverageObservation(&observation));
+    assert(observation.sequence > 0u);
+    assert(observation.requested == status.requested &&
+           observation.admitted == status.admitted &&
+           !observation.saturated);
+    SurfaceCubeCoverageCandidate admission;
+    assert(ChunksCubeCoverageAdmissionAt(0, &admission));
+    assert(SurfaceCubeChunkKeyEqual(admission.key, focusKey));
+    assert(ChunksCubeCoverageContains(focusKey));
+    assert(!ChunksCubeCoverageAdmissionAt(status.admitted, &admission));
+    Chunk *focusChunk = FindCubeChunk(focusKey);
+    assert(focusChunk && focusChunk->sectionCount > 0);
+    for (int section = 0; section < focusChunk->sectionCount; section++) {
+        focusChunk->sections[section]->exactModelReady = true;
+        focusChunk->sections[section]->exactModelStamp =
+            focusChunk->sections[section]->dirtyStamp;
+    }
+    assert(ChunkTargetLodReady(focusChunk));
+    assert(ChunksCubeTargetLodReadyCount() >= 1u);
+    ChunkSection *fallbackSection = focusChunk->sections[0];
+    fallbackSection->exactModelReady = false;
+    fallbackSection->hasModel = true;
+    assert(!ChunkTargetLodReady(focusChunk));
+    assert(ChunkTargetLodMissingSections(focusChunk) >= 1u);
+    assert(ChunksCubeTargetLodMissingSections() >= 1u);
+    assert(ChunksSectionSolidModel(focusChunk, fallbackSection) ==
+           &fallbackSection->model);
+    fallbackSection->exactModelReady = true;
+    assert(ChunkTargetLodReady(focusChunk));
     unsigned expected = status.admitted;
     assert(status.requested == expected && !status.saturated);
     for (int i = 0; i < 30 && status.ready < expected; i++)
@@ -764,8 +794,15 @@ static void TestPhysicalCoverage(void)
     assert(ChunksUpdateCubeCoverage(context, south, 24, 1, &status));
     assert(status.released == expected && status.ready == 1 && status.submitted == 1);
     CubeCoverageStatus before = status;
+    CubeCoverageObservation observationBefore;
+    assert(ChunksCubeCoverageObservation(&observationBefore));
     assert(!ChunksUpdateCubeCoverage(context, south, NAN, 100, &status));
     AssertCoverageStatusEqual(&before, &status);
+    assert(ChunksCubeCoverageObservation(&observation));
+    assert(observation.sequence == observationBefore.sequence &&
+           observation.requested == observationBefore.requested &&
+           observation.admitted == observationBefore.admitted &&
+           observation.saturated == observationBefore.saturated);
     assert(GetActiveChunkCount() == 1);
     SurfaceVector corner = {1, 1, 1};
     corner = SurfaceVectorScale(SurfaceVectorNormalize(corner), SURFACE_RADIUS_BLOCKS + 10);
@@ -773,6 +810,29 @@ static void TestPhysicalCoverage(void)
     assert(status.saturated && status.requested > MAX_ACTIVE_CHUNKS);
     assert(status.admitted == MAX_ACTIVE_CHUNKS && status.missing == status.admitted);
     assert(status.ready == 0 && status.submitted == 0);
+    SurfaceCubeCoverageCandidate saturatedCandidates[MAX_ACTIVE_CHUNKS + 1];
+    SurfaceCubeCoverageResult saturatedCoverage;
+    assert(SurfaceCoverageCollect(0, corner, 208, saturatedCandidates,
+                                  MAX_ACTIVE_CHUNKS + 1, &saturatedCoverage));
+    assert(saturatedCoverage.saturated &&
+           saturatedCoverage.requested > MAX_ACTIVE_CHUNKS);
+    assert(ChunksCubeCoverageObservation(&observation));
+    assert(observation.sequence > observationBefore.sequence &&
+           observation.saturated &&
+           observation.admitted == MAX_ACTIVE_CHUNKS);
+    SurfaceCubeChunkKey outsideKey = saturatedCandidates[MAX_ACTIVE_CHUNKS].key;
+    assert(!ChunksCubeCoverageContains(outsideKey));
+    chunks[0] = (Chunk){.loaded = true, .spherical = true, .cubeGrid = true,
+        .cubeKey = outsideKey, .cubeWorldGeneration = WorldCurrentGeneration(),
+        .generation = 1u};
+    assert(!ChunkWithinCoverageAdmission(&chunks[0]));
+    SurfaceVector cornerDirection = SurfaceVectorNormalize(corner);
+    Vector2 cornerMap;
+    assert(SurfaceMapCoordinatesFromDirection(
+        (Vector3){cornerDirection.x, cornerDirection.y, cornerDirection.z},
+        &cornerMap));
+    assert(!ChunkWithinDrawDistance(
+        &chunks[0], (Vector3){cornerMap.x, 0, cornerMap.y}, 208));
     // A stale immutable input may not evict or submit any columns.
     assert(WorldInstallSurfaceSnapshot(NULL));
     before = status;
@@ -784,12 +844,55 @@ static void TestPhysicalCoverage(void)
     assert(ChunksLastCubeCoverage(&observed));
     AssertCoverageStatusEqual(&before, &observed);
     assert(observed.ready == before.ready);
-    assert(ChunksCubeMeshReadyCount() >= observed.ready);
+    assert(ChunksCubeTargetLodReadyCount() <= observed.admitted);
     TerrainCubeContextRelease(context);
     Reset();
     // A saturated observation must stay saturated for diagnostics; it never
     // reports itself as complete coverage.
     assert(observed.saturated == false || observed.requested > observed.admitted);
+}
+
+static void TestCubeLodUsesPhysicalCoverageDistance(void)
+{
+    const SurfaceAddress probes[] = {
+        {0, SURFACE_FACE_POS_Y, SURFACE_FACE_BLOCKS / 2 - CHUNK_SIZE / 2,
+         SURFACE_FACE_BLOCKS / 2 - CHUNK_SIZE / 2,
+         SURFACE_RADIUS_BLOCKS + 10.0f},
+        {0, SURFACE_FACE_POS_Y, SURFACE_FACE_BLOCKS - 1,
+         SURFACE_FACE_BLOCKS / 2 - CHUNK_SIZE / 2,
+         SURFACE_RADIUS_BLOCKS + 10.0f},
+        {0, SURFACE_FACE_POS_Y, SURFACE_FACE_BLOCKS - 1,
+         SURFACE_FACE_BLOCKS - 1, SURFACE_RADIUS_BLOCKS + 10.0f}
+    };
+    for (size_t probe = 0; probe < sizeof(probes) / sizeof(probes[0]); probe++) {
+        Reset();
+        TerrainCubeContext *context = Context();
+        SurfaceVector focus;
+        assert(SurfaceCellCenter(probes[probe], &focus));
+        SurfaceVector direction = SurfaceVectorNormalize(focus);
+        Vector2 map;
+        assert(SurfaceMapCoordinatesFromDirection(
+            (Vector3){direction.x, direction.y, direction.z}, &map));
+        Vector3 focusPosition = {map.x, 0.0f, map.y};
+        CubeCoverageStatus status;
+        assert(ChunksUpdateCubeCoverage(context, focus, 16.0, 1, &status));
+        SurfaceCubeChunkKey key;
+        assert(SurfaceCubeChunkAt(probes[probe], &key));
+        Chunk *chunk = FindCubeChunk(key);
+        assert(chunk && chunk->loaded);
+        assert(ChunksCubeCoverageContains(key));
+        double minimumDistance;
+        int distanceChunks;
+        assert(ChunkPhysicalDistanceFromFocus(
+            chunk, focusPosition, &minimumDistance, &distanceChunks));
+        assert(distanceChunks == 0 && minimumDistance <= 1e-7);
+        ChunksTestUpdateLodTargets(focusPosition, true);
+        assert(chunk->targetLod == CHUNK_LOD_EXACT);
+        assert(ChunkWithinCoverageAdmission(chunk));
+        assert(ChunkWithinDrawDistance(chunk, focusPosition, 0));
+        TerrainCubeContextRelease(context);
+    }
+    Reset();
 }
 
 static void TestCubeMeshHalo(void)
@@ -1141,6 +1244,7 @@ int main(void)
     TestCubeRenderTransformMatchesMeshFrame();
     TestCubeRenderTransform();
     TestPhysicalCoverage();
+    TestCubeLodUsesPhysicalCoverageDistance();
     TestCubeCoverageFollowsDistantFocus();
     TestCubeMeshHalo();
     TestCubeMeshProjection();

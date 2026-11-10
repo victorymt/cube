@@ -4,6 +4,8 @@
 #include "presentation/surface_render_transform.h"
 
 #include "core/simulation_time.h"
+#include "world/surface_contract.h"
+#include "world/world_surface_snapshot.h"
 
 #include <limits.h>
 
@@ -18,6 +20,7 @@ static bool worldFrameDrawSurfaceChunks;
 static bool worldWaterDebugEnabled;
 static bool worldWaterDebugThrough;
 static WorldWaterRenderDebugInfo worldWaterDebugSnapshot;
+static ChunkRenderCoverageStats worldFrameRenderCoverage;
 
 #define MAX_OTHER_TRANSPARENT_ITEMS (MAX_SPACE_CHUNKS + MAX_NETHER_CHUNKS)
 
@@ -76,6 +79,13 @@ void WorldRenderFramePrepare(const Camera3D *camera,
     if (worldFrameShadowChunkRadius > effectiveRenderDistance) {
         worldFrameShadowChunkRadius = effectiveRenderDistance;
     }
+    SurfaceCoverageObservation coverage = { 0 };
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
+    if (contract && SurfaceContractSupportsPhysicalCoverage(contract))
+        (void)SurfaceContractCoverageObservation(contract, &coverage);
+    ChunksRenderCoverageBeginFrame(&worldFrameRenderCoverage,
+                                   coverage.sequence, coverage.requested,
+                                   coverage.admitted, coverage.saturated);
 }
 
 void WorldRenderSetWaterDebug(bool enabled)
@@ -111,12 +121,19 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         const Chunk *chunk = &surfaceChunks[i];
         if (!chunk->loaded) continue;
-        bool distanceVisible = ChunkWithinDrawDistance(
-            chunk, camera->position, worldFrameEffectiveRenderDistance);
-        if (!distanceVisible) continue;
+        if (!ChunkWithinCoverageAdmission(chunk)) {
+            worldFrameRenderCoverage.mainAdmissionCulledColumns++;
+            continue;
+        }
+        if (!ChunkWithinDrawDistance(chunk, camera->position,
+                                     worldFrameEffectiveRenderDistance)) {
+            worldFrameRenderCoverage.mainDistanceCulledColumns++;
+            continue;
+        }
         for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
              sectionIndex++) {
             const ChunkSection *section = chunk->sections[sectionIndex];
+            worldFrameRenderCoverage.mainCandidateSections++;
             int sectionY = section->sectionY;
             Matrix transform = SurfaceChunkRenderTransform(
                 chunk, sectionY, camera->position, mapOriginX, mapOriginZ);
@@ -126,8 +143,16 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
             center = Vector3Transform(center, transform);
             bool frustumVisible = SphereInFrustum(camera, center, radius);
             PerfRecordWorldCandidate(true, frustumVisible);
+            if (!frustumVisible) {
+                worldFrameRenderCoverage.mainFrustumCulledSections++;
+                continue;
+            }
+            worldFrameRenderCoverage.mainVisibleSections++;
+            if (!ChunkSectionLodReady(section, chunk->targetLod))
+                worldFrameRenderCoverage.mainTargetLodMissingSections++;
+            bool submitted = false;
             const Model *waterModel = ChunksSectionWaterModel(chunk, section);
-            if (frustumVisible && waterModel &&
+            if (waterModel &&
                 EnsureSurfaceTransparentCapacity(surfaceTransparentCount + 1)) {
                 if (TransparentRenderItemAppendTransformed(
                     surfaceTransparentItems, surfaceTransparentCapacity,
@@ -137,28 +162,36 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
                     chunk->cx, chunk->cz, stableOrder)) {
                     surfaceTransparentItems[surfaceTransparentCount - 1].sectionY =
                         sectionY;
+                    worldFrameRenderCoverage.mainWaterDraws++;
+                    submitted = true;
                 }
             }
             stableOrder++;
-            if (!frustumVisible) continue;
             const Model *solidModel = ChunksSectionSolidModel(chunk, section);
             if (solidModel) {
                 PerfRecordDrawCall(PERF_DRAW_SOLID);
+                worldFrameRenderCoverage.mainSolidDraws++;
+                submitted = true;
                 WorldRendererDrawModelTransformed(
                     solidModel, transform, tint, false);
             }
             if (chunk->activeLod == CHUNK_LOD_EXACT &&
                 section->hasFloraModel) {
                 PerfRecordDrawCall(PERF_DRAW_FLORA);
+                worldFrameRenderCoverage.mainFloraDraws++;
+                submitted = true;
                 WorldRendererDrawModelTransformedTwoSided(
                     &section->floraModel, transform, tint);
             } else if (chunk->activeLod != CHUNK_LOD_EXACT &&
                        section->hasLodFloraModel &&
                        section->lodFloraModelLevel == chunk->activeLod) {
                 PerfRecordDrawCall(PERF_DRAW_FLORA);
+                worldFrameRenderCoverage.mainFloraDraws++;
+                submitted = true;
                 WorldRendererDrawModelTransformedTwoSided(
                     &section->lodFloraModel, transform, tint);
             }
+            if (submitted) worldFrameRenderCoverage.mainDrawnSections++;
         }
     }
 }
@@ -360,6 +393,7 @@ void DrawWorld(const Camera3D *camera, Color tint, bool drawNetherChunks,
                                tint, true);
     }
     EndBlendMode();
+    ChunksRenderCoverageCommit(&worldFrameRenderCoverage);
 }
 
 void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
@@ -372,37 +406,57 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
         int mapOriginZ = WorldSurfaceMapOriginZ();
         for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
             const Chunk *chunk = &surfaceChunks[i];
-            if (!chunk->loaded ||
-                !ChunkWithinDrawDistance(
-                    chunk, camera->position, worldFrameShadowChunkRadius)) {
+            if (!chunk->loaded) continue;
+            if (!ChunkWithinCoverageAdmission(chunk)) {
+                worldFrameRenderCoverage.shadowAdmissionCulledColumns++;
+                continue;
+            }
+            if (!ChunkWithinDrawDistance(chunk, camera->position,
+                                         worldFrameShadowChunkRadius)) {
+                worldFrameRenderCoverage.shadowDistanceCulledColumns++;
                 continue;
             }
             for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
                  sectionIndex++) {
                 const ChunkSection *section = chunk->sections[sectionIndex];
+                worldFrameRenderCoverage.shadowCandidateSections++;
                 Matrix transform = SurfaceChunkRenderTransform(
                     chunk, section->sectionY, camera->position, mapOriginX, mapOriginZ);
                 Vector3 center;
                 float radius;
                 if (!SurfaceChunkRenderBounds(chunk, section->sectionY, &center, &radius)) continue;
                 center = Vector3Transform(center, transform);
-                if (!WorldRendererShadowSphereVisible(center, radius)) continue;
+                if (!WorldRendererShadowSphereVisible(center, radius)) {
+                    worldFrameRenderCoverage.shadowFrustumCulledSections++;
+                    continue;
+                }
+                worldFrameRenderCoverage.shadowVisibleSections++;
+                if (!ChunkSectionLodReady(section, chunk->targetLod))
+                    worldFrameRenderCoverage.shadowTargetLodMissingSections++;
+                bool submitted = false;
                 const Model *solidModel = ChunksSectionSolidModel(
                     chunk, section);
                 if (solidModel) {
                     WorldRendererDrawShadowModelTransformed(
                         solidModel, transform);
+                    worldFrameRenderCoverage.shadowSolidDraws++;
+                    submitted = true;
                 }
                 if (chunk->activeLod == CHUNK_LOD_EXACT &&
                     section->hasFloraModel) {
                     WorldRendererDrawShadowModelTransformedTwoSided(
                         &section->floraModel, transform);
+                    worldFrameRenderCoverage.shadowFloraDraws++;
+                    submitted = true;
                 } else if (chunk->activeLod != CHUNK_LOD_EXACT &&
                            section->hasLodFloraModel &&
                            section->lodFloraModelLevel == chunk->activeLod) {
                     WorldRendererDrawShadowModelTransformedTwoSided(
                         &section->lodFloraModel, transform);
+                    worldFrameRenderCoverage.shadowFloraDraws++;
+                    submitted = true;
                 }
+                if (submitted) worldFrameRenderCoverage.shadowDrawnSections++;
             }
         }
     }

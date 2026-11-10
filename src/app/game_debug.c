@@ -1576,6 +1576,72 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
         return GameDebugDslString(outValue, ShipDriveModeName());
     }
 
+    if (phase == GAME_DEBUG_DSL_TAIL &&
+        strncmp(name, "render.coverage.", 16u) == 0) {
+        ChunkRenderCoverageStats coverage = ChunksGetRenderCoverageStats();
+        const char *field = name + 16u;
+#define RENDER_COVERAGE_NUMBER(fieldName, fieldValue) \
+        if (strcmp(field, fieldName) == 0) \
+            return GameDebugDslNumber(outValue, (fieldValue))
+        if (strcmp(field, "saturated") == 0)
+            return GameDebugDslBool(outValue, coverage.saturated);
+        RENDER_COVERAGE_NUMBER("frame_sequence", coverage.frameSequence);
+        RENDER_COVERAGE_NUMBER("observation_sequence",
+                               coverage.observationSequence);
+        RENDER_COVERAGE_NUMBER("requested", coverage.requested);
+        RENDER_COVERAGE_NUMBER("admitted", coverage.admitted);
+        RENDER_COVERAGE_NUMBER("target_exact",
+                               coverage.lod.targetChunks[CHUNK_LOD_EXACT]);
+        RENDER_COVERAGE_NUMBER("target_half",
+                               coverage.lod.targetChunks[CHUNK_LOD_HALF]);
+        RENDER_COVERAGE_NUMBER("target_quarter",
+                               coverage.lod.targetChunks[CHUNK_LOD_QUARTER]);
+        RENDER_COVERAGE_NUMBER("active_exact",
+                               coverage.lod.activeChunks[CHUNK_LOD_EXACT]);
+        RENDER_COVERAGE_NUMBER("active_half",
+                               coverage.lod.activeChunks[CHUNK_LOD_HALF]);
+        RENDER_COVERAGE_NUMBER("active_quarter",
+                               coverage.lod.activeChunks[CHUNK_LOD_QUARTER]);
+        RENDER_COVERAGE_NUMBER("target_missing_sections",
+                               coverage.lod.targetMissingSections);
+        RENDER_COVERAGE_NUMBER("main_admission_culled_columns",
+                               coverage.mainAdmissionCulledColumns);
+        RENDER_COVERAGE_NUMBER("main_distance_culled_columns",
+                               coverage.mainDistanceCulledColumns);
+        RENDER_COVERAGE_NUMBER("main_candidate_sections",
+                               coverage.mainCandidateSections);
+        RENDER_COVERAGE_NUMBER("main_frustum_culled_sections",
+                               coverage.mainFrustumCulledSections);
+        RENDER_COVERAGE_NUMBER("main_visible_sections",
+                               coverage.mainVisibleSections);
+        RENDER_COVERAGE_NUMBER("main_target_lod_missing_sections",
+                               coverage.mainTargetLodMissingSections);
+        RENDER_COVERAGE_NUMBER("main_drawn_sections",
+                               coverage.mainDrawnSections);
+        RENDER_COVERAGE_NUMBER("main_solid_draws", coverage.mainSolidDraws);
+        RENDER_COVERAGE_NUMBER("main_water_draws", coverage.mainWaterDraws);
+        RENDER_COVERAGE_NUMBER("main_flora_draws", coverage.mainFloraDraws);
+        RENDER_COVERAGE_NUMBER("shadow_admission_culled_columns",
+                               coverage.shadowAdmissionCulledColumns);
+        RENDER_COVERAGE_NUMBER("shadow_distance_culled_columns",
+                               coverage.shadowDistanceCulledColumns);
+        RENDER_COVERAGE_NUMBER("shadow_candidate_sections",
+                               coverage.shadowCandidateSections);
+        RENDER_COVERAGE_NUMBER("shadow_frustum_culled_sections",
+                               coverage.shadowFrustumCulledSections);
+        RENDER_COVERAGE_NUMBER("shadow_visible_sections",
+                               coverage.shadowVisibleSections);
+        RENDER_COVERAGE_NUMBER("shadow_target_lod_missing_sections",
+                               coverage.shadowTargetLodMissingSections);
+        RENDER_COVERAGE_NUMBER("shadow_drawn_sections",
+                               coverage.shadowDrawnSections);
+        RENDER_COVERAGE_NUMBER("shadow_solid_draws", coverage.shadowSolidDraws);
+        RENDER_COVERAGE_NUMBER("shadow_water_draws", coverage.shadowWaterDraws);
+        RENDER_COVERAGE_NUMBER("shadow_flora_draws", coverage.shadowFloraDraws);
+#undef RENDER_COVERAGE_NUMBER
+        return false;
+    }
+
     if (phase == GAME_DEBUG_DSL_TAIL && strncmp(name, "render.", 7u) == 0) {
         WorldWaterRenderDebugInfo water = WorldRenderWaterDebugSnapshot();
         if (strcmp(name, "render.monitor_refresh_hz") == 0) {

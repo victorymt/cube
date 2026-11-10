@@ -20,10 +20,11 @@ typedef struct SurfaceCubeCoverageResult {
 } SurfaceCubeCoverageResult;
 
 /* Stable evidence surface for M5. `ready` means admitted columns have terrain
- * data; meshReady is resident mesh presence. Neither alone proves what the
- * renderer drew. visualReady is a conservative local mesh-readiness signal, not
- * a full-viewport or occlusion certificate. */
+ * data; targetLodReady means every materialized section is ready for the
+ * column's target LOD. Neither proves what the renderer drew. visualReady is a
+ * conservative local mesh-readiness signal, not a viewport/draw certificate. */
 typedef struct SurfaceCoverageEvidence {
+    uint64_t observationSequence;
     unsigned requested;
     unsigned admitted;
     unsigned ready;
@@ -34,7 +35,8 @@ typedef struct SurfaceCoverageEvidence {
     // Admitted requests already resident vs. old-generation residents evicted.
     unsigned duplicates;
     unsigned stale;
-    unsigned meshReady;
+    unsigned targetLodReady;
+    unsigned targetLodMissingSections;
     bool saturated;
     bool localTerrainReady;
     bool visualReady;
@@ -60,7 +62,9 @@ bool SurfaceCoverageCollect(uint32_t bodyId, SurfaceVector focus, double radius,
 SurfaceCoverageEvidence SurfaceCoverageEvidenceBuild(
     unsigned requested, unsigned admitted, unsigned ready, unsigned pending,
     unsigned missing, unsigned submitted, unsigned released, bool saturated,
-    unsigned duplicates, unsigned stale, unsigned meshReady,
+    unsigned duplicates, unsigned stale, unsigned targetLodReady,
+    unsigned targetLodMissingSections,
+    uint64_t observationSequence,
     bool localTerrainReady);
 
 #endif

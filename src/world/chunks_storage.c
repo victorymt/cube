@@ -1,4 +1,5 @@
 #include "world/chunks_internal.h"
+#include "world/surface_coverage.h"
 #include "world/surface_topology.h"
 
 Chunk chunks[MAX_ACTIVE_CHUNKS];
@@ -579,16 +580,12 @@ int ChunkGridDistanceFrom(const Chunk *chunk, int cx, int cz)
         return dx > dz ? dx : dz;
     }
     if (chunk->cubeGrid) {
-        Vector3 focus = SurfaceDirectionFromMapCoordinates(
-            WorldSurfaceMapOriginX() + (cx + .5f) * CHUNK_SIZE,
-            WorldSurfaceMapOriginZ() + (cz + .5f) * CHUNK_SIZE);
-        Vector3 center;
-        if (!SurfaceCubeVertex(chunk->cubeKey.face, (chunk->cubeKey.u + .5f) * CHUNK_SIZE,
-            (chunk->cubeKey.v + .5f) * CHUNK_SIZE, 0, &center)) return INT_MAX;
-        center = Vector3Normalize(center);
-        double angle = atan2(Vector3Length(Vector3CrossProduct(focus, center)),
-                              Vector3DotProduct(focus, center));
-        return (int)floor(angle * SURFACE_RADIUS_BLOCKS / CHUNK_SIZE);
+        double minimumDistance;
+        int distanceChunks;
+        return ChunkPhysicalDistanceFromFocus(
+            chunk, (Vector3){ (cx + .5f) * CHUNK_SIZE, 0.0f,
+                              (cz + .5f) * CHUNK_SIZE },
+            &minimumDistance, &distanceChunks) ? distanceChunks : INT_MAX;
     }
     float originX = (float)WorldSurfaceMapOriginX();
     float originZ = (float)WorldSurfaceMapOriginZ();
@@ -601,6 +598,42 @@ int ChunkGridDistanceFrom(const Chunk *chunk, int cx, int cz)
     int dx = (int)lroundf(fabsf(offset.x) / (float)CHUNK_SIZE);
     int dz = (int)lroundf(fabsf(offset.z) / (float)CHUNK_SIZE);
     return dx > dz ? dx : dz;
+}
+
+bool ChunkPhysicalDistanceFromFocus(const Chunk *chunk, Vector3 focusPosition,
+                                    double *outMinimumDistance,
+                                    int *outDistanceChunks)
+{
+    if (!chunk || !outMinimumDistance || !outDistanceChunks ||
+        !isfinite(focusPosition.x) || !isfinite(focusPosition.z)) return false;
+    if (chunk->cubeGrid) {
+        Vector3 direction = SurfaceDirectionFromMapCoordinates(
+            WorldSurfaceMapOriginX() + focusPosition.x,
+            WorldSurfaceMapOriginZ() + focusPosition.z);
+        SurfaceCubeCoverageCandidate candidate;
+        if (!SurfaceCubeChunkDistance(chunk->cubeKey,
+                                      (SurfaceVector){direction.x, direction.y,
+                                                      direction.z},
+                                      &candidate)) return false;
+        double chunks = candidate.minimumDistance / (double)CHUNK_SIZE;
+        *outMinimumDistance = candidate.minimumDistance;
+        *outDistanceChunks = chunks >= (double)INT_MAX
+            ? INT_MAX : (int)floor(chunks);
+        return true;
+    }
+
+    int cx = 0;
+    int cz = 0;
+    int localX = 0;
+    int localZ = 0;
+    WorldToChunkLocal((int)floorf(focusPosition.x),
+                      (int)floorf(focusPosition.z),
+                      &cx, &cz, &localX, &localZ);
+    int distance = ChunkGridDistanceFrom(chunk, cx, cz);
+    if (distance == INT_MAX) return false;
+    *outMinimumDistance = distance * (double)CHUNK_SIZE;
+    *outDistanceChunks = distance;
+    return true;
 }
 
 int ChunkSectionLowerBound(const Chunk *chunk, int sectionY)

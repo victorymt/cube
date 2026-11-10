@@ -164,6 +164,9 @@ CubeChunkRequestResult ChunksRequestCubeSection(TerrainCubeContext *context,
  * describe the most recent ChunksUpdateCubeCoverage call; they never claim
  * full visual coverage and a saturated observation stays saturated. */
 static CubeCoverageStatus lastCubeCoverage;
+static CubeCoverageObservation lastCubeCoverageObservation;
+static SurfaceCubeCoverageCandidate lastCubeCoverageAdmission[MAX_ACTIVE_CHUNKS];
+static uint64_t lastCubeCoverageWorldGeneration;
 static bool lastCubeCoverageValid;
 static bool cubeCoverageActive;
 
@@ -234,6 +237,31 @@ bool ChunksCubeCoverageIsActive(void)
     return cubeCoverageActive;
 }
 
+bool ChunksCubeCoverageObservation(CubeCoverageObservation *outObservation)
+{
+    if (!outObservation || !lastCubeCoverageValid) return false;
+    *outObservation = lastCubeCoverageObservation;
+    return true;
+}
+
+bool ChunksCubeCoverageAdmissionAt(unsigned index,
+                                   SurfaceCubeCoverageCandidate *outCandidate)
+{
+    if (!outCandidate || !lastCubeCoverageValid ||
+        index >= lastCubeCoverageObservation.admitted) return false;
+    *outCandidate = lastCubeCoverageAdmission[index];
+    return true;
+}
+
+bool ChunksCubeCoverageContains(SurfaceCubeChunkKey key)
+{
+    if (!lastCubeCoverageValid || !SurfaceCubeChunkKeyIsValid(key) ||
+        lastCubeCoverageWorldGeneration != WorldCurrentGeneration() ||
+        key.bodyId != lastCubeCoverageObservation.bodyId) return false;
+    return CandidateIndexForKey(lastCubeCoverageAdmission,
+                                lastCubeCoverageObservation.admitted, key) >= 0;
+}
+
 bool ChunksUpdateCubeCoverage(TerrainCubeContext *context, SurfaceVector focus,
                               double radius, unsigned budget,
                               CubeCoverageStatus *out)
@@ -288,25 +316,45 @@ bool ChunksUpdateCubeCoverage(TerrainCubeContext *context, SurfaceVector focus,
         }
     }
     lastCubeCoverage = status;
+    lastCubeCoverageObservation = (CubeCoverageObservation){
+        .sequence = lastCubeCoverageObservation.sequence == UINT64_MAX
+            ? 1u : lastCubeCoverageObservation.sequence + 1u,
+        .bodyId = focusKey.bodyId,
+        .requested = status.requested,
+        .admitted = status.admitted,
+        .saturated = status.saturated
+    };
+    memcpy(lastCubeCoverageAdmission, candidates,
+           status.admitted * sizeof(*lastCubeCoverageAdmission));
+    lastCubeCoverageWorldGeneration = WorldCurrentGeneration();
     lastCubeCoverageValid = true;
     cubeCoverageActive = true;
     *out = status;
     return true;
 }
 
-unsigned ChunksCubeMeshReadyCount(void)
+unsigned ChunksCubeTargetLodReadyCount(void)
 {
     unsigned ready = 0;
     for (int slot = 0; slot < MAX_ACTIVE_CHUNKS; slot++) {
         const Chunk *chunk = &chunks[slot];
         if (!chunk->cubeGrid || !chunk->loaded) continue;
         if (chunk->cubeWorldGeneration != WorldCurrentGeneration()) continue;
-        for (int i = 0; i < chunk->sectionCount; i++) {
-            if (chunk->sections[i] && chunk->sections[i]->hasModel) {
-                ready++;
-                break;
-            }
-        }
+        if (!ChunksCubeCoverageContains(chunk->cubeKey)) continue;
+        if (ChunkTargetLodReady(chunk)) ready++;
     }
     return ready;
+}
+
+unsigned ChunksCubeTargetLodMissingSections(void)
+{
+    unsigned missing = 0;
+    for (int slot = 0; slot < MAX_ACTIVE_CHUNKS; slot++) {
+        const Chunk *chunk = &chunks[slot];
+        if (!chunk->cubeGrid || !chunk->loaded) continue;
+        if (chunk->cubeWorldGeneration != WorldCurrentGeneration() ||
+            !ChunksCubeCoverageContains(chunk->cubeKey)) continue;
+        missing += ChunkTargetLodMissingSections(chunk);
+    }
+    return missing;
 }

@@ -484,6 +484,27 @@ static void TestCubeContract(void)
     SurfaceCoverageStatus status;
     assert(SurfaceContractCoverageUpdate(contract, address, 24.0, 0, &status));
     assert(status.requested == coverage.requested);
+    SurfaceCoverageObservation observation;
+    assert(SurfaceContractCoverageObservation(contract, &observation));
+    assert(observation.sequence > 0u);
+    assert(observation.requested == coverage.requested &&
+           observation.admitted == coverage.admitted);
+    for (unsigned i = 0; i < observation.admitted; i++) {
+        SurfaceCoverageAdmission admission;
+        assert(SurfaceContractCoverageAdmissionAt(contract, i, &admission));
+        assert(admission.sequence == observation.sequence);
+        assert(SurfaceContractChunkEqual(contract, admission.candidate.chunk,
+                                         candidates[i].chunk));
+        assert(admission.candidate.centerDistance ==
+               candidates[i].centerDistance);
+        assert(admission.candidate.minimumDistance ==
+               candidates[i].minimumDistance);
+    }
+    SurfaceCoverageAdmission outside;
+    assert(!SurfaceContractCoverageAdmissionAt(
+        contract, observation.admitted, &outside));
+    assert(SurfaceContractCoverageAdmissionContains(
+        contract, candidates[0].chunk));
 }
 
 static void TestMixedPolicyAndTransaction(void)
