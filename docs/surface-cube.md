@@ -231,6 +231,9 @@ Progress as of 2026-10-23 is marked per item; unmarked text is the original
    visible and submitted sections from admitted or target-LOD-ready columns. The
    parameterized Hyprland matrix covers all six faces, 12 edges, 8 corners, both
    poles, a high camera and render distances 4/8/12 with 31 PNG/report pairs.
+   The matrix also identified that map-space CGA must skip structures on cube
+   chunks without a single canonical map rectangle; M5.3.1 replaces that
+   fallback with topology-native CGA planning before performance is frozen.
    The M2 transform/bounds repair now makes mesh vertices and frustum centers use
    the same section anchor frame, closing the vertical stretch.
 4. Replay the existing temperate and dry polar scenes using geographic

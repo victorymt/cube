@@ -62,4 +62,5 @@ Map-space CGA cannot represent every cube seam or polar chunk as one canonical
 map rectangle. Those chunks now keep cube base terrain and omit CGA structures;
 representable chunks still generate structures normally. This removes the
 previous whole-column generation failure at seams without claiming structure
-parity there.
+parity there. Follow-up stage M5.3.1 replaces the fallback with topology-native
+CGA planning before M5.4 freezes the final performance workload.

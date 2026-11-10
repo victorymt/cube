@@ -38,7 +38,7 @@ Execution state:
 | M2 | complete | Cube mesh vertices, transforms and bounds share the section anchor frame. |
 | M3 | complete | V30 persists topology, canonical pose and complete cell edits. |
 | M4 | complete | Homeworld consumers use the surface contract and new Homeworld worlds default to cube-grid. |
-| M5 | active | M5.0–M5.3 complete; collect the final visual/performance budgets in M5.4. |
+| M5 | active | M5.0–M5.3 complete; restore seam/polar CGA structure parity in M5.3.1, then collect final budgets in M5.4. |
 | M6 | pending | Remove Homeworld-only transition paths and close the migration. |
 
 This plan deliberately does not migrate planets. The surface interfaces and
@@ -672,9 +672,40 @@ planning is topology-native.
 
 Code commit target: `test(cube): cover the Homeworld visual matrix`.
 
-#### M5.4: close coverage and performance evidence
+#### M5.3.1: restore CGA structure parity at cube seams and poles
 
 **Status:** next
+
+M5.3 proved terrain, coverage, LOD and drawing across the full cube topology,
+but exposed a consumer-parity gap: map-space CGA planning cannot represent every
+face-edge, corner or polar cube chunk as one canonical map rectangle. Those
+chunks currently keep base terrain and omit CGA structures. Complete the CGA
+consumer migration before freezing performance on the final workload.
+
+Work:
+
+- Replace the single map-rectangle planning assumption with topology-native
+  bounds expressed through `SurfaceAddress`, cube chunk identity and semantic
+  neighbors.
+- Plan structures for a cube chunk plus the required conservative halo without
+  scanning an unrelated global longitude range at poles or seams.
+- Deduplicate cross-face and cross-chunk features before writes; a structure
+  spanning an edge must write each cell once through its canonical surface
+  address.
+- Remove the M5.3 polar/global-wrap and unrepresentable-bounds fallbacks once all
+  cube chunks have a valid planning path.
+- Add deterministic fixtures for both sides of all face-edge classes, corners
+  and both poles. Verify repeated generation is byte-stable, structures crossing
+  seams are complete, and no feature is duplicated or dropped.
+
+Exit: no cube chunk silently skips CGA because of map-space bounds; seam/polar
+fixtures contain the expected structures; CGA writes use `SurfaceAddress` only;
+the final workload is stable enough to freeze for M5.4. Commit
+`refactor(cube): make CGA planning topology-native`.
+
+#### M5.4: close coverage and performance evidence
+
+**Status:** pending M5.3.1
 
 Repeat frame-time, memory, queue and saturation measurements on the same machine
 and scenes. If a budget fails, record the deficit and stop rather than changing
@@ -695,18 +726,24 @@ the final evidence. The following gates are fixed for M5:
 | Stream settle after focus stops | `<= 300 frames` |
 | Synchronous mesh rebuilds | `0` |
 | Generation/mesh queue peaks | no greater than configured capacities |
+| Queue-full events after warmup | recorded separately; no sustained generation or mesh queue-full state during accepted samples |
 | Local surface gaps at each settled point | `0` outside an explicitly saturated observation |
 | Same-scene regression versus frozen same-host baseline | p95 frame/upload time `<= 5%`; peak estimated mesh bytes and peak RSS `<= 10%` |
 | Repeated-route resource growth | final estimated mesh bytes within `5%` of the repeat checkpoint |
 
 Acceptance scenes must include a face center, a saturated corner and a pole at
-render distance 12, plus the lower-distance matrix cases. If GPU timing is
+render distance 12, plus the lower-distance matrix cases. Seam and pole scenes
+must also record CGA structure presence so performance is measured on the final
+consumer workload, not the M5.3 terrain-only fallback. Add queue-full,
+generation-cancel and upload-deferral event counts to the performance report
+before collecting evidence. If GPU timing is
 unavailable on the test host, record it as unavailable rather than as a pass;
 CPU, queue, memory and settle gates still apply.
 
 Exit evidence records frame time, process RSS, estimated mesh bytes, pending mesh
 snapshot bytes, requested/admitted/ready/drawn counts, saturation and queue peaks
-from the same machine and scene. A failed budget is a G4 result, not permission
+plus queue-full/cancel/deferral events and CGA structure presence from the same
+machine and scene. A failed budget is a G4 result, not permission
 to enlarge the 625-slot capacity or disappear saturation behind a larger radius.
 
 ### M6: close G5
