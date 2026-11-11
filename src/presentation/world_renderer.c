@@ -61,6 +61,12 @@ typedef struct WorldRendererResources {
     bool shadowPassActive;
 } WorldRendererResources;
 
+typedef struct ShadowCameraBasis {
+    Vector3 forward;
+    Vector3 right;
+    Vector3 up;
+} ShadowCameraBasis;
+
 static WorldRendererResources resources = { 0 };
 static RenderDebugMode worldRendererDebugMode = RENDER_DEBUG_MODE_FINAL;
 
@@ -659,6 +665,37 @@ static Vector3 ColorVector(Color color)
     return (Vector3){ color.r/255.0f, color.g/255.0f, color.b/255.0f };
 }
 
+static ShadowCameraBasis ShadowCameraBasisForDirection(Vector3 lightDirection)
+{
+    Vector3 upHint = fabsf(lightDirection.y) > 0.96f ?
+                         (Vector3){ 0.0f, 0.0f, 1.0f } :
+                         (Vector3){ 0.0f, 1.0f, 0.0f };
+    ShadowCameraBasis basis = {
+        .forward = Vector3Negate(lightDirection),
+    };
+    basis.right = Vector3Normalize(
+        Vector3CrossProduct(basis.forward, upHint));
+    basis.up = Vector3Normalize(
+        Vector3CrossProduct(basis.right, basis.forward));
+    return basis;
+}
+
+static Vector3 LightSpaceShadowTarget(Vector3 cameraPosition,
+                                      ShadowCameraBasis basis,
+                                      float texelSize)
+{
+    double lightX = Vector3DotProduct(cameraPosition, basis.right);
+    double lightY = Vector3DotProduct(cameraPosition, basis.up);
+    double snappedX = round(lightX/texelSize)*texelSize;
+    double snappedY = round(lightY/texelSize)*texelSize;
+    Vector3 target = cameraPosition;
+    target = Vector3Add(target, Vector3Scale(
+        basis.right, (float)(snappedX - lightX)));
+    target = Vector3Add(target, Vector3Scale(
+        basis.up, (float)(snappedY - lightY)));
+    return target;
+}
+
 static void SetCommonUniforms(Shader shader)
 {
     WorldLightingState *state = &resources.state;
@@ -845,30 +882,22 @@ bool WorldRendererBeginShadow(const Camera3D *camera,
         return false;
     }
     resources.state = WorldLightingStateSanitize(*state);
-    float texelWorld = WORLD_SHADOW_SPAN/(float)resources.shadowMapSize;
-    Vector3 target = camera->position;
-    target.x = roundf(target.x/texelWorld)*texelWorld;
-    target.z = roundf(target.z/texelWorld)*texelWorld;
     Vector3 lightDirection = resources.state.sunDirection;
-    Vector3 up = fabsf(lightDirection.y) > 0.96f ?
-                     (Vector3){ 0.0f, 0.0f, 1.0f } :
-                     (Vector3){ 0.0f, 1.0f, 0.0f };
+    ShadowCameraBasis basis = ShadowCameraBasisForDirection(lightDirection);
+    float texelLight = WORLD_SHADOW_SPAN/(float)resources.shadowMapSize;
+    Vector3 target = LightSpaceShadowTarget(camera->position, basis, texelLight);
     Camera3D lightCamera = {
         .position = Vector3Add(target,
                                Vector3Scale(lightDirection,
                                             WORLD_SHADOW_DISTANCE)),
         .target = target,
-        .up = up,
+        .up = basis.up,
         .fovy = WORLD_SHADOW_SPAN,
         .projection = CAMERA_ORTHOGRAPHIC
     };
-    Vector3 forward = Vector3Normalize(
-        Vector3Subtract(lightCamera.target, lightCamera.position));
     resources.shadowTargetPosition = target;
-    resources.shadowRight = Vector3Normalize(
-        Vector3CrossProduct(forward, lightCamera.up));
-    resources.shadowUp = Vector3Normalize(
-        Vector3CrossProduct(resources.shadowRight, forward));
+    resources.shadowRight = basis.right;
+    resources.shadowUp = basis.up;
     Matrix view = GetCameraMatrix(lightCamera);
     Matrix projection = MatrixOrtho(-WORLD_SHADOW_SPAN*0.5,
                                      WORLD_SHADOW_SPAN*0.5,
@@ -897,6 +926,17 @@ bool WorldRendererTestShadowSphereVisible(Vector3 target,
         Vector3CrossProduct(forward, cameraUp));
     Vector3 up = Vector3Normalize(Vector3CrossProduct(right, forward));
     return ShadowSphereVisibleForBasis(target, right, up, center, radius);
+}
+
+Vector3 WorldRendererTestLightSpaceShadowTarget(Vector3 cameraPosition,
+                                                Vector3 lightDirection,
+                                                int shadowMapSize)
+{
+    if (shadowMapSize <= 0) return cameraPosition;
+    lightDirection = Vector3Normalize(lightDirection);
+    ShadowCameraBasis basis = ShadowCameraBasisForDirection(lightDirection);
+    return LightSpaceShadowTarget(
+        cameraPosition, basis, WORLD_SHADOW_SPAN/(float)shadowMapSize);
 }
 #endif
 

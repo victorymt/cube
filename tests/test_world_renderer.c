@@ -150,6 +150,69 @@ static void TestShadowBounds(void)
         target, lightDirection, target, -1.0f));
 }
 
+static void AssertShadowTargetSnapsInLightSpace(Vector3 cameraPosition,
+                                                Vector3 lightDirection,
+                                                int shadowMapSize)
+{
+    lightDirection = Vector3Normalize(lightDirection);
+    Vector3 upHint = fabsf(lightDirection.y) > 0.96f ?
+                         (Vector3){ 0.0f, 0.0f, 1.0f } :
+                         (Vector3){ 0.0f, 1.0f, 0.0f };
+    Vector3 forward = Vector3Negate(lightDirection);
+    Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, upHint));
+    Vector3 up = Vector3Normalize(Vector3CrossProduct(right, forward));
+    float texelSize = 128.0f/(float)shadowMapSize;
+    Vector3 target = WorldRendererTestLightSpaceShadowTarget(
+        cameraPosition, lightDirection, shadowMapSize);
+    Vector3 delta = Vector3Subtract(target, cameraPosition);
+
+    assert(fabsf(Vector3DotProduct(delta, forward)) < 0.001f);
+    assert(fabsf(Vector3DotProduct(delta, right)) <= texelSize*0.5f + 0.001f);
+    assert(fabsf(Vector3DotProduct(delta, up)) <= texelSize*0.5f + 0.001f);
+    double targetX = Vector3DotProduct(target, right)/texelSize;
+    double targetY = Vector3DotProduct(target, up)/texelSize;
+    assert(fabs(targetX - round(targetX)) < 0.02);
+    assert(fabs(targetY - round(targetY)) < 0.02);
+
+    Vector3 parallel = Vector3Add(
+        cameraPosition, Vector3Scale(lightDirection, 0.37f));
+    Vector3 parallelTarget = WorldRendererTestLightSpaceShadowTarget(
+        parallel, lightDirection, shadowMapSize);
+    Vector3 parallelDelta = Vector3Subtract(parallelTarget, target);
+    assert(fabsf(Vector3DotProduct(parallelDelta, right)) < 0.001f);
+    assert(fabsf(Vector3DotProduct(parallelDelta, up)) < 0.001f);
+    assert(fabsf(Vector3DotProduct(parallelDelta, lightDirection) - 0.37f) <
+           0.001f);
+
+    Vector3 moving = Vector3Add(
+        cameraPosition, (Vector3){ 0.13f, -0.07f, 0.19f });
+    Vector3 movingTarget = WorldRendererTestLightSpaceShadowTarget(
+        moving, lightDirection, shadowMapSize);
+    double texelDeltaX = Vector3DotProduct(
+        Vector3Subtract(movingTarget, target), right)/texelSize;
+    double texelDeltaY = Vector3DotProduct(
+        Vector3Subtract(movingTarget, target), up)/texelSize;
+    assert(fabs(texelDeltaX - round(texelDeltaX)) < 0.02);
+    assert(fabs(texelDeltaY - round(texelDeltaY)) < 0.02);
+}
+
+static void TestLightSpaceShadowTarget(void)
+{
+    Vector3 cameraPosition = { 1234.37f, 87.53f, -2048.19f };
+    Vector3 lightDirection = Vector3Normalize(
+        (Vector3){ 0.37f, -0.82f, 0.44f });
+    AssertShadowTargetSnapsInLightSpace(
+        cameraPosition, lightDirection, 2048);
+    AssertShadowTargetSnapsInLightSpace(
+        cameraPosition, lightDirection, 3072);
+    AssertShadowTargetSnapsInLightSpace(
+        cameraPosition, (Vector3){ 0.03f, -0.999f, 0.02f }, 2048);
+    assert(Vector3Distance(
+        WorldRendererTestLightSpaceShadowTarget(
+            cameraPosition, lightDirection, 0),
+        cameraPosition) == 0.0f);
+}
+
 static void TestRenderDebugModes(void)
 {
     assert(strcmp(RenderDebugModeName(RENDER_DEBUG_MODE_FINAL), "final") == 0);
@@ -182,6 +245,7 @@ int main(void)
     TestEveryTextureHasValidMaterialProfile();
     TestLightingSanitization();
     TestShadowBounds();
+    TestLightSpaceShadowTarget();
     TestRenderDebugModes();
     TestNoContextFallback();
     puts("world renderer tests passed");

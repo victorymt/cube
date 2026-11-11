@@ -61,6 +61,9 @@ void WorldRendererEndShadow(void);
 bool WorldRendererTestShadowSphereVisible(Vector3 target,
                                           Vector3 lightDirection,
                                           Vector3 center, float radius);
+Vector3 WorldRendererTestLightSpaceShadowTarget(Vector3 cameraPosition,
+                                                Vector3 lightDirection,
+                                                int shadowMapSize);
 #endif
 
 #endif
