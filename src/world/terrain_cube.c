@@ -229,6 +229,10 @@ bool TerrainCubeBlock(const TerrainCubeContext *context, const TerrainCubeColumn
         depth -= (int)s->historicalDepth;
         if (!home) type = TerrainGeologyPlanetSubsurfaceBlock(style, column->planet.biome, depth, hash);
         else if (depth < 4) {
+            /* BIOME_MOUNTAIN can occur on low, flat ridge-noise features.
+             * Keep their soil/grass cap until the terrain is high enough to
+             * read as a mountain; changing the biome classification itself is
+             * deliberately out of scope here. */
             if (s->biome == BIOME_DESERT) type = BLOCK_SAND;
             else if (s->biome == BIOME_SNOW)
                 type = depth ? BLOCK_PERMAFROST : BLOCK_SNOW;
