@@ -45,6 +45,7 @@ CHUNKS_FEATURE_SRC := \
 	src/world/chunks_plant_mesh.c \
 	src/world/chunks_water.c \
 	src/world/chunks_flora.c \
+	src/world/chunks_rebuild.c \
 	src/world/chunks_runtime.c \
 	src/world/chunks_runtime_diagnostics.c \
 	src/world/ecology_hooks.c \

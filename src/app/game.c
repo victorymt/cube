@@ -714,32 +714,6 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
     }
 }
 
-static void GameUpdateDebugLeftMeshReady(GameRuntime *game)
-{
-    if (!game->debugLeftMeshPending) return;
-    bool ready = false;
-    if (game->debugLeftHasAddress) {
-        ready = ChunksBlockMeshReadyAtAddress(game->debugLeftAddress);
-    } else {
-        int cx = 0;
-        int cz = 0;
-        int lx = 0;
-        int lz = 0;
-        WorldToChunkLocal(game->debugLeftTargetX, game->debugLeftTargetZ,
-                          &cx, &cz, &lx, &lz);
-        const Chunk *chunk = FindChunk(cx, cz);
-        const ChunkSection *section = chunk ? ChunkGetSectionConst(
-            chunk, SurfaceSectionYFromBlockY(game->debugLeftTargetY)) : NULL;
-        ready = section && !section->dirty &&
-                ChunkSectionLodReady(section, chunk->targetLod);
-    }
-    if (ready) {
-        game->debugLeftMeshPending = false;
-        game->debugLeftMeshFrame = game->debugFrame;
-        GameDebugTraceEvent(game, "mouse_left_mesh_ready");
-    }
-}
-
 static void GameUpdateWorldJobs(GameRuntime *game, float dt)
 {
     ProcessFinishedMeshJobs(2.0);

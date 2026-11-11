@@ -366,6 +366,7 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition);
 bool RebuildDirtyChunkMeshAt(int x, int y, int z);
 bool RebuildDirtyChunkMeshAtAddress(WorldBlockAddress address);
 bool ChunksBlockMeshReadyAtAddress(WorldBlockAddress address);
+bool ChunksBlockMeshReadyAtMapPosition(int x, int y, int z);
 void UnloadAllChunks(void);
 bool ChunkWithinDrawDistance(const Chunk *chunk, Vector3 cameraPosition, int effectiveRenderDistance);
 bool ChunkWithinCoverageAdmission(const Chunk *chunk);

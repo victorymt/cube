@@ -1,15 +1,19 @@
 # Bug report: cube-grid block destruction leaves the visible mesh stale
 
 - Date: 2026-11-11
-- Status: open, not fixed
+- Status: fixed on 2026-11-11
 - Severity: high (block destruction is visibly unreliable in the default Homeworld topology)
 - Scope: Homeworld cube-grid startup/transition, block interaction, chunk rebuild, debug readiness and E2E coverage
+
+## Resolution
+
+Cube worlds now reject legacy chunk creation and map-chunk lookup, and render admission excludes chunks from the other topology. Mesh priority and debug readiness preserve the authoritative block address, resolve the owning cube chunk, and wait for its target-LOD model stamp. `block set` writes and reads back the active cube cell, and the strengthened Hyprland replay destroys a placed stone cube while asserting cell state, later-frame mesh readiness, topology counts and changed render-triangle evidence.
 
 ## Summary
 
 The cube raycast and the authoritative cube-cell write are working. A real left click resolves a `WorldBlockAddress`, removes that cube cell, and a later raycast/cell inspection sees air.
 
-The visible result is still wrong because a cube world also has legacy flat chunks loaded. Both chunk sets are rendered, while the post-click priority rebuild and the debug `mouse_left_mesh_ready` probe still resolve chunks through legacy map coordinates. The cube mesh can be rebuilt by the global dirty scan, but the unchanged legacy mesh remains drawn over it. Separately, the DSL `block set` command writes through the legacy path, so the existing E2E scene builds its wall in one topology and then tests ray interaction in the other topology.
+Before the fix, the visible result was wrong because a cube world also had legacy flat chunks loaded. Both chunk sets are rendered, while the post-click priority rebuild and the debug `mouse_left_mesh_ready` probe still resolve chunks through legacy map coordinates. The cube mesh can be rebuilt by the global dirty scan, but the unchanged legacy mesh remains drawn over it. Separately, the DSL `block set` command wrote through the legacy path, so the existing E2E scene built its wall in one topology and then tested ray interaction in the other topology.
 
 This is consistent with an incomplete legacy-to-cube-grid migration, not a ray-intersection failure.
 

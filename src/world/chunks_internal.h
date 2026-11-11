@@ -187,6 +187,7 @@ void FreeChunkSectionStorage(ChunkSection *section);
 void ReplaceChunkModel(Model *model, bool *hasModel,
                        Mesh *mesh, bool hasMesh, bool dynamic);
 void MarkSectionDirty(ChunkSection *section);
+bool ChunksRebuildDirtySectionMesh(Chunk *chunk, ChunkSection *section);
 void *ChunkGenWorker(void *arg);
 void GenerateChunkJobPayload(ChunkGenJob *job, bool preload);
 void FreeChunkGenJobResult(ChunkGenJob *job);

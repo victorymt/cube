@@ -1494,7 +1494,6 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
             return GameDebugDslNumber(outValue, water.surfaceY);
         }
     }
-
     if (phase == GAME_DEBUG_DSL_STREAM &&
         (strcmp(name, "stream.legacy_chunks") == 0 ||
          strcmp(name, "stream.cube_chunks") == 0)) {
