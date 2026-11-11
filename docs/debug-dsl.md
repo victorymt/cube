@@ -676,6 +676,7 @@ Runtime values are sampled when an expression is evaluated:
 | `weather.damage_enabled` | bool | Environmental weather effects are enabled |
 | `target.hit` | bool | Current solid raycast hit exists |
 | `target.position` | vec3 | Current raycast block position; only meaningful when `target.hit` is true |
+| `target.address.face`, `target.address.u`, `target.address.v`, `target.address.radial` | number | Authoritative cube cell address for the current solid hit; values are `-1` without an address |
 | `target.block` | string | Target block name, or `air` when there is no hit |
 | `render.debug_mode` | string | Active world-surface render debug mode, `final` by default |
 | `render.monitor_refresh_hz` | number | Current monitor refresh rate reported by the window backend |
@@ -729,6 +730,7 @@ Runtime values are sampled when an expression is evaluated:
 | `render.pick.ray_direction` | vec3 | Normalized camera ray direction |
 | `render.pick.position` | vec3 | Integer block position hit by the latest pick |
 | `render.pick.normal` | vec3 | Hit-cell normal reported by the raycast |
+| `render.pick.address.face`, `render.pick.address.u`, `render.pick.address.v`, `render.pick.address.radial` | number | Authoritative cube cell address for the latest pick; values are `-1` without an address |
 | `render.pick.distance` | number | Ray distance to the hit block center, or -1 on a miss |
 | `render.pick.block` | string | Block name at the pick position, or `Air` |
 | `render.pick.liquid` | bool | Whether the picked block is liquid |

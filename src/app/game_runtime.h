@@ -134,6 +134,7 @@ typedef struct GameRuntime {
   Vector3 renderPickRayOrigin;
   Vector3 renderPickRayDirection;
   Vector3 renderPickFloraRoot;
+  WorldBlockAddress renderPickAddress;
   FloraStructureKind renderPickFloraKind;
   FloraTaxonId renderPickFloraTaxon;
   float renderPickDistance;
@@ -187,6 +188,7 @@ typedef struct GameRuntime {
   bool renderPickHit;
   bool renderPickLiquid;
   bool renderPickFlora;
+  bool renderPickHasAddress;
   bool showHelp;
   bool showDebug;
   bool scannerActive;

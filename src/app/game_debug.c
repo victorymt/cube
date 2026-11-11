@@ -24,6 +24,8 @@
 #include "app/game_coverage_evidence.h"
 #include "app/game_save.h"
 #include "world/chunks.h"
+#include "world/surface_contract.h"
+#include "world/world_surface_snapshot.h"
 #include "core/debug_control.h"
 #include "core/debug_dsl.h"
 #include "core/game_notice.h"
@@ -1580,9 +1582,24 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
             return GameDebugDslVec3(
                 outValue, (Vector3){ target.x, target.y, target.z });
         }
+        if (strcmp(name, "target.address.face") == 0)
+            return GameDebugDslNumber(outValue, target.hit && target.hasAddress ? (int)target.address.at.surface.face : -1);
+        if (strcmp(name, "target.address.u") == 0)
+            return GameDebugDslNumber(outValue, target.hit && target.hasAddress ? target.address.at.surface.u : -1);
+        if (strcmp(name, "target.address.v") == 0)
+            return GameDebugDslNumber(outValue, target.hit && target.hasAddress ? target.address.at.surface.v : -1);
+        if (strcmp(name, "target.address.radial") == 0)
+            return GameDebugDslNumber(outValue, target.hit && target.hasAddress ? target.address.at.surface.radial : -1);
         if (strcmp(name, "target.block") == 0) {
-            BlockType block = target.hit
-                ? GetBlockAt(target.x, target.y, target.z) : BLOCK_AIR;
+            BlockType block = BLOCK_AIR;
+            WorldCell cell;
+            if (target.hit && target.hasAddress &&
+                SurfaceContractCellRead(WorldCurrentSurfaceContract(),
+                                        target.address.at.surface, &cell)) {
+                block = cell.waterVolume > 0u ? BLOCK_WATER : cell.block;
+            } else if (target.hit) {
+                block = GetBlockAt(target.x, target.y, target.z);
+            }
             return GameDebugDslString(outValue, BlockName(block));
         }
     }

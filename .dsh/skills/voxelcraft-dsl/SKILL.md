@@ -120,3 +120,8 @@ M3 adds the `cell` command group plus `undo`/`redo` statements. `cell inspect
 X Y Z` resolves through the active `SurfaceContract` and exposes block, water
 volume, submerged state and plant flood tolerance; update `docs/debug-dsl.md`
 and run `make docs-probe` when changing these names.
+
+Cube hit diagnostics expose both local display coordinates and the authoritative
+`target.address.*` / `render.pick.address.*` cell fields. Keep those address
+fields in the runtime namespace when testing block destruction, because local
+map integers are not a one-to-one representation of every cube cell.

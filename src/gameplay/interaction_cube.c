@@ -64,27 +64,42 @@ HitResult InteractionCubeRaycast(Vector3 origin, Vector3 direction,
                      (double)maxDistance, cubeMask, &hit) || !hit.valid)
         return result;
 
-    /* Project the hit cell centre back into local cell coordinates. */
-    Vector2 map;
-    if (!SurfaceMapCoordinatesFromDirection(
-            (Vector3){ (float)hit.cellCenter.x, (float)hit.cellCenter.y,
-                       (float)hit.cellCenter.z }, &map)) return result;
+    /* Keep the authoritative cube address. Local map coordinates remain a
+     * presentation/debug view because some cube cells have no integer map
+     * representative. */
     result.hit = true;
-    result.x = (int)floorf(map.x) - context.originX;
-    result.z = (int)floorf(map.y) - context.originZ;
+    result.hasAddress = true;
+    result.address = hit.address;
+    result.enteringSide = hit.enteringSide;
+    SurfaceMapCell canonical;
+    if (SurfaceAddressCanonicalMapCell(hit.address.at.surface, &canonical)) {
+        result.x = canonical.x - context.originX;
+        result.z = canonical.z - context.originZ;
+    } else {
+        Vector2 map;
+        if (SurfaceMapCoordinatesFromDirection(
+                (Vector3){ (float)hit.cellCenter.x, (float)hit.cellCenter.y,
+                           (float)hit.cellCenter.z }, &map)) {
+            result.x = (int)floorf(map.x) - context.originX;
+            result.z = (int)floorf(map.y) - context.originZ;
+        }
+    }
     /* Report a radial height, not a distance from the planet centre. */
     result.y = (int)floorf((float)SurfaceVectorLength(hit.cellCenter) -
                            SURFACE_RADIUS_BLOCKS);
     /* Entry face as a local axis normal, matching the legacy convention. The
      * frame is orthonormal, so projecting the world normal onto each basis
      * axis gives its local components. */
+    SurfaceFrame hitFrame = SurfaceFrameAt(hit.address.at.surface);
     Vector3 localNormal = {
         (float)SurfaceVectorDot(hit.geometry.normal,
-            (SurfaceVector){ basis.right.x, basis.right.y, basis.right.z }),
+            (SurfaceVector){ hitFrame.east.x, hitFrame.east.y,
+                             hitFrame.east.z }),
         (float)SurfaceVectorDot(hit.geometry.normal,
-            (SurfaceVector){ basis.up.x, basis.up.y, basis.up.z }),
+            (SurfaceVector){ hitFrame.up.x, hitFrame.up.y, hitFrame.up.z }),
         (float)SurfaceVectorDot(hit.geometry.normal,
-            (SurfaceVector){ basis.forward.x, basis.forward.y, basis.forward.z })
+            (SurfaceVector){ hitFrame.north.x, hitFrame.north.y,
+                             hitFrame.north.z })
     };
     result.nx = (int)(localNormal.x > 0.5f) - (int)(localNormal.x < -0.5f);
     result.ny = (int)(localNormal.y > 0.5f) - (int)(localNormal.y < -0.5f);

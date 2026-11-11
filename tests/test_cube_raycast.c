@@ -137,6 +137,26 @@ static void TestHorizontalMiss(void)
     WorldCubeClearEdits();
 }
 
+static void TestHorizontalHit(void)
+{
+    WorldCubeClearEdits();
+    SurfacePose pose = PoseAt(0.5, 0.0, 10.0);
+    SurfaceBasis basis;
+    assert(SurfacePoseBasis(&pose, &basis));
+    SurfacePose ahead;
+    assert(SurfacePoseDisplace(&pose, 0.0, 8.0, 0.0, &ahead));
+    SurfaceAddress target;
+    assert(SurfaceCellFromPoint(0, ahead.position, &target));
+    assert(WorldCubeSetBlock(Cell(target), BLOCK_STONE));
+
+    CubeRaycastHit hit;
+    assert(CubeRaycast(0, pose.position, basis.forward, 10.0,
+                       CUBE_RAYCAST_BLOCK_ALL, &hit));
+    assert(WorldBlockAddressEqual(hit.address, Cell(target)));
+    assert(SurfaceVectorLength(hit.geometry.normal) > 0.5);
+    WorldCubeClearEdits();
+}
+
 static void TestCrossFaceRay(void)
 {
     WorldCubeClearEdits();
@@ -209,6 +229,7 @@ int main(void)
     TestNoSolidDoesNotHit();
     TestInvalidInput();
     TestHorizontalMiss();
+    TestHorizontalHit();
     TestCrossFaceRay();
     TestRaycastMasksLiquids();
     TestGrazingHitUsesExactCellGeometry();

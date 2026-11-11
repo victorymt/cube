@@ -6,6 +6,8 @@
 #include "world/block_edits.h"
 #include "world/block_types.h"
 #include "world/chunks.h"
+#include "world/surface_contract.h"
+#include "world/world_surface_snapshot.h"
 #include "presentation/world_renderer.h"
 
 #include <math.h>
@@ -85,6 +87,8 @@ static void RenderPick(GameRuntime *game)
     game->renderPickPosition = (Vector3){ 0 };
     game->renderPickNormal = (Vector3){ 0 };
     game->renderPickDistance = 0.0f;
+    game->renderPickHasAddress = false;
+    game->renderPickAddress = (WorldBlockAddress){ 0 };
     game->renderPickScreenX = screenX;
     game->renderPickScreenY = screenY;
     if (screenX < 0 || screenY < 0 || screenX >= screenWidth ||
@@ -108,6 +112,8 @@ static void RenderPick(GameRuntime *game)
     game->renderPickRayDirection = ray.direction;
     game->renderPickHit = hit.hit;
     if (hit.hit) {
+        game->renderPickHasAddress = hit.hasAddress;
+        game->renderPickAddress = hit.address;
         game->renderPickPosition = (Vector3){
             (float)hit.x, (float)hit.y, (float)hit.z
         };
@@ -116,7 +122,15 @@ static void RenderPick(GameRuntime *game)
         };
         game->renderPickDistance = RenderPickCenterDistance(
             ray.position, ray.direction, &hit);
-        game->renderPickBlock = GetBlockAt(hit.x, hit.y, hit.z);
+        WorldCell pickedCell;
+        if (hit.hasAddress &&
+            SurfaceContractCellRead(WorldCurrentSurfaceContract(),
+                                    hit.address.at.surface, &pickedCell)) {
+            game->renderPickBlock = pickedCell.waterVolume > 0u
+                ? BLOCK_WATER : pickedCell.block;
+        } else {
+            game->renderPickBlock = GetBlockAt(hit.x, hit.y, hit.z);
+        }
         game->renderPickLiquid = IsLiquidBlock(game->renderPickBlock);
         int owner = -1;
         const Chunk *chunk = RenderFloraOwnerChunk(
@@ -235,6 +249,22 @@ bool GameDebugRenderDslResolve(GameRuntime *game, const char *name,
     }
     if (strcmp(name, "render.pick.normal") == 0) {
         return RenderDslVec3(outValue, game->renderPickNormal);
+    }
+    if (strcmp(name, "render.pick.address.face") == 0) {
+        return RenderDslNumber(outValue, game->renderPickHasAddress ?
+                               (int)game->renderPickAddress.at.surface.face : -1);
+    }
+    if (strcmp(name, "render.pick.address.u") == 0) {
+        return RenderDslNumber(outValue, game->renderPickHasAddress ?
+                               game->renderPickAddress.at.surface.u : -1);
+    }
+    if (strcmp(name, "render.pick.address.v") == 0) {
+        return RenderDslNumber(outValue, game->renderPickHasAddress ?
+                               game->renderPickAddress.at.surface.v : -1);
+    }
+    if (strcmp(name, "render.pick.address.radial") == 0) {
+        return RenderDslNumber(outValue, game->renderPickHasAddress ?
+                               game->renderPickAddress.at.surface.radial : -1);
     }
     if (strcmp(name, "render.pick.distance") == 0) {
         return RenderDslNumber(outValue, game->renderPickActive &&

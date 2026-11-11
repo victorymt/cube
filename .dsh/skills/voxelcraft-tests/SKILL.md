@@ -206,3 +206,8 @@ Cube selection tests must exercise `CubeRaycast` through exact cell boundaries,
 not fixed-distance samples. Keep mask, entering-normal and grazing-hit cases in
 `tests/test_cube_raycast.c`; its manifest closure includes `surface_geometry.c`
 because those exact intersections are part of the production path.
+
+`cube_vertical_geometry_replay.dsl` also checks the interaction identity path:
+after `render pick`, it records the cube address, performs `mouse left`, and
+requires a second pick to stop seeing that address. Keep this E2E check when
+changing hit-result fields or block mutation.

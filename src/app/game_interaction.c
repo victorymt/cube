@@ -24,6 +24,8 @@
 #include "world/world_state.h"
 #include "world/block_types.h"
 #include "world/block_edits.h"
+#include "world/surface_contract.h"
+#include "world/world_surface_snapshot.h"
 #include "world/world_environment.h"
 
 #include <math.h>
@@ -149,6 +151,56 @@ static bool GameCollectBlockAt(int x, int y, int z, BlockType type, bool *overla
     return InventoryAdd(type, 1) == 1;
 }
 
+static BlockType GameHitBlockType(const HitResult *hit)
+{
+    if (!hit || !hit->hit) return BLOCK_AIR;
+    if (hit->hasAddress) {
+        WorldCell cell;
+        if (SurfaceContractCellRead(WorldCurrentSurfaceContract(),
+                                    hit->address.at.surface, &cell)) {
+            if (cell.waterVolume > 0u) return BLOCK_WATER;
+            if (cell.block != BLOCK_AIR) return cell.block;
+        }
+    }
+    return GetBlockAt(hit->x, hit->y, hit->z);
+}
+
+static BlockType GameAddressBlockType(WorldBlockAddress address)
+{
+    WorldCell cell;
+    if (!SurfaceContractCellRead(WorldCurrentSurfaceContract(),
+                                 address.at.surface, &cell)) return BLOCK_AIR;
+    if (cell.waterVolume > 0u) return BLOCK_WATER;
+    return cell.block;
+}
+
+static bool GameCollectHitBlock(const HitResult *hit, BlockType type,
+                                bool *overlay)
+{
+    if (!hit || !hit->hit) return false;
+    if (!hit->hasAddress) {
+        return GameCollectBlockAt(hit->x, hit->y, hit->z, type, overlay);
+    }
+    SurfaceMapCell canonical;
+    if (SurfaceAddressCanonicalMapCell(hit->address.at.surface, &canonical)) {
+        GameGeologyCollection result = GameGeologyCollectAt(
+            canonical.x - WorldSurfaceMapOriginX(),
+            hit->address.at.surface.radial,
+            canonical.z - WorldSurfaceMapOriginZ(), type);
+        if (result != GAME_GEOLOGY_NO_DEPOSIT) {
+            if (overlay) *overlay = true;
+            return result == GAME_GEOLOGY_COLLECTED;
+        }
+    }
+    if (type == BLOCK_AIR || InventoryCount(type) >= INVENTORY_MAX_PER_BLOCK) {
+        return false;
+    }
+    if (!SurfaceContractCellWrite(WorldCurrentSurfaceContract(),
+                                  hit->address.at.surface,
+                                  (WorldCell){ BLOCK_AIR, 0u })) return false;
+    return InventoryAdd(type, 1) == 1;
+}
+
 #ifdef GAME_INTERACTION_TESTING
 bool GameInteractionTestCollectBlockAt(int x, int y, int z, BlockType type)
 {
@@ -169,8 +221,7 @@ static void GameHandleLeftInteraction(
     }
 
     if (!inputBlocked && context->interactionHit.hit &&
-        GetBlockAt(context->interactionHit.x, context->interactionHit.y,
-                   context->interactionHit.z) == BLOCK_WATER &&
+        GameHitBlockType(&context->interactionHit) == BLOCK_WATER &&
         leftPressed) {
         if (InventoryCount(BLOCK_WATER) >= INVENTORY_MAX_PER_BLOCK) {
             GameNoticePost("Inventory full: Water");
@@ -220,8 +271,7 @@ static void GameHandleLeftInteraction(
         }
     } else if (!inputBlocked && context->hit.hit && leftPressed &&
                WorldCanAccessBlockY(context->hit.y)) {
-        BlockType brokenType = GetBlockAt(context->hit.x, context->hit.y,
-                                          context->hit.z);
+        BlockType brokenType = GameHitBlockType(&context->hit);
         PlanetPoi claimedPoi = { 0 };
         bool poiCore = PlanetPoiIsCore(context->hit.x, context->hit.y,
                                        context->hit.z);
@@ -244,8 +294,8 @@ static void GameHandleLeftInteraction(
         } else if (!poiCore && brokenType != BLOCK_AIR &&
                    InventoryCount(brokenType) < INVENTORY_MAX_PER_BLOCK) {
             bool overlay = false;
-            bool removed = GameCollectBlockAt(
-                context->hit.x, context->hit.y, context->hit.z, brokenType, &overlay);
+            bool removed = GameCollectHitBlock(
+                &context->hit, brokenType, &overlay);
             if (removed) {
                 ParticlesEmitBurst(
                     (Vector3){ context->hit.x + 0.5f,
@@ -285,12 +335,35 @@ static void GamePreparePlacement(GameRuntime *game, bool inputBlocked,
     context->placeX = 0;
     context->placeY = 0;
     context->placeZ = 0;
+    context->hasPlaceAddress = false;
     context->canPlace = false;
     context->placementDirection = ShipDirectionFromYaw(game->player.yaw);
     if (!inputBlocked && context->hit.hit) {
-        context->placeX = context->hit.x + context->hit.nx;
-        context->placeY = context->hit.y + context->hit.ny;
-        context->placeZ = context->hit.z + context->hit.nz;
+        if (context->hit.hasAddress) {
+            WorldBlockAddress place;
+            if (WorldBlockNeighbor(context->hit.address,
+                                   context->hit.enteringSide,
+                                   &place, NULL)) {
+                context->hasPlaceAddress = true;
+                context->placeAddress = place;
+                context->placeY = place.at.surface.radial;
+                SurfaceMapCell canonical;
+                if (SurfaceAddressCanonicalMapCell(place.at.surface,
+                                                   &canonical)) {
+                    WorldSurfaceContext surface = WorldCurrentSurfaceContext();
+                    context->placeX = canonical.x - surface.originX;
+                    context->placeZ = canonical.z - surface.originZ;
+                } else {
+                    context->placeX = context->hit.x + context->hit.nx;
+                    context->placeZ = context->hit.z + context->hit.nz;
+                }
+            }
+        }
+        if (!context->hasPlaceAddress) {
+            context->placeX = context->hit.x + context->hit.nx;
+            context->placeY = context->hit.y + context->hit.ny;
+            context->placeZ = context->hit.z + context->hit.nz;
+        }
         if (game->hotbar[game->selectedIndex] == BLOCK_SPACESHIP) {
             context->canPlace =
                 InventoryCount(BLOCK_SPACESHIP) > 0 &&
@@ -299,8 +372,9 @@ static void GamePreparePlacement(GameRuntime *game, bool inputBlocked,
                     context->placementDirection, &game->player);
         } else {
             BlockType selectedType = game->hotbar[game->selectedIndex];
-            BlockType targetType = GetBlockAt(
-                context->placeX, context->placeY, context->placeZ);
+            BlockType targetType = context->hasPlaceAddress
+                ? GameAddressBlockType(context->placeAddress)
+                : GetBlockAt(context->placeX, context->placeY, context->placeZ);
             bool targetAvailable = targetType == BLOCK_AIR ||
                 (WorldIsSurfaceActive() && targetType == BLOCK_WATER);
             context->canPlace =
@@ -378,6 +452,11 @@ static bool GameToggleAccessBlock(const HitResult *hit,
 {
     BlockType replacement = currentType == closedType ? openType : closedType;
     AudioPlayPlace();
+    if (hit->hasAddress) {
+        return SurfaceContractCellWrite(WorldCurrentSurfaceContract(),
+                                        hit->address.at.surface,
+                                        WorldCellFromLegacyBlock(replacement));
+    }
     return SetBlock(hit->x, hit->y, hit->z, replacement);
 }
 
@@ -420,8 +499,13 @@ static bool GamePlaceSelectedBlock(GameRuntime *game,
             }
         }
     } else if (InventoryConsume(placedType, 1)) {
-        if (!SetBlock(context->placeX, context->placeY, context->placeZ,
-                      placedType)) {
+        bool placed = context->hasPlaceAddress
+            ? SurfaceContractCellWrite(WorldCurrentSurfaceContract(),
+                context->placeAddress.at.surface,
+                WorldCellFromLegacyBlock(placedType))
+            : SetBlock(context->placeX, context->placeY, context->placeZ,
+                       placedType);
+        if (!placed) {
             InventoryAdd(placedType, 1);
             GameNoticePost(
                 "Cannot place block: water has no loaded escape volume.");
@@ -449,8 +533,7 @@ static void GameHandleRightInteraction(
     if (inputBlocked || !context->hit.hit || !rightPressed) {
         return;
     }
-    BlockType targetType = GetBlockAt(context->hit.x, context->hit.y,
-                                      context->hit.z);
+    BlockType targetType = GameHitBlockType(&context->hit);
     if (targetType == BLOCK_ALBUM) {
         GameOpenAlbumFromWorld(game);
     } else if (!ShipIsDriving() &&
@@ -489,8 +572,7 @@ static void GameHandleMiddlePick(GameRuntime *game, bool inputBlocked,
         !IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
         return;
     }
-    BlockType picked = GetBlockAt(context->hit.x, context->hit.y,
-                                  context->hit.z);
+    BlockType picked = GameHitBlockType(&context->hit);
     if (ShipResolveParkedAt(context->hit.x, context->hit.y,
                             context->hit.z, NULL)) {
         picked = BLOCK_SPACESHIP;

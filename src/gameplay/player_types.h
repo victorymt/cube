@@ -2,6 +2,7 @@
 #define VOXELCRAFT_PLAYER_TYPES_H
 
 #include "core/config.h"
+#include "world/world_location.h"
 
 #include "raylib.h"
 
@@ -27,6 +28,9 @@ typedef struct HitResult {
     int nx;
     int ny;
     int nz;
+    bool hasAddress;
+    WorldBlockAddress address;
+    WorldBlockSide enteringSide;
 } HitResult;
 
 #endif

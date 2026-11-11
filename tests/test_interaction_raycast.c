@@ -487,13 +487,24 @@ static void TestCubeHookInjection(void)
 
     /* With a hook installed, selection comes from the hook. */
     CubeHookResult = (HitResult){ .hit = true, .x = 42, .y = 7, .z = -3,
-                                  .nx = -1 };
+                                  .nx = -1, .hasAddress = true,
+                                  .enteringSide = WORLD_BLOCK_U_PLUS };
+    CubeHookResult.address.dimension = WORLD_DIMENSION_HOME;
+    CubeHookResult.address.at.surface = (SurfaceAddress){
+        0, SURFACE_FACE_POS_X, 42, 7, 3 };
     cubeHookCalls = 0;
     InteractionSetCubeRaycastHook(StubCubeHook);
     HitResult hooked = RaycastBlocks((Vector3){0.5f, 0.5f, 0.5f},
                                      (Vector3){1.0f, 0.0f, 0.0f}, 10.0f);
     assert(cubeHookCalls == 1u);
     assert(hooked.hit && hooked.x == 42 && hooked.z == -3 && hooked.nx == -1);
+    assert(hooked.hasAddress && hooked.enteringSide == WORLD_BLOCK_U_PLUS);
+    assert(hooked.address.dimension == CubeHookResult.address.dimension);
+    assert(hooked.address.at.surface.bodyId == 0 &&
+           hooked.address.at.surface.face == SURFACE_FACE_POS_X &&
+           hooked.address.at.surface.u == 42 &&
+           hooked.address.at.surface.v == 7 &&
+           hooked.address.at.surface.radial == 3);
 
     /* Clearing the hook restores the walker. */
     InteractionSetCubeRaycastHook(NULL);
