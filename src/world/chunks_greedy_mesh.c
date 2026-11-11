@@ -106,9 +106,11 @@ static BlockType SnapshotBlockAt(
     if (boundary) {
         BlockType block = BLOCK_AIR;
         unsigned char ignoredVolume = 0u;
+        /* Unknown halo cells must not occlude ambient light. Treating them as
+         * solid bakes chunk-sized dark AO strips into newly meshed terrain. */
         return SurfaceBoundaryCellAt(
             boundary, lx, localY, lz, &block, &ignoredVolume)
-            ? block : BLOCK_STONE;
+            ? block : BLOCK_AIR;
     }
     return GetBlockBaseAt(worldX, worldY, worldZ);
 }

@@ -144,17 +144,25 @@ static bool BuildTestMesh(
     return false;
 }
 
-static bool BuildGreedySolidMesh(
+static bool BuildGreedySolidMeshWithBoundary(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
-    int maximumSpan, Mesh *mesh)
+    int maximumSpan, const ChunkTestBoundarySnapshot *boundary, Mesh *mesh)
 {
     ChunkMeshBuildRequest request = {
         .blocks = (const unsigned short (*)[CHUNK_SIZE])blocks,
         .height = SURFACE_SECTION_HEIGHT,
         .faces = TEST_CHUNK_FACES,
-        .greedyMaxSpan = maximumSpan
+        .greedyMaxSpan = maximumSpan,
+        .boundary = (const SurfaceBoundarySnapshot *)boundary
     };
     return BuildChunkMeshData(&request, mesh);
+}
+
+static bool BuildGreedySolidMesh(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int maximumSpan, Mesh *mesh)
+{
+    return BuildGreedySolidMeshWithBoundary(blocks, maximumSpan, NULL, mesh);
 }
 
 static void AssertMeshWellFormed(const Mesh *mesh, int expectedVertexCount)
@@ -486,6 +494,30 @@ static void AssertGreedyMeshingContracts(void)
     }
     assert(lowerTopFaces == 2);
     assert(preservedAoGradient);
+    FreeTestMesh(&mesh);
+
+    /* Unknown halo cells are unknown, not solid. A flat exposed top must not
+     * inherit fake corner occlusion from uncompressed neighboring chunks. */
+    memset(blocks, 0, sizeof(blocks));
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            blocks[lx][8][lz] = BLOCK_STONE;
+        }
+    }
+    ChunkTestBoundarySnapshot unknownBoundary = { 0 };
+    assert(BuildGreedySolidMeshWithBoundary(
+        blocks, GREEDY_MESH_MAX_SPAN, &unknownBoundary, &mesh));
+    int flatTopFaces = 0;
+    for (int firstVertex = 0; firstVertex < mesh.vertexCount;
+         firstVertex += 6) {
+        if (mesh.normals[firstVertex * 3 + 1] < 0.9f) continue;
+        for (int offset = 0; offset < 6; offset++) {
+            int vertex = firstVertex + offset;
+            assert(fabsf(mesh.texcoords2[vertex * 2] - 1.0f) < 0.001f);
+        }
+        flatTopFaces++;
+    }
+    assert(flatTopFaces > 0);
     FreeTestMesh(&mesh);
 }
 
