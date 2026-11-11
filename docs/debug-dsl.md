@@ -1142,9 +1142,7 @@ redo
 `block inspect` accepts a stable numeric ID or a canonical block name;
 spaces, hyphens, underscores, and letter case are equivalent. It reports the
 resolved ID and name, face textures, render shape, collision, translucency,
-material response, and Stage 05 membership. `block set` uses the ordinary
-surface edit and persistence path, requires the target section to be loaded,
-and reports both the submitted coordinate and its canonical spherical cell.
+material response, and Stage 05 membership. `block set` resolves the target through the active `SurfaceContract`; physical cube cells use the contract write path, while the legacy map backend keeps the ordinary persistent `SetBlock` path. It requires the target cell to be loaded, reads the result back through the contract, and reports the submitted coordinate plus its canonical spherical cell.
 `cell inspect` resolves the target through the active `SurfaceContract` and
 reports block plus authoritative water volume, submerged state and plant flood
 tolerance. `undo` and `redo` apply the ordinary volume-aware edit history. It is

@@ -81,17 +81,28 @@ block set -1 13 8 Stone
 block set 0 13 8 Stone
 block set 1 13 8 Stone
 block set 2 13 8 Stone
+cell inspect 0 9 8
+assert cell.known
+assert cell.block == "Stone"
 input 0 0 0 0 30
 wait until !game.paused timeout 120
 assert world.surface_topology == "cube-grid"
 screenshot
 pause on
-look 0 -0.8
+teleport 0 9 3 0 -0.05
+pause off
+wait until !game.paused timeout 120
+wait until player.velocity.y == 0 timeout 600
+screenshot
 pause off
 wait until !game.paused timeout 120
 render pick 640 360
 assert render.pick.hit
+assert render.pick.block == "Stone"
 assert render.pick.address.face >= 0
+let break_x = render.pick.position.x
+let break_y = render.pick.position.y
+let break_z = render.pick.position.z
 let break_face = render.pick.address.face
 let break_u = render.pick.address.u
 let break_v = render.pick.address.v
@@ -99,6 +110,10 @@ let break_radial = render.pick.address.radial
 mouse left
 wait until interaction.mouse_left_set_block_frame > 0 timeout 120
 wait until interaction.mouse_left_mesh_ready timeout 600
+cell inspect ${break_x} ${break_y} ${break_z}
+assert cell.known
+assert cell.block == "Air"
 render pick 640 360
 assert !render.pick.hit || render.pick.address.face != break_face || render.pick.address.u != break_u || render.pick.address.v != break_v || render.pick.address.radial != break_radial
+screenshot
 exit 0

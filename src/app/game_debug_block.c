@@ -210,12 +210,45 @@ static void BlockSet(GameRuntime *game)
         BlockCommandError(game, "block_set_region_unloaded");
         return;
     }
-    BlockType previous = GetBlockAt(x, y, z);
-    if (!SetBlock(x, y, z, type)) {
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
+    SurfaceAddress address = SurfaceAddressAtWorld((float)x, (float)z, y);
+    WorldCell previousCell;
+    if (!SurfaceContractCellRead(contract, address, &previousCell)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL block set error reason=cell_unresolved "
+                          "position=%d,%d,%d\n", x, y, z);
+        BlockCommandError(game, "block_set_cell_unresolved");
+        return;
+    }
+    BlockType previous = previousCell.waterVolume > 0u
+        ? BLOCK_WATER : previousCell.block;
+    bool physicalCells = SurfaceContractSupportsPhysicalCoverage(contract);
+    bool changed = physicalCells
+        ? SurfaceContractCellWrite(contract, address,
+                                   WorldCellFromLegacyBlock(type))
+        : SetBlock(x, y, z, type);
+    if (!changed) {
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL block set error reason=mutation_failed "
                           "position=%d,%d,%d\n", x, y, z);
         BlockCommandError(game, "block_set_mutation_failed");
+        return;
+    }
+    WorldCell appliedCell;
+    if (!SurfaceContractCellRead(contract, address, &appliedCell)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL block set error reason=readback_failed "
+                          "position=%d,%d,%d\n", x, y, z);
+        BlockCommandError(game, "block_set_readback_failed");
+        return;
+    }
+    BlockType applied = appliedCell.block;
+    if (applied != type) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL block set error reason=readback_mismatch "
+                          "position=%d,%d,%d expected=%s actual=%s\n",
+                          x, y, z, BlockName(type), BlockName(applied));
+        BlockCommandError(game, "block_set_readback_mismatch");
         return;
     }
     SurfaceMapCell canonical = SurfaceCanonicalMapCell(
