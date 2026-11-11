@@ -6,11 +6,26 @@ wait until game.screen == "playing" timeout 7200
 wait until stream.surface_ready timeout 1800
 weather force clear 0.0 36000
 weather damage off
-world time 0.5
+world time 0.375
 view distance 1
+block set -1 9 8 Stone
+block set 0 9 8 Stone
+block set 1 9 8 Stone
+block set -1 10 8 Stone
+block set 0 10 8 Stone
+block set 1 10 8 Stone
+block set -1 11 8 Stone
+block set 0 11 8 Stone
+block set 1 11 8 Stone
+block set -1 12 8 Stone
+block set 0 12 8 Stone
+block set 1 12 8 Stone
+pause on
+teleport 0 9 0 0 -0.12
+pause off
+look 0 -0.12
 stream wait 600
 view first
-look 0 -0.4
 render debug final
 let final_render_frame = debug.frame
 wait until debug.frame > final_render_frame + 2 timeout 120
