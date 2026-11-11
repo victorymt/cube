@@ -201,3 +201,8 @@ tokens must use `SurfaceContract`, not extend the exact allowlist casually.
 M2 adds `test-cube-vertical-geometry-e2e`: the scene captures the same vertical
 wall through legacy and cube under Hyprland, while `test_cube_generation` owns
 the exhaustive per-vertex transform and section-bounds invariant.
+
+Cube selection tests must exercise `CubeRaycast` through exact cell boundaries,
+not fixed-distance samples. Keep mask, entering-normal and grazing-hit cases in
+`tests/test_cube_raycast.c`; its manifest closure includes `surface_geometry.c`
+because those exact intersections are part of the production path.

@@ -72,3 +72,9 @@ invariants and its source closure remain unchanged.
 M3 adds V30 save/cell reload tests to `mk/tests.mk` but does not alter the chunk
 mesh benchmark closure. Re-run `make -s benchmark-chunks` only when changing mesh
 generation or its source closure, not for save-format codec tests.
+
+The 2026-11-11 cube-ray test closure adds `surface_geometry.c` to one unit-test
+entry only. Re-running `make -s benchmark-chunks` after that manifest change
+reported the unchanged invariant set (`mesh_snapshot_bytes=8192`,
+`solid_vertices_per_chunk=2187.8`, `solid_vertex_reduction_percent=68.5`,
+`sync_rebuilds=0`) with a 54.191 ms median and 55.170 ms p95 on this host.

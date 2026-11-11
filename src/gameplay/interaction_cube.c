@@ -57,8 +57,11 @@ HitResult InteractionCubeRaycast(Vector3 origin, Vector3 direction,
                            (double)direction.y));
 
     CubeRaycastHit hit;
+    unsigned cubeMask = 0u;
+    if (mask & RAYCAST_BLOCK_SOLID) cubeMask |= CUBE_RAYCAST_BLOCK_SOLID;
+    if (mask & RAYCAST_BLOCK_LIQUID) cubeMask |= CUBE_RAYCAST_BLOCK_LIQUID;
     if (!CubeRaycast(context.bodyId, pose.position, worldDirection,
-                     (double)maxDistance, &hit) || !hit.valid)
+                     (double)maxDistance, cubeMask, &hit) || !hit.valid)
         return result;
 
     /* Project the hit cell centre back into local cell coordinates. */
@@ -86,6 +89,5 @@ HitResult InteractionCubeRaycast(Vector3 origin, Vector3 direction,
     result.nx = (int)(localNormal.x > 0.5f) - (int)(localNormal.x < -0.5f);
     result.ny = (int)(localNormal.y > 0.5f) - (int)(localNormal.y < -0.5f);
     result.nz = (int)(localNormal.z > 0.5f) - (int)(localNormal.z < -0.5f);
-    (void)mask;
     return result;
 }

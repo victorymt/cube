@@ -31,6 +31,11 @@ bool SurfaceCellTriangles(SurfaceAddress cell, SurfaceCellBox box,
 bool SurfaceRayCellBox(SurfaceAddress cell, SurfaceCellBox box,
                        SurfaceVector origin, SurfaceVector direction,
                        double maxDistance, SurfaceGeometryHit *outHit);
+// Farthest intersection with the closed cell boundary. When the origin is
+// inside the cell this is the exit distance used by cell-to-cell ray walks.
+bool SurfaceRayCellBoxExit(SurfaceAddress cell, SurfaceCellBox box,
+                           SurfaceVector origin, SurfaceVector direction,
+                           double maxDistance, SurfaceGeometryHit *outHit);
 // Continuous SAT sweep against cell boundary triangles. basis.origin is the
 // box center; halfSize and displacement are physical local distances. On a
 // hit, distance is a fraction in [0,1], not a distance in blocks, and point

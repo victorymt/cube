@@ -23,10 +23,17 @@ typedef struct CubeRaycastHit {
     bool valid;
 } CubeRaycastHit;
 
+typedef enum CubeRaycastMask {
+    CUBE_RAYCAST_BLOCK_SOLID = 1u << 0,
+    CUBE_RAYCAST_BLOCK_LIQUID = 1u << 1,
+    CUBE_RAYCAST_BLOCK_ALL =
+        CUBE_RAYCAST_BLOCK_SOLID | CUBE_RAYCAST_BLOCK_LIQUID
+} CubeRaycastMask;
+
 /* Marches from `origin` along `direction` for at most `maxDistance` physical
  * blocks. Returns false when nothing solid is hit within range or the input is
  * invalid. Cells of the given body id only. */
 bool CubeRaycast(uint32_t bodyId, SurfaceVector origin, SurfaceVector direction,
-                 double maxDistance, CubeRaycastHit *outHit);
+                 double maxDistance, unsigned mask, CubeRaycastHit *outHit);
 
 #endif

@@ -109,6 +109,8 @@ Make 是唯一的构建系统。`mk/modules.mk` 按目录通配出源文件列�
 2. `GameRuntime` 是 `app` 内部的耦合中心，几乎所有 `app` 功能都要改它。它不泄漏到 `app/` 之外，但让 `app` 的提交面偏宽。
 3. 表面拓扑正在从 legacy 经纬网格迁往 cube-grid，迁移期间两套坐标与两套准入策略并存，必须靠运行时门控隔离，见 [ADR-005](decisions/ADR-005-cube-grid-gated-topology.md) 与 [cube 激活契约](cube-contract.md)。
 
+Cube 世界的方块选择以 cell 边界遍历为准：射线通过 `SurfaceCellTriangles` 的精确交点和拓扑邻居逐格前进，不再用固定距离采样猜 cell；命中 mask 区分固体与液体，命中法线来自实际进入三角形。`test_cube_raycast` 覆盖跨面、擦边、mask 和法线契约。
+
 ## 怎么核查本文
 
 ```sh

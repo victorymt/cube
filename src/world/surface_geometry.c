@@ -91,6 +91,31 @@ bool SurfaceRayCellBox(SurfaceAddress cell, SurfaceCellBox box,
     return hit;
 }
 
+bool SurfaceRayCellBoxExit(SurfaceAddress cell, SurfaceCellBox box,
+                           SurfaceVector origin, SurfaceVector direction,
+                           double maxDistance, SurfaceGeometryHit *out)
+{
+    if (!out || !SurfaceVectorIsFinite(origin) || !SurfaceVectorIsFinite(direction) ||
+        SurfaceVectorLength(direction) == 0 || !isfinite(maxDistance) || maxDistance < 0) return false;
+    SurfaceTriangle triangles[12];
+    if (!SurfaceCellTriangles(cell, box, triangles)) return false;
+    direction = SurfaceVectorNormalize(direction);
+    bool hit = false;
+    SurfaceGeometryHit result = {.distance = -1};
+    for (unsigned i = 0; i < 12; i++) {
+        double distance;
+        if (RayTriangle(origin, direction, triangles[i], &distance) &&
+            distance <= maxDistance && (!hit || distance > result.distance + 1e-10)) {
+            hit = true;
+            result = (SurfaceGeometryHit){distance,
+                SurfaceVectorAdd(origin, SurfaceVectorScale(direction, distance)),
+                TriangleNormal(triangles[i]), triangles[i].side};
+        }
+    }
+    if (hit) *out = result;
+    return hit;
+}
+
 static bool BasisValid(const SurfaceBasis *basis)
 {
     if (!basis || !SurfaceVectorIsFinite(basis->origin) || !SurfaceVectorIsFinite(basis->up) ||
