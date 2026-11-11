@@ -217,12 +217,10 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     game->ecologyCatchupPending = false;
     GameEcologyResetClock();
     GameEcologyRestoreClock(game);
-    ChunkStreamingRequest streamingRequest = {
-        .position = game->player.position,
-        .effectiveRenderDistance = EffectiveRenderDistanceForHeight(
-            game->player.position.y + EYE_HEIGHT)
-    };
-    UpdateChunks(&streamingRequest);
+    GameRequestWorldStreaming(
+        game->player.position, game->player.velocity,
+        EffectiveRenderDistanceForHeight(
+            game->player.position.y + EYE_HEIGHT), 8u);
 }
 
 static bool GameUpdateStartScreen(GameRuntime *game, float dt,
@@ -719,16 +717,23 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
 static void GameUpdateDebugLeftMeshReady(GameRuntime *game)
 {
     if (!game->debugLeftMeshPending) return;
-    int cx = 0;
-    int cz = 0;
-    int lx = 0;
-    int lz = 0;
-    WorldToChunkLocal(game->debugLeftTargetX, game->debugLeftTargetZ,
-                      &cx, &cz, &lx, &lz);
-    const Chunk *chunk = FindChunk(cx, cz);
-    const ChunkSection *section = chunk ? ChunkGetSectionConst(
-        chunk, SurfaceSectionYFromBlockY(game->debugLeftTargetY)) : NULL;
-    if (section && !section->dirty) {
+    bool ready = false;
+    if (game->debugLeftHasAddress) {
+        ready = ChunksBlockMeshReadyAtAddress(game->debugLeftAddress);
+    } else {
+        int cx = 0;
+        int cz = 0;
+        int lx = 0;
+        int lz = 0;
+        WorldToChunkLocal(game->debugLeftTargetX, game->debugLeftTargetZ,
+                          &cx, &cz, &lx, &lz);
+        const Chunk *chunk = FindChunk(cx, cz);
+        const ChunkSection *section = chunk ? ChunkGetSectionConst(
+            chunk, SurfaceSectionYFromBlockY(game->debugLeftTargetY)) : NULL;
+        ready = section && !section->dirty &&
+                ChunkSectionLodReady(section, chunk->targetLod);
+    }
+    if (ready) {
         game->debugLeftMeshPending = false;
         game->debugLeftMeshFrame = game->debugFrame;
         GameDebugTraceEvent(game, "mouse_left_mesh_ready");
@@ -1234,9 +1239,13 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
             game, dt, inputBlocked, &interaction);
     }
     if (interaction.meshPriority) {
-        RebuildDirtyChunkMeshAt(
-            interaction.meshPriorityX, interaction.meshPriorityY,
-            interaction.meshPriorityZ);
+        if (interaction.meshPriorityHasAddress) {
+            RebuildDirtyChunkMeshAtAddress(interaction.meshPriorityAddress);
+        } else {
+            RebuildDirtyChunkMeshAt(
+                interaction.meshPriorityX, interaction.meshPriorityY,
+                interaction.meshPriorityZ);
+        }
     }
     RebuildDirtyChunkMeshes(game->player.position);
     GameUpdateDebugLeftMeshReady(game);

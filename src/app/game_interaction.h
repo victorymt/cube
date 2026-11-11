@@ -23,6 +23,8 @@ typedef struct GameInteractionContext {
     bool canPlace;
     ShipDirection placementDirection;
     bool meshPriority;
+    bool meshPriorityHasAddress;
+    WorldBlockAddress meshPriorityAddress;
     int meshPriorityX;
     int meshPriorityY;
     int meshPriorityZ;

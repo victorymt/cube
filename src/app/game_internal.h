@@ -81,6 +81,9 @@ bool GameEnvironmentSheltered(Vector3 position);
 void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed);
 void GameInstallWeatherSurfaceLightProvider(void);
 int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive);
+void GameRequestWorldStreaming(Vector3 position, Vector3 velocity,
+                               int effectiveRenderDistance,
+                               unsigned coverageBudget);
 /* Releases the owned cube generation input on surface teardown. */
 void GameUpdateFrameEnvironment(GameRuntime *game, GameFrameView *frame);
 void GameCaptureScreenshot(GameRuntime *game, const GameFrameView *frame);

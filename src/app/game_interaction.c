@@ -64,6 +64,8 @@ void GameInteractionQueueDebugMouse(GameRuntime *game, bool right)
     game->debugLeftHandleFrame = game->debugLeftSetBlockFrame = 0u;
     game->debugLeftMeshFrame = 0u;
     game->debugLeftMeshPending = false;
+    game->debugLeftHasAddress = false;
+    game->debugLeftAddress = (WorldBlockAddress){ 0 };
     DebugControlReply(&game->debugControl, "DEBUG_CONTROL mouse left "
                       "queued frame=%llu\n",
                       (unsigned long long)game->debugLeftPressFrame);
@@ -74,9 +76,18 @@ static void GamePrioritizeInteractionMesh(GameInteractionContext *context,
                                           int x, int y, int z)
 {
     context->meshPriority = true;
+    context->meshPriorityHasAddress = false;
     context->meshPriorityX = x;
     context->meshPriorityY = y;
     context->meshPriorityZ = z;
+}
+
+static void GamePrioritizeInteractionMeshAddress(
+    GameInteractionContext *context, WorldBlockAddress address)
+{
+    context->meshPriority = true;
+    context->meshPriorityHasAddress = true;
+    context->meshPriorityAddress = address;
 }
 
 static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
@@ -228,9 +239,14 @@ static void GameHandleLeftInteraction(
         } else if (FluidTryCollectUnit(
                        context->interactionHit.x, context->interactionHit.y,
                        context->interactionHit.z)) {
-            GamePrioritizeInteractionMesh(
-                context, context->interactionHit.x,
-                context->interactionHit.y, context->interactionHit.z);
+            if (context->interactionHit.hasAddress) {
+                GamePrioritizeInteractionMeshAddress(
+                    context, context->interactionHit.address);
+            } else {
+                GamePrioritizeInteractionMesh(
+                    context, context->interactionHit.x,
+                    context->interactionHit.y, context->interactionHit.z);
+            }
             InventoryAdd(BLOCK_WATER, 1);
             AudioPlayPick();
             GameNoticePost(TextFormat(
@@ -303,8 +319,16 @@ static void GameHandleLeftInteraction(
                                context->hit.z + 0.5f },
                     BlockBaseColor(brokenType), 16, 3.0f, 0.7f);
                 AudioPlayBreak();
-                if (!overlay) GamePrioritizeInteractionMesh(
-                    context, context->hit.x, context->hit.y, context->hit.z);
+                if (!overlay) {
+                    if (context->hit.hasAddress) {
+                        GamePrioritizeInteractionMeshAddress(
+                            context, context->hit.address);
+                    } else {
+                        GamePrioritizeInteractionMesh(
+                            context, context->hit.x, context->hit.y,
+                            context->hit.z);
+                    }
+                }
                 if (overlay) GameNoticePost(TextFormat(
                     "Collected %s: %d blocks + %.1f%% toward next block",
                     BlockName(brokenType), InventoryCount(brokenType),
@@ -319,6 +343,9 @@ static void GameHandleLeftInteraction(
                 game->debugLeftTargetX = context->hit.x;
                 game->debugLeftTargetY = context->hit.y;
                 game->debugLeftTargetZ = context->hit.z;
+                game->debugLeftHasAddress = context->hit.hasAddress;
+                game->debugLeftAddress = context->hit.hasAddress
+                    ? context->hit.address : (WorldBlockAddress){ 0 };
                 game->debugLeftMeshPending = !overlay;
                 GameDebugTraceEvent(game, "mouse_left_set_block");
             }
@@ -544,20 +571,36 @@ static void GameHandleRightInteraction(
     } else if (targetType == BLOCK_DOOR || targetType == BLOCK_DOOR_OPEN) {
         if (GameToggleAccessBlock(&context->hit, targetType, BLOCK_DOOR,
                                   BLOCK_DOOR_OPEN)) {
-            GamePrioritizeInteractionMesh(
-                context, context->hit.x, context->hit.y, context->hit.z);
+            if (context->hit.hasAddress) {
+                GamePrioritizeInteractionMeshAddress(
+                    context, context->hit.address);
+            } else {
+                GamePrioritizeInteractionMesh(
+                    context, context->hit.x, context->hit.y, context->hit.z);
+            }
         }
     } else if (targetType == BLOCK_FENCE_GATE ||
                targetType == BLOCK_FENCE_GATE_OPEN) {
         if (GameToggleAccessBlock(&context->hit, targetType,
                                   BLOCK_FENCE_GATE, BLOCK_FENCE_GATE_OPEN)) {
-            GamePrioritizeInteractionMesh(
-                context, context->hit.x, context->hit.y, context->hit.z);
+            if (context->hit.hasAddress) {
+                GamePrioritizeInteractionMeshAddress(
+                    context, context->hit.address);
+            } else {
+                GamePrioritizeInteractionMesh(
+                    context, context->hit.x, context->hit.y, context->hit.z);
+            }
         }
     } else if (context->canPlace) {
         if (GamePlaceSelectedBlock(game, context)) {
-            GamePrioritizeInteractionMesh(
-                context, context->placeX, context->placeY, context->placeZ);
+            if (context->hasPlaceAddress) {
+                GamePrioritizeInteractionMeshAddress(
+                    context, context->placeAddress);
+            } else {
+                GamePrioritizeInteractionMesh(
+                    context, context->placeX, context->placeY,
+                    context->placeZ);
+            }
         }
     } else if (game->hotbar[game->selectedIndex] == BLOCK_SPACESHIP &&
                InventoryCount(BLOCK_SPACESHIP) > 0) {

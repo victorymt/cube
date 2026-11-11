@@ -12,6 +12,34 @@
 #include "world/world_state.h"
 #include "world/world_environment.h"
 
+void GameRequestWorldStreaming(Vector3 position, Vector3 velocity,
+                               int effectiveRenderDistance,
+                               unsigned coverageBudget)
+{
+    if (!WorldIsSurfaceActive()) return;
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
+    if (SurfaceContractSupportsPhysicalCoverage(contract)) {
+        SurfaceAddress playerCell = SurfaceAddressAtWorld(
+            position.x, position.z, (int)floorf(position.y));
+        SurfaceCoverageStatus status;
+        (void)SurfaceContractCoverageUpdate(
+            contract, playerCell,
+            (double)effectiveRenderDistance * CHUNK_SIZE,
+            coverageBudget, &status);
+        ChunksUpdateLodTargets(position, true);
+        return;
+    }
+    ChunkStreamingRequest request = {
+        .position = position,
+        .velocity = velocity,
+        .effectiveRenderDistance = effectiveRenderDistance,
+        .maxPreloadChunks = ShipIsDriving()
+            ? CHUNK_PRELOAD_SHIP_MAX_DISTANCE
+            : CHUNK_PRELOAD_WALK_MAX_DISTANCE
+    };
+    UpdateChunks(&request);
+}
+
 int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive)
 {
     int effectiveRenderDistance = EffectiveRenderDistanceForHeight(
@@ -27,29 +55,10 @@ int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive)
         game->entitiesWorldActive = *localWorldActive;
         game->entitiesWorldDimension = currentEntityDimension;
     }
-    const SurfaceContract *contract = WorldCurrentSurfaceContract();
-    if (*localWorldActive &&
-        SurfaceContractSupportsPhysicalCoverage(contract)) {
-        SurfaceAddress playerCell = SurfaceAddressAtWorld(
-            game->player.position.x, game->player.position.z,
-            (int)floorf(game->player.position.y));
-        SurfaceCoverageStatus status;
-        (void)SurfaceContractCoverageUpdate(
-            contract, playerCell,
-            (double)effectiveRenderDistance * CHUNK_SIZE, 8u, &status);
-        ChunksUpdateLodTargets(game->player.position, true);
-        return effectiveRenderDistance;
-    }
     if (*localWorldActive) {
-        ChunkStreamingRequest request = {
-            .position = game->player.position,
-            .velocity = game->player.velocity,
-            .effectiveRenderDistance = effectiveRenderDistance,
-            .maxPreloadChunks = ShipIsDriving()
-                ? CHUNK_PRELOAD_SHIP_MAX_DISTANCE
-                : CHUNK_PRELOAD_WALK_MAX_DISTANCE
-        };
-        UpdateChunks(&request);
+        GameRequestWorldStreaming(game->player.position, game->player.velocity,
+                                  effectiveRenderDistance, 8u);
+        return effectiveRenderDistance;
     }
     if (WorldCurrentDimension() != WORLD_DIMENSION_PLANET) {
         SpaceProcessFinishedGenJobs();

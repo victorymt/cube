@@ -44,6 +44,8 @@ surface debug cube
 wait until world.surface_topology == "cube-grid" timeout 1800
 wait until stream.cube.active timeout 1800
 wait until stream.surface_ready timeout 1800
+assert stream.legacy_chunks == 0
+assert stream.cube_chunks > 0
 world time 0.5
 weather force clear 0.0 36000
 weather damage off
@@ -51,6 +53,8 @@ pause on
 teleport 0 9 0 0 -0.05
 pause off
 wait until stream.surface_ready timeout 1800
+assert stream.legacy_chunks == 0
+assert stream.cube_chunks > 0
 wait until player.velocity.y == 0 timeout 600
 block set -2 9 8 Stone
 block set -1 9 8 Stone

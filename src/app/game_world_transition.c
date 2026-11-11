@@ -131,11 +131,8 @@ bool GameWorldTransitionBeginDescent(Player *player, bool homeWorldTarget,
     player->onGround = false;
     if (outLandingPosition) *outLandingPosition = landing;
 
-    ChunkStreamingRequest streamRequest = {
-        .position = player->position,
-        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
-    };
-    UpdateChunks(&streamRequest);
+    GameRequestWorldStreaming(player->position, player->velocity,
+                              MIN_RENDER_DISTANCE_CHUNKS, 8u);
     DrainChunkGen();
     return true;
 }
@@ -258,11 +255,8 @@ bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
     player->floating = false;
     player->onGround = false;
     if (staged) CubeSwitchAdvance(&cubeSwitch); /* LANDED */
-    ChunkStreamingRequest streamRequest = {
-        .position = player->position,
-        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
-    };
-    UpdateChunks(&streamRequest);
+    GameRequestWorldStreaming(player->position, player->velocity,
+                              MIN_RENDER_DISTANCE_CHUNKS, 8u);
     DrainChunkGen();
     if (staged) {
         /* Enter the coverage wait, then report what the local stream actually

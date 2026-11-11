@@ -1496,6 +1496,13 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
     }
 
     if (phase == GAME_DEBUG_DSL_STREAM &&
+        (strcmp(name, "stream.legacy_chunks") == 0 ||
+         strcmp(name, "stream.cube_chunks") == 0)) {
+        ChunkTopologyCounts counts = ChunksGetTopologyCounts();
+        return GameDebugDslNumber(outValue, strcmp(name, "stream.cube_chunks") == 0
+                                  ? counts.cube : counts.legacy);
+    }
+    if (phase == GAME_DEBUG_DSL_STREAM &&
         strcmp(name, "stream.surface_ready") == 0) {
         bool ready = game->screen == SCREEN_PLAYING &&
             PlayerMissingSurfaceChunkCount(game->player.position) == 0;

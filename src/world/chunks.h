@@ -8,6 +8,7 @@
 #include "world/flora_types.h"
 #include "world/chunk_types.h"
 #include "world/world_cell.h"
+#include "world/world_location.h"
 
 enum {
     CHUNK_WATER_NEIGHBOR_WEST = 1u << 0,
@@ -308,6 +309,11 @@ int ChunksActiveWorkerCount(void);
 void ProcessFinishedChunkJobs(void);
 void ProcessFinishedMeshJobs(double uploadBudgetMs);
 int GetActiveChunkCount(void);
+typedef struct ChunkTopologyCounts {
+    int legacy;
+    int cube;
+} ChunkTopologyCounts;
+ChunkTopologyCounts ChunksGetTopologyCounts(void);
 ChunkCanonicalIdentityStats ChunksGetCanonicalIdentityStats(void);
 ChunkLodStats ChunksGetLodStats(void);
 void ChunksRenderCoverageBeginFrame(ChunkRenderCoverageStats *out,
@@ -358,6 +364,8 @@ void ChunksUpdateEcologyVisuals(float dt, float daylight,
 BlockType GetBlock(int x, int y, int z);
 void RebuildDirtyChunkMeshes(Vector3 focusPosition);
 bool RebuildDirtyChunkMeshAt(int x, int y, int z);
+bool RebuildDirtyChunkMeshAtAddress(WorldBlockAddress address);
+bool ChunksBlockMeshReadyAtAddress(WorldBlockAddress address);
 void UnloadAllChunks(void);
 bool ChunkWithinDrawDistance(const Chunk *chunk, Vector3 cameraPosition, int effectiveRenderDistance);
 bool ChunkWithinCoverageAdmission(const Chunk *chunk);

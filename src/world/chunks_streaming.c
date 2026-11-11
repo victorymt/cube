@@ -2,6 +2,7 @@
 #include "world/world_surface_snapshot.h"
 #include "world/world_cube.h"
 #include "world/surface_topology.h"
+#include "world/surface_contract.h"
 
 static uint64_t nextGenerationQueueSequence = 0u;
 static int requestedChunkWorkerCount = 0;
@@ -1311,6 +1312,9 @@ static void CollectMissingChunkCandidates(
 void UpdateChunks(const ChunkStreamingRequest *request)
 {
     if (!request || !ChunkStreamingPositionIsValid(request->position)) return;
+    if (WorldIsSurfaceActive() &&
+        SurfaceContractSupportsPhysicalCoverage(WorldCurrentSurfaceContract()))
+        return;
     ChunkStreamingFocus focus = StreamingFocusForRequest(request);
     chunkStreamingFocus = focus;
     ReclassifyStreamingWork(&focus);

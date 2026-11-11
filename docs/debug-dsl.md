@@ -525,6 +525,7 @@ Runtime values are sampled when an expression is evaluated:
 | `water.eyes_submerged` | bool | Eyes are in water |
 | `water.surface_y` | number | Local water surface height |
 | `stream.surface_ready` | bool | No missing surface chunks around the player |
+| `stream.legacy_chunks`, `stream.cube_chunks` | number | Loaded surface chunks in each runtime topology; a cube world must report zero legacy chunks |
 | `stream.missing_surface_chunks` | number | Missing surface chunk count, or `-1` outside play |
 | `stream.cube.active` | bool | Whether cube coverage currently drives streaming; false under the legacy grid |
 | `stream.cube.available` | bool | Whether a successful cube coverage observation exists |

@@ -1,6 +1,8 @@
 #include "world/chunks_internal.h"
 #include "world/surface_coverage.h"
 #include "world/surface_topology.h"
+#include "world/surface_contract.h"
+#include "world/world_surface_snapshot.h"
 
 Chunk chunks[MAX_ACTIVE_CHUNKS];
 Texture2D blockAtlas = { 0 };
@@ -501,6 +503,8 @@ void CanonicalizeSurfaceChunkCoordinates(int *cx, int *cz)
 Chunk *FindChunk(int cx, int cz)
 {
     if (WorldIsSurfaceActive()) {
+        if (SurfaceContractSupportsPhysicalCoverage(
+                WorldCurrentSurfaceContract())) return NULL;
         return FindSurfaceChunk(ChunkSurfaceKeyAt(cx, cz));
     }
     return ChunkIndexFindFlat(cx, cz);
