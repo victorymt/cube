@@ -1272,6 +1272,21 @@ static void TestCubeMeshProjection(void)
             float *n = job->mesh.normals + i*3;
             assert(fabsf(n[0]*n[0] + n[1]*n[1] + n[2]*n[2] - 1) < .0001);
         }
+        for (int i = 0; i + 2 < job->mesh.vertexCount; i += 3) {
+            float minY = INFINITY;
+            float maxY = -INFINITY;
+            for (int vertex = i; vertex < i + 3; vertex++) {
+                float y = job->mesh.vertices[vertex * 3 + 1];
+                minY = fminf(minY, y);
+                maxY = fmaxf(maxY, y);
+            }
+            float ny = job->mesh.normals[i * 3 + 1];
+            /* Projection may reverse triangle winding. Use the original face
+             * hemisphere so an exposed top cannot become an inward-facing
+             * surface that only lights as dark polygons. */
+            if (minY > 8.5f) assert(ny > 0.5f);
+            if (maxY < 8.5f) assert(ny < -0.5f);
+        }
         SurfaceTriangle triangles[12];
         assert(SurfaceCellTriangles((SurfaceAddress){0, key.face, 0, 4095, 8},
             SURFACE_CELL_BOX_FULL, triangles));

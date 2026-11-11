@@ -79,11 +79,19 @@ void CurveCubeMeshData(Mesh *mesh, SurfaceCubeChunkKey key, int sectionY)
         v[2] = (float)SurfaceVectorDot(offset, baseNorth);
     }
     // Projection shears side faces; transforming the old Cartesian normal
-    // as a direction would give incorrect lighting. Use each actual triangle.
+    // as a direction would give incorrect lighting. Use each actual triangle,
+    // but preserve the original normal's outward hemisphere: cube-face winding
+    // can reverse under projection, which otherwise turns flat ground normals
+    // inward and produces directional-light patches.
     if (mesh->normals) for (int i = 0; i + 2 < mesh->vertexCount; i += 3) {
         const float *v = mesh->vertices + i * 3;
         Vector3 a = {v[0], v[1], v[2]}, b = {v[3], v[4], v[5]}, c = {v[6], v[7], v[8]};
-        Vector3 n = Vector3Normalize(Vector3CrossProduct(Vector3Subtract(b, a), Vector3Subtract(c, a)));
+        Vector3 reference = {mesh->normals[i * 3],
+                             mesh->normals[i * 3 + 1],
+                             mesh->normals[i * 3 + 2]};
+        Vector3 n = Vector3Normalize(Vector3CrossProduct(
+            Vector3Subtract(b, a), Vector3Subtract(c, a)));
+        if (Vector3DotProduct(n, reference) < 0.0f) n = Vector3Negate(n);
         for (int j = 0; j < 3; j++) {
             float *out = mesh->normals + (i + j) * 3;
             out[0] = n.x; out[1] = n.y; out[2] = n.z;
