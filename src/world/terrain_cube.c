@@ -228,10 +228,18 @@ bool TerrainCubeBlock(const TerrainCubeContext *context, const TerrainCubeColumn
     } else {
         depth -= (int)s->historicalDepth;
         if (!home) type = TerrainGeologyPlanetSubsurfaceBlock(style, column->planet.biome, depth, hash);
-        else if (depth < 4) type = s->biome == BIOME_DESERT ? BLOCK_SAND
-            : s->biome == BIOME_SNOW ? (depth ? BLOCK_PERMAFROST : BLOCK_SNOW)
-            : s->biome == BIOME_SWAMP ? BLOCK_MUD
-            : depth ? BLOCK_DIRT : s->biome == BIOME_MOUNTAIN ? BLOCK_STONE : BLOCK_GRASS;
+        else if (depth < 4) {
+            if (s->biome == BIOME_DESERT) type = BLOCK_SAND;
+            else if (s->biome == BIOME_SNOW)
+                type = depth ? BLOCK_PERMAFROST : BLOCK_SNOW;
+            else if (s->biome == BIOME_SWAMP) type = BLOCK_MUD;
+            else if (depth) type = s->biome == BIOME_MOUNTAIN && height >= 125
+                ? BLOCK_STONE : BLOCK_DIRT;
+            else if (s->biome == BIOME_MOUNTAIN)
+                type = height >= 165 ? BLOCK_SNOW
+                    : height >= 125 ? BLOCK_STONE : BLOCK_GRASS;
+            else type = BLOCK_GRASS;
+        }
         else type = TerrainGeologyHomeStoneBlock(s->biome, depth,
             TerrainDirectionalNoise(context->snapshot.context.seed, column->direction, .003f, 701u),
             (float)(hash & 65535u)/65536);

@@ -82,6 +82,39 @@ static void TestImmutableContext(void)
     TerrainCubeContextRelease(planet);
 }
 
+static void TestMountainSurfaceUsesAltitude(void)
+{
+    WorldSurfaceSnapshot snapshot = Snapshot(true, 1448040515u);
+    TerrainCubeContext *context = TerrainCubeContextCreate(&snapshot, TERRAIN_VARIED, 101);
+    assert(context);
+    TerrainCubeColumn column;
+    assert(TerrainCubeSampleColumn(context,
+        (SurfaceAddress){0, SURFACE_FACE_POS_Y, 2048, 2048, 0}, &column));
+    column.terrain.elevation = 83;
+    column.terrain.biome = BIOME_MOUNTAIN;
+    column.terrain.seaLevel = -1;
+    column.terrain.bathymetry.waterDepth = 0;
+    column.terrain.landform.sedimentDepth = 0;
+    column.terrain.historicalDepth = 0;
+
+    BlockType block = BLOCK_AIR;
+    assert(TerrainCubeBlock(context, &column, 83, &block));
+    assert(block == BLOCK_GRASS);
+    assert(TerrainCubeBlock(context, &column, 82, &block));
+    assert(block == BLOCK_DIRT);
+
+    column.terrain.elevation = 125;
+    assert(TerrainCubeBlock(context, &column, 125, &block));
+    assert(block == BLOCK_STONE);
+    assert(TerrainCubeBlock(context, &column, 124, &block));
+    assert(block == BLOCK_STONE);
+
+    column.terrain.elevation = 165;
+    assert(TerrainCubeBlock(context, &column, 165, &block));
+    assert(block == BLOCK_SNOW);
+    TerrainCubeContextRelease(context);
+}
+
 static void TestSectionsAndInvalid(void)
 {
     WorldSurfaceSnapshot snapshot = Snapshot(true, 77);
@@ -157,6 +190,7 @@ static void TestCubeAndLegacyHeightsAgree(void)
 
 int main(void)
 {
+    TestMountainSurfaceUsesAltitude();
     TestSectionsAndInvalid(); TestImmutableContext();
     TestCubeAndLegacyHeightsAgree();
     puts("cube terrain tests passed");
