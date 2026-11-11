@@ -45,13 +45,17 @@ images=("$runtime"/screenshots/*.png)
 (( ${#reports[@]} == 7 ))
 (( ${#images[@]} == 7 ))
 
-python3 - "$runtime" <<'PY'
+python3 - "$runtime" "$repo" <<'PY'
 import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
+sys.path.insert(0, str(pathlib.Path(sys.argv[2]) / "tests"))
+from validate_png import decode_png
+
 expected = ["final", "albedo", "normal", "ao", "diffuse", "specular", "shadow"]
 found = []
+by_mode = {}
 for report in sorted((root / "screenshots").glob("*.txt")):
     fields = {}
     for line in report.read_text().splitlines():
@@ -60,10 +64,36 @@ for report in sorted((root / "screenshots").glob("*.txt")):
             fields[key] = value
     if fields.get("format.version") != "14":
         raise SystemExit(f"{report}: unexpected format version {fields.get('format.version')!r}")
-    found.append(fields.get("render.debug_mode"))
+    mode = fields.get("render.debug_mode")
+    found.append(mode)
+    by_mode[mode] = report
 if found != expected:
     raise SystemExit(f"render debug mode reports differ: expected={expected} actual={found}")
-print("render debug mode report sequence passed")
+
+def center_mean(report):
+    width, height, bytes_per_pixel, rows = decode_png(report.with_suffix(".png"))
+    sums = [0, 0, 0]
+    count = 0
+    for y in range(height * 25 // 100, height * 70 // 100):
+        row = rows[y]
+        for x in range(width * 15 // 100, width * 85 // 100):
+            offset = x * bytes_per_pixel
+            for channel in range(3):
+                sums[channel] += row[offset + channel]
+            count += 1
+    return tuple(value / count for value in sums)
+
+normal_mean = center_mean(by_mode["normal"])
+if normal_mean[1] < normal_mean[0] + 40 or normal_mean[1] < normal_mean[2] + 40:
+    raise SystemExit(
+        "normal debug view does not show upward-facing terrain: "
+        f"mean={tuple(round(value, 1) for value in normal_mean)}")
+diffuse_mean = center_mean(by_mode["diffuse"])
+if max(diffuse_mean) < 24:
+    raise SystemExit(
+        "diffuse debug view is black; material/normal sampler binding regressed: "
+        f"mean={tuple(round(value, 1) for value in diffuse_mean)}")
+print("render debug mode report and lighting image checks passed")
 PY
 
 for image in "${images[@]}"; do

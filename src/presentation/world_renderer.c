@@ -100,8 +100,8 @@ static const char *worldFragmentShader =
     "in vec3 fragNormal;\n"
     "in vec4 fragLightPosition;\n"
     "uniform sampler2D texture0;\n"
-    "uniform sampler2D materialMap;\n"
-    "uniform sampler2D normalMap;\n"
+    "uniform sampler2D texture1;\n"
+    "uniform sampler2D texture2;\n"
     "uniform sampler2D shadowMap;\n"
     "uniform vec4 colDiffuse;\n"
     "uniform vec3 sunDirection;\n"
@@ -160,8 +160,8 @@ static const char *worldFragmentShader =
     "    atlasCoordinates(fragTexCoord, atlasUv, surfaceUv, atlasDx, atlasDy);\n"
     "    vec4 texel = textureGrad(texture0, atlasUv, atlasDx, atlasDy)*fragColor*colDiffuse;\n"
     "    if (texel.a < 0.08) discard;\n"
-    "    vec4 material = textureGrad(materialMap, atlasUv, atlasDx, atlasDy);\n"
-    "    vec3 sampledNormal = textureGrad(normalMap, atlasUv, atlasDx, atlasDy).xyz*2.0 - 1.0;\n"
+    "    vec4 material = textureGrad(texture1, atlasUv, atlasDx, atlasDy);\n"
+    "    vec3 sampledNormal = textureGrad(texture2, atlasUv, atlasDx, atlasDy).xyz*2.0 - 1.0;\n"
     "    vec3 geometricNormal = normalize(fragNormal);\n"
     "    vec3 normal = normalize(cotangentFrame(geometricNormal, fragPosition, surfaceUv)*sampledNormal);\n"
     "    float ao = fragLighting.x > 0.01 ? clamp(fragLighting.x, 0.42, 1.0) : 1.0;\n"
@@ -220,7 +220,7 @@ static const char *waterFragmentShader =
     "#version 330\n"
     "in vec2 fragTexCoord; in vec2 fragLighting; in vec4 fragColor;\n"
     "in vec3 fragPosition; in vec3 fragNormal; in vec4 fragLightPosition;\n"
-    "uniform sampler2D texture0; uniform sampler2D materialMap;\n"
+    "uniform sampler2D texture0; uniform sampler2D texture1;\n"
     "uniform vec4 colDiffuse; uniform vec3 sunDirection; uniform vec3 sunColor;\n"
     "uniform vec3 ambientColor; uniform vec3 fogColor; uniform vec3 cameraPosition;\n"
     "uniform float directStrength; uniform float ambientStrength; uniform float fogDensity;\n"
@@ -232,7 +232,7 @@ static const char *waterFragmentShader =
     "void main() {\n"
     "    vec4 texel = texture(texture0, fragTexCoord)*fragColor*colDiffuse;\n"
     "    if (texel.a < 0.04) discard;\n"
-    "    vec4 material = texture(materialMap, fragTexCoord);\n"
+    "    vec4 material = texture(texture1, fragTexCoord);\n"
     "    float water = 1.0 - smoothstep(0.06, 0.16, abs(material.a - 0.25));\n"
     "    vec3 normal = normalize(fragNormal);\n"
     "    if (!gl_FrontFacing) normal = -normal;\n"
@@ -707,14 +707,10 @@ static void SetCommonUniforms(Shader shader)
                    &shadowTexel, SHADER_UNIFORM_VEC2);
     SetShaderValueMatrix(shader, GetShaderLocation(shader, "lightMatrix"),
                          resources.lightMatrix);
-    SetShaderValueTexture(shader, GetShaderLocation(shader, "materialMap"),
-                          resources.materialAtlas);
     if (shader.id == resources.surfaceShader.id) {
         int debugMode = (int)worldRendererDebugMode;
         SetShaderValue(shader, GetShaderLocation(shader, "debugMode"),
                        &debugMode, SHADER_UNIFORM_INT);
-        SetShaderValueTexture(shader, GetShaderLocation(shader, "normalMap"),
-                              resources.normalAtlas);
         if (resources.shadowReady) {
             SetShaderValueTexture(shader, GetShaderLocation(shader, "shadowMap"),
                                   resources.shadowTarget.texture);
@@ -738,6 +734,17 @@ static bool DrawSingleMesh(const Model *model, Material material,
     return true;
 }
 
+static Material PrepareWorldMaterial(Material material, Shader shader,
+                                     bool transparent)
+{
+    material.shader = shader;
+    material.maps[MATERIAL_MAP_METALNESS].texture = resources.materialAtlas;
+    if (!transparent) {
+        material.maps[MATERIAL_MAP_NORMAL].texture = resources.normalAtlas;
+    }
+    return material;
+}
+
 void WorldRendererDrawModel(const Model *model, Vector3 translation,
                             Color fallbackTint,
                             bool transparent)
@@ -750,8 +757,8 @@ void WorldRendererDrawModel(const Model *model, Vector3 translation,
         return;
     }
     Model drawModel = *model;
-    Material material = model->materials[0];
-    material.shader = shader;
+    Material material = PrepareWorldMaterial(model->materials[0], shader,
+                                              transparent);
     Matrix transform = MatrixMultiply(
         model->transform,
         MatrixTranslate(translation.x, translation.y, translation.z));
@@ -782,8 +789,8 @@ static void DrawModelTransformed(const Model *model, Matrix transform,
         if (disableCulling) rlEnableBackfaceCulling();
         return;
     }
-    Material material = model->materials[0];
-    material.shader = shader;
+    Material material = PrepareWorldMaterial(model->materials[0], shader,
+                                              transparent);
     if (disableCulling) rlDisableBackfaceCulling();
     if (DrawSingleMesh(model, material, transform)) {
         if (disableCulling) rlEnableBackfaceCulling();
