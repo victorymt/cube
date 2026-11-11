@@ -102,7 +102,7 @@ static const char *worldFragmentShader =
     "uniform sampler2D texture0;\n"
     "uniform sampler2D texture1;\n"
     "uniform sampler2D texture2;\n"
-    "uniform sampler2D shadowMap;\n"
+    "uniform sampler2D texture3;\n"
     "uniform vec4 colDiffuse;\n"
     "uniform vec3 sunDirection;\n"
     "uniform vec3 sunColor;\n"
@@ -150,7 +150,7 @@ static const char *worldFragmentShader =
     "    float bias = 0.00020 + slope*0.00055;\n"
     "    float visible = 0.0;\n"
     "    for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {\n"
-    "        vec3 encodedDepth = texture(shadowMap, coord.xy + vec2(x,y)*shadowTexelSize).rgb;\n"
+    "        vec3 encodedDepth = texture(texture3, coord.xy + vec2(x,y)*shadowTexelSize).rgb;\n"
     "        visible += coord.z - bias <= unpackDepth(encodedDepth) ? 1.0 : 0.0;\n"
     "    }\n"
     "    return mix(1.0 - shadowStrength, 1.0, visible/9.0);\n"
@@ -513,6 +513,11 @@ static void ConfigureShaderLocations(Shader *shader)
     if (!shader || shader->id == 0 || !shader->locs) return;
     shader->locs[SHADER_LOC_VERTEX_TEXCOORD02] =
         GetShaderLocationAttrib(*shader, "vertexTexCoord2");
+    /* DrawMesh binds textures through standard material-map slots. Keep the
+     * shadow sampler on the unused roughness slot so its texture is actually
+     * bound on the direct mesh path. */
+    shader->locs[SHADER_LOC_MAP_ROUGHNESS] =
+        GetShaderLocation(*shader, "texture3");
 }
 
 static bool RequiredLocationsPresent(Shader shader)
@@ -562,6 +567,7 @@ bool WorldRendererInit(GraphicsQuality quality)
     resources.materialAtlas = MakeMaterialAtlas(false);
     resources.normalAtlas = MakeMaterialAtlas(true);
     resources.surfaceReady = RequiredLocationsPresent(resources.surfaceShader) &&
+                             resources.surfaceShader.locs[SHADER_LOC_MAP_ROUGHNESS] >= 0 &&
                              resources.materialAtlas.id != 0 &&
                              resources.normalAtlas.id != 0;
     resources.waterReady = RequiredLocationsPresent(resources.waterShader) &&
@@ -711,10 +717,6 @@ static void SetCommonUniforms(Shader shader)
         int debugMode = (int)worldRendererDebugMode;
         SetShaderValue(shader, GetShaderLocation(shader, "debugMode"),
                        &debugMode, SHADER_UNIFORM_INT);
-        if (resources.shadowReady) {
-            SetShaderValueTexture(shader, GetShaderLocation(shader, "shadowMap"),
-                                  resources.shadowTarget.texture);
-        }
     }
 }
 
@@ -741,6 +743,10 @@ static Material PrepareWorldMaterial(Material material, Shader shader,
     material.maps[MATERIAL_MAP_METALNESS].texture = resources.materialAtlas;
     if (!transparent) {
         material.maps[MATERIAL_MAP_NORMAL].texture = resources.normalAtlas;
+        if (resources.shadowReady) {
+            material.maps[MATERIAL_MAP_ROUGHNESS].texture =
+                resources.shadowTarget.texture;
+        }
     }
     return material;
 }

@@ -56,6 +56,7 @@ from validate_png import decode_png
 expected = ["final", "albedo", "normal", "ao", "diffuse", "specular", "shadow"]
 found = []
 by_mode = {}
+fields_by_mode = {}
 for report in sorted((root / "screenshots").glob("*.txt")):
     fields = {}
     for line in report.read_text().splitlines():
@@ -67,6 +68,7 @@ for report in sorted((root / "screenshots").glob("*.txt")):
     mode = fields.get("render.debug_mode")
     found.append(mode)
     by_mode[mode] = report
+    fields_by_mode[mode] = fields
 if found != expected:
     raise SystemExit(f"render debug mode reports differ: expected={expected} actual={found}")
 
@@ -93,6 +95,29 @@ if max(diffuse_mean) < 24:
     raise SystemExit(
         "diffuse debug view is black; material/normal sampler binding regressed: "
         f"mean={tuple(round(value, 1) for value in diffuse_mean)}")
+
+shadow_draws = int(fields_by_mode["shadow"].get(
+    "render.coverage.shadow_drawn_sections", "0"))
+if shadow_draws <= 0:
+    raise SystemExit("shadow debug view has no submitted shadow-map sections")
+
+width, height, bytes_per_pixel, rows = decode_png(
+    by_mode["shadow"].with_suffix(".png"))
+lit_pixels = 0
+sampled_pixels = 0
+for y in range(height * 25 // 100, height * 70 // 100):
+    row = rows[y]
+    for x in range(width * 15 // 100, width * 85 // 100):
+        offset = x * bytes_per_pixel
+        luminance = (0.2126*row[offset] + 0.7152*row[offset + 1] +
+                     0.0722*row[offset + 2])
+        lit_pixels += luminance >= 128.0
+        sampled_pixels += 1
+lit_fraction = lit_pixels / sampled_pixels
+if lit_fraction < 0.25:
+    raise SystemExit(
+        "shadow debug view is uniformly dark; shadow texture binding regressed: "
+        f"lit_fraction={lit_fraction:.3f}")
 print("render debug mode report and lighting image checks passed")
 PY
 
