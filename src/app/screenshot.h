@@ -228,6 +228,7 @@ typedef struct ScreenshotInputDebugInfo {
 
 typedef struct ScreenshotRenderDebugInfo {
     const char *graphicsQuality;
+    const char *debugMode;
     int renderDistanceChunks;
     int fps;
     int screenWidth;

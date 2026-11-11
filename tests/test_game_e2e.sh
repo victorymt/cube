@@ -264,7 +264,7 @@ gallery_report_path=${matched_line##*report=}
 gallery_report_path=$(runtime_artifact_path "$gallery_report_path")
 [[ -s "$gallery_png_path" ]]
 [[ -s "$gallery_report_path" ]]
-grep -Fxq 'format.version=13' "$gallery_report_path"
+grep -Fxq 'format.version=14' "$gallery_report_path"
 grep -Fxq 'block.catalog_count=412' "$gallery_report_path"
 grep -Fxq 'block.natural_count=92' "$gallery_report_path"
 grep -Fxq 'block.stage05_count=26' "$gallery_report_path"
@@ -320,7 +320,7 @@ wildfire_report_path=${matched_line##*report=}
 wildfire_report_path=$(runtime_artifact_path "$wildfire_report_path")
 [[ -s "$wildfire_png_path" ]]
 [[ -s "$wildfire_report_path" ]]
-grep -Fxq 'format.version=13' "$wildfire_report_path"
+grep -Fxq 'format.version=14' "$wildfire_report_path"
 grep -Fxq 'weather.fire_present=true' "$wildfire_report_path"
 grep -Eq '^weather.fire_phase=(igniting|flaming|smoldering)$' "$wildfire_report_path"
 grep -Fxq 'weather.fire_position=9.000000,82.000000,-10.000000' "$wildfire_report_path"
@@ -497,7 +497,7 @@ report_path=$(runtime_artifact_path "$report_path")
 
 [[ -s "$png_path" ]]
 [[ -s "$report_path" ]]
-grep -Fxq 'format.version=13' "$report_path"
+grep -Fxq 'format.version=14' "$report_path"
 grep -Fxq 'world.seed=1448040515' "$report_path"
 grep -Fxq 'world.dimension=home' "$report_path"
 grep -Fxq 'weather.cloud_genus=Cumulonimbus' "$report_path"
@@ -553,7 +553,7 @@ atlas_report_path=${matched_line##*report=}
 atlas_report_path=$(runtime_artifact_path "$atlas_report_path")
 [[ -s "$atlas_png_path" ]]
 [[ -s "$atlas_report_path" ]]
-grep -Fxq 'format.version=13' "$atlas_report_path"
+grep -Fxq 'format.version=14' "$atlas_report_path"
 grep -Fxq 'evolution.atlas_open=true' "$atlas_report_path"
 grep -Fxq 'evolution.catalog_species_count=0' "$atlas_report_path"
 python3 tests/validate_png.py "$atlas_png_path" \
@@ -669,7 +669,7 @@ topology_report_path=${matched_line##*report=}
 topology_report_path=$(runtime_artifact_path "$topology_report_path")
 [[ -s "$topology_png_path" ]]
 [[ -s "$topology_report_path" ]]
-grep -Fxq 'format.version=13' "$topology_report_path"
+grep -Fxq 'format.version=14' "$topology_report_path"
 grep -Fxq 'world.dimension=home' "$topology_report_path"
 grep -Fxq 'streaming.surface_ready=true' "$topology_report_path"
 grep -Fxq 'streaming.player_missing_surface_chunks=0' "$topology_report_path"

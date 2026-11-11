@@ -6,6 +6,7 @@
 #include "world/block_edits.h"
 #include "world/block_types.h"
 #include "world/chunks.h"
+#include "presentation/world_renderer.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -163,6 +164,13 @@ bool GameDebugRenderDispatch(GameRuntime *game, DebugControlCommand command)
         RenderPick(game);
         return true;
     }
+    if (command == DEBUG_CONTROL_COMMAND_RENDER_DEBUG) {
+        WorldRendererSetDebugMode(game->debugControl.renderDebugMode);
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL render debug ok mode=%s\n",
+                          RenderDebugModeName(WorldRendererDebugMode()));
+        return true;
+    }
     return false;
 }
 
@@ -198,6 +206,10 @@ bool GameDebugRenderDslResolve(GameRuntime *game, const char *name,
                                DebugDslValue *outValue)
 {
     if (!game || !name || !outValue) return false;
+    if (strcmp(name, "render.debug_mode") == 0) {
+        return RenderDslString(outValue,
+                               RenderDebugModeName(WorldRendererDebugMode()));
+    }
     if (strcmp(name, "render.pick.active") == 0) {
         return RenderDslBool(outValue, game->renderPickActive);
     }

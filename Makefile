@@ -257,6 +257,7 @@ test-coverage:
 test-e2e: $(TARGET) $(BUILD_DIR)/diagnostics-plugins/diagnostics.so
 	bash tests/test_game_e2e.sh $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
+	bash tests/test_render_debug_modes_e2e.sh $(TARGET)
 	bash tests/test_chunk_diagnostics_e2e.sh $(TARGET) $(BUILD_DIR)/diagnostics-plugins
 	bash tests/test_atmosphere_e2e.sh $(TARGET)
 	bash tests/test_landform_planets_e2e.sh $(TARGET)
@@ -293,6 +294,10 @@ test-debug-fields-e2e: $(TARGET)
 
 test-debug-graphics-e2e: $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
+
+.PHONY: test-render-debug-modes-e2e
+test-render-debug-modes-e2e: $(TARGET)
+	bash tests/test_render_debug_modes_e2e.sh $(TARGET)
 
 .PHONY: test-cga-house-e2e test-cga-previews-e2e test-cloud-altitude-e2e
 test-cga-house-e2e: $(TARGET)

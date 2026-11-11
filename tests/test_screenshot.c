@@ -295,6 +295,7 @@ static void TestDebugReport(void)
         },
         .render = {
             .graphicsQuality = "high",
+            .debugMode = "normal",
             .renderDistanceChunks = 12,
             .fps = 59,
             .screenWidth = 1280,
@@ -406,7 +407,8 @@ static void TestDebugReport(void)
 
     char contents[65536];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=13\n"));
+    assert(strstr(contents, "format.version=14\n"));
+    assert(strstr(contents, "render.debug_mode=normal\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "capture.id=11\n"));
     assert(strstr(contents, "capture.frame_id=77\n"));

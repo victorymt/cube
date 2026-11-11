@@ -677,6 +677,7 @@ Runtime values are sampled when an expression is evaluated:
 | `target.hit` | bool | Current solid raycast hit exists |
 | `target.position` | vec3 | Current raycast block position; only meaningful when `target.hit` is true |
 | `target.block` | string | Target block name, or `air` when there is no hit |
+| `render.debug_mode` | string | Active world-surface render debug mode, `final` by default |
 | `render.monitor_refresh_hz` | number | Current monitor refresh rate reported by the window backend |
 | `render.vsync` | bool | Whether the window backend accepted the VSync window flag |
 | `block.catalog_count` | number | All ordinary/natural and color block identities |
@@ -847,6 +848,7 @@ water debug through on|off
 view first|third
 view distance CHUNKS
 render pick SCREEN_X SCREEN_Y
+render debug final|off|albedo|normal|ao|diffuse|specular|shadow
 world time PHASE
 world time auto
 ```
@@ -870,6 +872,18 @@ chunks so geometry outside the active draw range is still distinguishable from
 a screen-space-only artifact. This is a world-cell raycast, not a framebuffer
 depth read: if a visible mesh reports a miss, its rendered geometry is not backed
 by a readable cell on that camera ray.
+`render debug MODE` selects a world-surface diagnostic view for subsequent
+frames. `final` restores the normal exposure/fog pipeline and `off` is its alias.
+`albedo` shows texture times vertex color, `normal` shows geometric normal
+remapped to RGB, `ao` shows the scalar ambient-occlusion input, `diffuse` and
+`specular` show their final RGB lighting contributions, and `shadow` shows the
+shadow-visibility factor as grayscale. Non-final views bypass exposure, tone
+mapping, fog and underwater absorption while preserving textured alpha cutouts.
+The mode is process-local and persists across quality changes and world
+transitions until changed; it is not saved in settings. Only the surface shader
+is affected: water, clouds, sky, planets and entities remain in their normal
+rendering modes. `shadow` visualizes shadow sampling; it does not disable the
+shadow pass.
 
 `water debug` and `water debug through` toggle their current setting when the
 `on`/`off` argument is omitted. `start` is valid on the start screen.
@@ -906,7 +920,7 @@ A fresh normal Homeworld already starts on cube-grid. The planet form
 creates a deterministic solid surface for the requested style and seed. These
 surface commands use normal chunk teardown and surface activation, and require
 the playing screen. `save` and `load` require the playing screen.
-Capture report format version 13 embeds `coverage.cube.*` and the committed
+Capture report format version 14 embeds `coverage.cube.*` and the committed
 `render.coverage.*` snapshot, so a matrix screenshot carries its own
 requested/admitted/LOD/visible/drawn evidence.
 `surface pose` places the player at a geographic longitude/latitude (radians),

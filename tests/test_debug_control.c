@@ -737,6 +737,37 @@ int main(void)
     for (unsigned i = 0; i < sizeof(invalidPick) / sizeof(invalidPick[0]); i++)
         assert(DebugControlParseText(&geology, invalidPick[i]) ==
                DEBUG_CONTROL_COMMAND_INVALID);
+    const struct {
+        const char *command;
+        RenderDebugMode mode;
+    } validDebugModes[] = {
+        { "render debug final", RENDER_DEBUG_MODE_FINAL },
+        { "render debug off", RENDER_DEBUG_MODE_FINAL },
+        { "render debug albedo", RENDER_DEBUG_MODE_ALBEDO },
+        { "render debug normal", RENDER_DEBUG_MODE_NORMAL },
+        { "render debug ao", RENDER_DEBUG_MODE_AO },
+        { "render debug diffuse", RENDER_DEBUG_MODE_DIFFUSE },
+        { "render debug specular", RENDER_DEBUG_MODE_SPECULAR },
+        { "render debug shadow", RENDER_DEBUG_MODE_SHADOW }
+    };
+    for (unsigned i = 0; i < sizeof(validDebugModes) / sizeof(validDebugModes[0]); i++) {
+        assert(DebugControlParseText(&geology, validDebugModes[i].command) ==
+               DEBUG_CONTROL_COMMAND_RENDER_DEBUG);
+        assert(geology.renderDebugMode == validDebugModes[i].mode);
+        assert(strcmp(RenderDebugModeName(geology.renderDebugMode),
+                      RenderDebugModeName(validDebugModes[i].mode)) == 0);
+    }
+    assert(DebugControlParseText(&geology, "RENDER DEBUG NORMAL") ==
+           DEBUG_CONTROL_COMMAND_RENDER_DEBUG);
+    assert(geology.renderDebugMode == RENDER_DEBUG_MODE_NORMAL);
+    const char *invalidDebugModes[] = {
+        "render debug", "render debug unknown", "render debug final extra",
+        "render debugger", "render debug normal 1"
+    };
+    for (unsigned i = 0;
+         i < sizeof(invalidDebugModes) / sizeof(invalidDebugModes[0]); i++)
+        assert(DebugControlParseText(&geology, invalidDebugModes[i]) ==
+               DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "world time 0.5") == DEBUG_CONTROL_COMMAND_WORLD_TIME);
     assert(geology.worldTime == 0.5f);
     assert(DebugControlParseText(&geology, "world time 0") == DEBUG_CONTROL_COMMAND_WORLD_TIME);

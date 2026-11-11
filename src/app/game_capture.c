@@ -349,6 +349,7 @@ void GameCaptureScreenshot(GameRuntime *game,
             },
             .render = {
                 .graphicsQuality = GraphicsQualityName(game->settings.graphicsQuality),
+                .debugMode = RenderDebugModeName(WorldRendererDebugMode()),
                 .renderDistanceChunks = frame->effectiveRenderDistance,
                 .fps = GetFPS(),
                 .screenWidth = GetScreenWidth(),

@@ -1048,9 +1048,20 @@ static DebugControlCommand DebugControlParseView(DebugControl *control,
 static DebugControlCommand DebugControlParseRender(DebugControl *control,
                                                    const char *line)
 {
+    char modeName[32] = { 0 };
+    char trailing = '\0';
+    if (sscanf(line, "render debug %31s %c", modeName, &trailing) == 1) {
+        RenderDebugMode mode = RENDER_DEBUG_MODE_FINAL;
+        if (!RenderDebugModeParse(modeName, &mode))
+            return DEBUG_CONTROL_COMMAND_INVALID;
+        control->renderDebugMode = mode;
+        return DEBUG_CONTROL_COMMAND_RENDER_DEBUG;
+    }
+    if (!strncmp(line, "render debug", 12u))
+        return DEBUG_CONTROL_COMMAND_INVALID;
+
     int x = 0;
     int y = 0;
-    char trailing = '\0';
     if (sscanf(line, "render pick %d %d %c", &x, &y, &trailing) == 2 &&
         x >= 0 && x <= 16384 && y >= 0 && y <= 16384) {
         control->renderPickX = x;

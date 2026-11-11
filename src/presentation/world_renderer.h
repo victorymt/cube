@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_WORLD_RENDERER_H
 #define VOXELCRAFT_WORLD_RENDERER_H
 
+#include "core/render_debug_mode.h"
 #include "world/world_lighting.h"
 #include "world/block_texture.h"
 #include "presentation/render_quality.h"
@@ -28,6 +29,8 @@ WorldLightingState WorldLightingStateSanitize(WorldLightingState state);
 bool WorldRendererInit(GraphicsQuality quality);
 bool WorldRendererSetQuality(GraphicsQuality quality);
 GraphicsQuality WorldRendererQuality(void);
+void WorldRendererSetDebugMode(RenderDebugMode mode);
+RenderDebugMode WorldRendererDebugMode(void);
 int WorldRendererShadowChunkRadius(void);
 void WorldRendererShutdown(void);
 bool WorldRendererIsReady(void);

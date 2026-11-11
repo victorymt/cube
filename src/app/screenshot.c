@@ -228,7 +228,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=13\n");
+    REPORT_LINE("format.version=14\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -536,6 +536,8 @@ static bool ScreenshotWriteDebugFields(
 
     REPORT_LINE("render.graphics_quality=%s\n",
                 ScreenshotText(info->render.graphicsQuality));
+    REPORT_LINE("render.debug_mode=%s\n",
+                ScreenshotText(info->render.debugMode));
     REPORT_LINE("render.distance_chunks=%d\n", info->render.renderDistanceChunks);
     REPORT_LINE("render.fps=%d\n", info->render.fps);
     REPORT_LINE("render.screen=%d,%d\n", info->render.screenWidth,

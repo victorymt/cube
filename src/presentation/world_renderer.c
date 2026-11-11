@@ -62,6 +62,7 @@ typedef struct WorldRendererResources {
 } WorldRendererResources;
 
 static WorldRendererResources resources = { 0 };
+static RenderDebugMode worldRendererDebugMode = RENDER_DEBUG_MODE_FINAL;
 
 static const char *worldVertexShader =
     "#version 330\n"
@@ -122,6 +123,7 @@ static const char *worldFragmentShader =
     "uniform float underwaterDepth;\n"
     "uniform float causticStrength;\n"
     "uniform int shadowEnabled;\n"
+    "uniform int debugMode;\n"
     "uniform vec2 shadowTexelSize;\n"
     "out vec4 finalColor;\n"
     GREEDY_ATLAS_COORDINATES_GLSL
@@ -183,6 +185,17 @@ static const char *worldFragmentShader =
     "    vec3 torch = base*vec3(1.0, 0.58, 0.24)*localLight*1.55;\n"
     "    vec3 emission = base*material.b*2.4;\n"
     "    vec3 color = ambient + diffuse + highlights + torch + emission;\n"
+    "    if (debugMode != 0) {\n"
+    "        vec3 debugColor = color;\n"
+    "        if (debugMode == 1) debugColor = base;\n"
+    "        else if (debugMode == 2) debugColor = geometricNormal*0.5 + 0.5;\n"
+    "        else if (debugMode == 3) debugColor = vec3(ao);\n"
+    "        else if (debugMode == 4) debugColor = diffuse;\n"
+    "        else if (debugMode == 5) debugColor = highlights;\n"
+    "        else if (debugMode == 6) debugColor = vec3(shadow);\n"
+    "        finalColor = vec4(clamp(debugColor, 0.0, 1.0), texel.a);\n"
+    "        return;\n"
+    "    }\n"
     "    float causticA = sin(fragPosition.x*1.17 + sceneTime*1.55 + sin(fragPosition.z*0.71));\n"
     "    float causticB = sin(fragPosition.z*1.31 - sceneTime*1.23 + sin(fragPosition.x*0.63));\n"
     "    float caustic = pow(max(causticA*causticB, 0.0), 3.0);\n"
@@ -582,6 +595,17 @@ bool WorldRendererSetQuality(GraphicsQuality quality)
 
 GraphicsQuality WorldRendererQuality(void) { return resources.quality; }
 
+void WorldRendererSetDebugMode(RenderDebugMode mode)
+{
+    worldRendererDebugMode = (mode >= 0 && mode < RENDER_DEBUG_MODE_COUNT)
+        ? mode : RENDER_DEBUG_MODE_FINAL;
+}
+
+RenderDebugMode WorldRendererDebugMode(void)
+{
+    return worldRendererDebugMode;
+}
+
 int WorldRendererShadowChunkRadius(void)
 {
     return resources.qualityProfile.shadowChunkRadius;
@@ -686,6 +710,9 @@ static void SetCommonUniforms(Shader shader)
     SetShaderValueTexture(shader, GetShaderLocation(shader, "materialMap"),
                           resources.materialAtlas);
     if (shader.id == resources.surfaceShader.id) {
+        int debugMode = (int)worldRendererDebugMode;
+        SetShaderValue(shader, GetShaderLocation(shader, "debugMode"),
+                       &debugMode, SHADER_UNIFORM_INT);
         SetShaderValueTexture(shader, GetShaderLocation(shader, "normalMap"),
                               resources.normalAtlas);
         if (resources.shadowReady) {

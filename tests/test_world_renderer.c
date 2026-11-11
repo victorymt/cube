@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 static void TestMaterialProfiles(void)
 {
@@ -149,12 +150,39 @@ static void TestShadowBounds(void)
         target, lightDirection, target, -1.0f));
 }
 
+static void TestRenderDebugModes(void)
+{
+    assert(strcmp(RenderDebugModeName(RENDER_DEBUG_MODE_FINAL), "final") == 0);
+    assert(strcmp(RenderDebugModeName(RENDER_DEBUG_MODE_ALBEDO), "albedo") == 0);
+    assert(strcmp(RenderDebugModeName(RENDER_DEBUG_MODE_NORMAL), "normal") == 0);
+    assert(strcmp(RenderDebugModeName(RENDER_DEBUG_MODE_AO), "ao") == 0);
+    assert(strcmp(RenderDebugModeName(RENDER_DEBUG_MODE_DIFFUSE), "diffuse") == 0);
+    assert(strcmp(RenderDebugModeName(RENDER_DEBUG_MODE_SPECULAR), "specular") == 0);
+    assert(strcmp(RenderDebugModeName(RENDER_DEBUG_MODE_SHADOW), "shadow") == 0);
+
+    RenderDebugMode parsed = RENDER_DEBUG_MODE_COUNT;
+    assert(RenderDebugModeParse("off", &parsed) &&
+           parsed == RENDER_DEBUG_MODE_FINAL);
+    assert(RenderDebugModeParse("normal", &parsed) &&
+           parsed == RENDER_DEBUG_MODE_NORMAL);
+    assert(!RenderDebugModeParse("normal extra", &parsed));
+    assert(!RenderDebugModeParse("unknown", &parsed));
+
+    WorldRendererSetDebugMode(RENDER_DEBUG_MODE_NORMAL);
+    assert(WorldRendererDebugMode() == RENDER_DEBUG_MODE_NORMAL);
+    WorldRendererShutdown();
+    assert(WorldRendererDebugMode() == RENDER_DEBUG_MODE_NORMAL);
+    WorldRendererSetDebugMode(RENDER_DEBUG_MODE_COUNT);
+    assert(WorldRendererDebugMode() == RENDER_DEBUG_MODE_FINAL);
+}
+
 int main(void)
 {
     TestMaterialProfiles();
     TestEveryTextureHasValidMaterialProfile();
     TestLightingSanitization();
     TestShadowBounds();
+    TestRenderDebugModes();
     TestNoContextFallback();
     puts("world renderer tests passed");
     return 0;

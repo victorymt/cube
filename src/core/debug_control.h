@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/render_debug_mode.h"
+
 #define DEBUG_CONTROL_BUFFER_SIZE 2048
 #define DEBUG_CONTROL_MARKER_COLOR_SIZE 16
 #define DEBUG_CONTROL_MARKER_NAME_SIZE 64
@@ -107,6 +109,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_VIEW,
     DEBUG_CONTROL_COMMAND_VIEW_DISTANCE,
     DEBUG_CONTROL_COMMAND_RENDER_PICK,
+    DEBUG_CONTROL_COMMAND_RENDER_DEBUG,
     DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT,
     DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS,
     DEBUG_CONTROL_COMMAND_EVOLUTION_REGION,
@@ -205,6 +208,7 @@ typedef struct DebugControl {
     unsigned floraNearbyRadius;
     int renderPickX;
     int renderPickY;
+    RenderDebugMode renderDebugMode;
     int streamAuditX;
     int streamAuditY;
     int streamAuditZ;
