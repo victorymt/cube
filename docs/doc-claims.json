@@ -619,6 +619,22 @@
         "scripts/run-scene.sh --scene-file <cube scene>"
       ]
     },
+    "docs/procedural-generation-analysis-2026-11-12.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/terrain.c",
+        "src/world/terrain_cube.c",
+        "src/world/terrain_cube_chunk.c",
+        "src/world/landform_model.c",
+        "src/world/cga_voxel.c",
+        "src/world/chunks_streaming.c",
+        "src/ecology/ecology_flora.c",
+        "tests/test_cube_generation.c",
+        "tests/test_terrain_scale.c"
+      ],
+      "recipes": []
+    },
     "docs/project-progress-2026-10-20.md": {
       "tier": "record",
       "trackCode": false,
