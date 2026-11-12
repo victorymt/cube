@@ -2,18 +2,25 @@
 
 本文是对当前工作树程序化生成链路的静态审查记录，不是当前状态声明；当前可用性、阻塞项和测试状态仍以 [`STATUS.md`](../STATUS.md) 为准。审查基线为 `f2208c1041d400ba2ea38581f387d55f3074f07a`，并包含审查时工作树中尚未提交的 Homeworld cube-only 改动。除特别说明外，本文没有修改或重新验证游戏逻辑。
 
+> 后续更新（2026-11-12）：P0-1 已由 cube-native Home tree 阶段关闭。当前实现使用
+> `TerrainCubeContext` 做确定性地貌/树种/密度/间距决策，以 `SurfaceAddress`
+> 记录树根和局部 crown bounds，通过精确 cube cell 拓扑跨面写入和分块 ownership，
+> 在 CGA 之前执行，并把 exact/LOD flora mesh、风、洪水删除和 column/section
+> 一致性纳入 `test_cube_generation` 与 Hyprland `test-cube-tree-generation-e2e`。
+> 下面保留审查时的原始事实链，以说明问题来源；P0-2 与其余性能/内容基线缺口仍然有效。
+
 ## 1. 结论摘要
 
 当前生成系统已经形成一条相当完整的“种子 → 行星/母星物理参数 → 连续表面场 → 地貌排水图 → 体素柱 → 水体与材料 → 结构”链路，主要优点是以纯哈希/纯函数采样为核心，生成输入由快照和版本捕获，chunk 结果通过工作代次校验后才提交。Homeworld 新世界已经默认使用 cube-grid；行星仍走 legacy-map。
 
 本次审查发现四个最值得优先处理的问题：
 
-1. **Homeworld 的 cube 生成路径没有接上植被、地表覆盖和树木。** cube 只生成基础地形、水、岩层、洞穴和 CGA；legacy Homeworld 路径中的 shoreline cover、ground cover 和 Home tree 不会执行，cube 生成也没有调用 ecology/POI decorator hook。由于当前工作树已进一步把 Homeworld 限定为 cube-only，这会让正常新世界的可玩地表缺少植被内容。
+1. **（审查时；后续已关闭）Homeworld 的 cube 生成路径没有接上植被、地表覆盖和树木。** cube 只生成基础地形、水、岩层、洞穴和 CGA；legacy Homeworld 路径中的 shoreline cover、ground cover 和 Home tree 不会执行，cube 生成也没有调用 ecology/POI decorator hook。由于当前工作树已进一步把 Homeworld 限定为 cube-only，这会让正常新世界的可玩地表缺少植被内容。
 2. **CGA 在 cube 面边缘、角点和极区存在明确的内容缺口。** 结构规划仍以 map-space 矩形为输入；无法形成单一 canonical map rectangle 的 cube chunk 会直接保留基础地形并跳过结构。代码注释和迁移计划都已承认该限制。
 3. **生成性能和启动成本尚未被现有 benchmark 覆盖，而且首次同步创建存在重复地貌图谱构建。** 世界同步时先准备 `LandformRuntime` 图谱，随后 `TerrainCubeContextCreate` 又构建一份相同输入的地貌图谱；两者都是约 98,304 个粗网格单元的完整构建。现有 `benchmark-chunks` 只测 mesh，不覆盖这两次构建、CGA 规划或 chunk 生成。
 4. **Homeworld 的 legacy 与 cube 生成规则存在两套实现。** 高程基准和部分生物群系规则共享，但材料分层、植被和装饰流程已经分叉。当前测试对 cube 的覆盖主要是地形身份、mesh、覆盖和部分 CGA，并未建立“完整内容等价”或“跨 worker 内容哈希”的闭环。
 
-因此，当前系统适合描述为：**地形与水体生成骨架已经可用，拓扑和调度基础较扎实；但“完整世界内容生成”在 Homeworld cube 路径上尚未闭环。**
+因此，审查当时可描述为：**地形与水体生成骨架已经可用，拓扑和调度基础较扎实；但“完整世界内容生成”在 Homeworld cube 路径上尚未闭环。** 后续 Home tree 阶段已补齐树木闭环；ground cover、行星生态装饰与 CGA seam/pole 内容仍需按本文剩余缺口推进。
 
 ## 2. 审查范围与方法
 
@@ -213,7 +220,7 @@ cube 的物理覆盖由 `SurfaceCoverageCollect` 在整数 cube chunk key 上 BF
 
 ## 6. 主要风险与缺口
 
-### P0-1：Homeworld cube 缺少完整植被与地表装饰阶段
+### P0-1（已关闭）：Homeworld cube 缺少完整植被与地表装饰阶段
 
 **事实链：**
 
@@ -227,6 +234,13 @@ cube 的物理覆盖由 `SurfaceCoverageCollect` 在整数 cube chunk key 上 BF
 **影响：** 正常新 Homeworld 的 cube 地表会缺少 legacy 路径中的花、草、芦苇、树和生态 structure；依赖植被的生态、燃烧、风场和视觉验收内容会出现“地形有了但内容没有”的空洞。这个问题比单纯视觉缺失更严重，因为它改变了生态初始条件和可交互资源。
 
 **建议：** 把“装饰”提升为 surface generation 的独立阶段，而不是 legacy chunk 的内部细节。阶段输入必须是 immutable `TerrainCubeContext`，输出应为 `SurfaceAddress`/cell 级别的 deterministic writes，并在 face seam/pole 上有明确的 halo 与去重规则。最小验收应包含：同一 seed 的 cube 与 legacy 完整 column 内容哈希、跨面树的边界写入、极区树/草的生成、reload 后结构数一致。
+
+**后续处理：** `src/world/terrain_cube_flora.c` 已实现 cube-native Home tree 阶段并接入
+`terrain_cube_chunk.c` 的 base → trees → CGA 顺序；`test_cube_generation` 覆盖确定性
+root/taxon/shape、flat 排除、column/section parity、相邻面和相邻 chunk ownership、
+mesh/LOD 分离、风 anchor、以及只删除仍由树拥有的方块。Hyprland scene
+`cube_tree_generation.dsl` 以固定 Scots Pine address 验证真实生成和 flora draw。
+本关闭项只针对树木；ground cover/shoreline/行星生态装饰是否继续补齐应由各自记录决定。
 
 ### P0-2：CGA 在 cube seam/pole 静默缺失
 
@@ -311,7 +325,7 @@ cube section job 调用 `TerrainCubeGenerateChunkSection`，其中先生成 sect
 
 ## 8. 建议的实施顺序
 
-### 阶段 A：先补齐正常 Homeworld cube 的内容闭环
+### 阶段 A（树木部分已完成）：先补齐正常 Homeworld cube 的内容闭环
 
 1. 把 Homeworld 的 shoreline cover、ground cover、tree placement 和 ecology decoration 抽成 surface-neutral 装饰阶段；
 2. 在 cube column/section 生成完成后、CGA 之前执行；

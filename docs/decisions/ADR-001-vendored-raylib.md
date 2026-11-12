@@ -69,3 +69,8 @@ M2 的 `test-cube-vertical-geometry-e2e` 继续使用同一个 vendored-raylib
 M3 adds the V30 fresh-process reload targets to the Makefile. They run through
 the same vendored dual-backend raylib binary under Hyprland; no save/reload path
 introduces a platform-specific renderer or alternate raylib build.
+
+The cube-native tree replay also uses this single vendored binary. Its
+`test-cube-tree-generation-e2e` route renders the same exact/LOD flora meshes
+under Hyprland, so adding tree content did not introduce another platform or
+raylib variant.

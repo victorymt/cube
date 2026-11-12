@@ -14,6 +14,9 @@ Current work, open blockers, and the activation target: see [STATUS.md](STATUS.m
 
 - Procedural world with five biomes: plains, forest, desert, snow, and
   mountains, each with its own surface blocks, tree density, and height profile
+- Cube-native Homeworld trees generate deterministic roots, taxon-selected
+  shapes and cross-face crowns before CGA, then render through the wind-aware
+  flora mesh path
 - Caves and ore veins (coal, copper, iron, gold, diamond) underground, plus a
   bedrock floor; desert cacti and frozen ponds in low snow valleys
 - Day/night cycle (4-minute loop) with animated sky, sun, moon, stars, clouds,

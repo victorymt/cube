@@ -211,3 +211,10 @@ because those exact intersections are part of the production path.
 after `render pick`, it records the cube address, performs `mouse left`, and
 requires a second pick to stop seeing that address. Keep this E2E check when
 changing hit-result fields or block mutation.
+
+The cube-native tree work keeps two layers separate: `test_cube_generation`
+owns deterministic root/taxon/shape, column-section parity, cross-face ownership,
+mesh/LOD partition and selective removal; `cube_tree_generation.dsl` owns the
+real Hyprland generation/diagnostic/flora-draw path. When changing structure
+records or flora diagnostics, update both layers rather than treating one green
+test as coverage of the other.

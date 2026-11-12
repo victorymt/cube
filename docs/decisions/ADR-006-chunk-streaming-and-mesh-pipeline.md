@@ -97,3 +97,9 @@ frustum bounds are encoded in the section anchor's tangent frame, then the
 renderer transforms that frame into the camera-local reference frame. Legacy
 and cube share the same projected geometry path; cube adds exact face
 neighbours, not a second vertex convention.
+
+Cube-native flora structures now participate in that same snapshot pipeline:
+exact jobs remove owned tree blocks from solid/water input and build a separate
+wind-instanced flora mesh, while LOD jobs produce bounded tree proxies. Section
+generation also transfers newly discovered structure metadata into the resident
+chunk, so a later section job cannot lose the exact/LOD ownership record.

@@ -78,3 +78,9 @@ entry only. Re-running `make -s benchmark-chunks` after that manifest change
 reported the unchanged invariant set (`mesh_snapshot_bytes=8192`,
 `solid_vertices_per_chunk=2187.8`, `solid_vertex_reduction_percent=68.5`,
 `sync_rebuilds=0`) with a 54.191 ms median and 55.170 ms p95 on this host.
+
+The 2026-11-12 cube-native tree closure adds generation and E2E test entries but
+does not change the benchmark's mesh source closure. Re-running
+`make -s benchmark-chunks` reported the same invariant set with a 53.426 ms
+median and 54.629 ms p95; fleet variants were 54.629 ms and 55.143 ms, and the
+greedy CPU ratio remained 96.9%.

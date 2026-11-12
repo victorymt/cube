@@ -715,9 +715,9 @@ Runtime values are sampled when an expression is evaluated:
 | `flora.near_count` | number | Unique loaded flora roots within the latest `flora near` radius |
 | `flora.near_nearest_kind` | string | Structure kind of the nearest flora root, or `none` |
 | `flora.near_nearest_taxon` | string | Taxon common name of the nearest flora root, or `none` |
-| `flora.near_nearest_root` | vec3 | World X/Y/Z of the nearest generated root |
-| `flora.near_nearest_bounds_min` | vec3 | Minimum world-space bounds of the nearest structure |
-| `flora.near_nearest_bounds_max` | vec3 | Maximum world-space bounds of the nearest structure |
+| `flora.near_nearest_root` | vec3 | Legacy world X/Y/Z or cube local surface X/Y/Z of the nearest generated root |
+| `flora.near_nearest_bounds_min` | vec3 | Minimum legacy world-space or cube-local bounds of the nearest structure |
+| `flora.near_nearest_bounds_max` | vec3 | Maximum legacy world-space or cube-local bounds of the nearest structure |
 | `flora.near_nearest_distance` | number | Horizontal distance from the player to the nearest structure bounds, or -1 when none |
 | `flora.near_nearest_primary` | string | Primary block of the nearest structure |
 | `flora.near_nearest_accent` | string | Accent block of the nearest structure |
@@ -1186,7 +1186,18 @@ undo group. A failed validation or mutation leaves no partial flora gallery.
 within the player's horizontal radius. `RADIUS` defaults to 32 and accepts
 1–256 blocks. Each item reports taxonomy, root, bounds, primary/accent blocks,
 wind response, owning chunk and active LOD. The scan skips duplicate or stale
-chunk aliases so one seam-crossing tree is reported once.
+chunk aliases so one seam-crossing tree is reported once. Cube-native items
+report `root_address=FACE,U,V,RADIAL` and `local_bounds=MIN_U,MIN_Y,MIN_V,
+MAX_U,MAX_Y,MAX_V`; legacy items retain `root=X,Y,Z` and `bounds=...`.
+A following `flora near scan` row reports loaded chunk count, all structure
+copies, cube-native copies, root-chunk aliases, and the nearest cube root's
+local distance and address. This separates duplicate seam copies from unique
+roots when diagnosing cube content.
+
+The deterministic Hyprland tree route is
+`make test-cube-tree-generation-e2e`. It reaches the Scots Pine at cube address
+`0,1884,1762`, confirms native root diagnostics, and requires a non-empty flora
+draw/triangle submission in the capture report.
 
 ### Atmospheric layers
 

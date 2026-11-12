@@ -18,6 +18,13 @@
 | `presentation` | 表现层：渲染、云与天空、粒子与音频、环境表现合成、各类 HUD 与面板 | 模拟状态的所有权 |
 | `app` | 组合根：`GameRun`、帧循环、世界切换、存档编排、调试 DSL 与截图、性能路线 | 领域策略 |
 
+Cube column content follows `base terrain -> cube-native Home trees -> CGA`.
+Tree roots and local crown bounds are `SurfaceAddress` data; each intersecting
+chunk owns only its emitted cells, while exact/LOD flora mesh builders consume
+the same structure record. This keeps terrain generation separate from the
+wind/flood lifecycle and prevents tree blocks from leaking back into the solid
+mesh.
+
 `src/app/main.c` 只有一行函数体，转调 `GameRun`；`make test-architecture` 会拒绝它变长。
 
 ## 依赖方向
