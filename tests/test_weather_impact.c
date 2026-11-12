@@ -1140,13 +1140,13 @@ static void TestLegacyMigrationAndTransactionalFailure(void)
 
 int main(void)
 {
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
+    WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    assert(WorldInstallTopologyPolicy(policy));
     const WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,
-            .kind = WORLD_SURFACE_HOME,
-            .topology = SURFACE_TOPOLOGY_MAP_V1,
+            .kind = WORLD_SURFACE_PLANET,
+            .topology = policy.planets,
             .bodyId = 7u,
             .seed = 0x45a19c7du
         }

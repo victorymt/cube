@@ -2,7 +2,7 @@
 
 The single home for what is true right now. Every other document links here instead of restating it. One physical line per entry; a stale line is a bug.
 
-Updated 2026-11-11. Source of the statements below: the status sections previously duplicated in `README.md`, `todo/00-roadmap.md`, and `docs/surface-cube.md`.
+Updated 2026-11-12. Source of the statements below: the status sections previously duplicated in `README.md`, `todo/00-roadmap.md`, and `docs/surface-cube.md`.
 
 ## Current work
 
@@ -10,7 +10,7 @@ Updated 2026-11-11. Source of the statements below: the status sections previous
 
 What works today: both legacy-map and cube-grid implement one topology-neutral `SurfaceContract`; the active contract owns the only long-lived cube generation context, and policy declaration accepts independent or mixed per-surface topologies. A fresh normal Homeworld now starts on cube-grid, while planets remain on legacy-map/1. The player lands, walks, picks and edits through the contract, physical coverage drives cube streaming, and cube edits round-trip through V30. Cube-grid has continuous poses, explicit cell/chunk identity, an immutable v9 base generator, shared projected geometry, physical coverage enumeration, and runtime adapters covering generation, in-memory edits, budgeted admission, mesh projection, and render bounds. `ChunksUpdateCubeCoverage` plans retention, eviction, duplicate absorption, stale replacement and nearest-first submission from one physical candidate list before mutating the fixed 625-slot pool. Cube LOD selection now uses the same physical patch distance as admission and draw culling; the main and shadow passes only draw the latest admitted set. `stream.cube.observation_sequence`, target-LOD readiness/missing-section counts and `render.coverage.*` distinguish scheduler observation, target readiness, visibility and actual model submission. M2 aligned cube mesh vertices and frustum bounds with the same section anchor frame, eliminating the remaining vertical stretch in the deterministic Hyprland wall replay. `WorldSurfaceSampleAt` is now the consumer-facing column sample for elevation, waterline, bathymetry, slope and both Home/planet biome identity.
 
-**New Homeworld worlds default to cube-grid; planets remain legacy.** Existing V30 worlds restore their per-surface topology in a fresh process, so a saved legacy Homeworld stays legacy until the player creates a new world. The current save format is V30; V29 and older are rejected without migration. `surface debug home` remains an explicit legacy baseline and `surface debug cube` remains an explicit cube switch.
+**Homeworld is cube-grid only; planets remain legacy.** Existing V30 worlds restore their per-surface topology in a fresh process when the Home descriptor is cube-grid/1; V30 Homeworld headers that record legacy topology are rejected. The current save format is V30, and V29 and older are rejected without migration. `surface debug home` and `surface debug cube` both activate Home cube-grid; `surface debug home` no longer creates a legacy baseline.
 
 ## Open blockers
 

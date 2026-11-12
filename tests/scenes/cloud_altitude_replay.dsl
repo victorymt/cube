@@ -45,6 +45,7 @@ pause off
 screenshot
 pause on
 surface debug home
+assert world.surface_topology == "cube-grid"
 pause on
 weather force clear 1 36000
 weather cloud cumulus 0.8 36000

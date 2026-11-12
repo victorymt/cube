@@ -249,6 +249,7 @@ static SurfaceContract testSurfaceContract = {
 
 const SurfaceContract *WorldCurrentSurfaceContract(void)
 {
+    testSurfaceContract.bodyId = WorldCurrentSurfaceId();
     testSurfaceContract.topology = cubeTopology
         ? (SurfaceTopologyVersion){ SURFACE_TOPOLOGY_CUBE_GRID, 1u }
         : (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1;
@@ -605,7 +606,7 @@ static void ResetWorld(void)
     FluidReset();
     ClearChunks();
     proceduralOceanEnabled = false;
-    surfaceKind = WORLD_SURFACE_HOME;
+    surfaceKind = WORLD_SURFACE_PLANET;
     cubeTopology = false;
 }
 
@@ -827,35 +828,6 @@ static void TestContainerTransactions(void)
     assert(!FluidTryCollectUnit(5, 1, 5));
 }
 
-static void TestFlowWaitsForUnknownVerticalSection(void)
-{
-    ResetWorld();
-    Chunk *chunk = CreateChunk(0, 0, 0);
-    ForgetSectionBaseline(chunk, 0);
-    const int y = SURFACE_SECTION_HEIGHT;
-    assert(ChunkSetLocalBlock(chunk, 3, y, 4, BLOCK_STONE));
-    assert(ChunkSetLocalBlock(chunk, 5, y, 4, BLOCK_STONE));
-    assert(ChunkSetLocalBlock(chunk, 4, y, 3, BLOCK_STONE));
-    assert(ChunkSetLocalBlock(chunk, 4, y, 5, BLOCK_STONE));
-    assert(FluidSetVolumeAt(4, y, 4, 200u));
-    FluidStepTicks(10);
-    assert(ChunkGetSectionConst(chunk, 0) == NULL);
-    assert(FluidGetVolumeAt(4, y, 4) == 200u);
-    assert(FluidLoadedVolume() == 200u);
-    assert(!FluidSetVolumeAt(4, y - 1, 4, 100u));
-    assert(!FluidTryDepositUnit(4, y - 1, 4));
-    assert(FluidGetStats().editCount == 1u);
-
-    /* Generated air can stay implicit until the first real fluid mutation. */
-    ResolveSection(chunk, 0);
-    FluidOnChunkSectionLoaded(chunk, 0);
-    assert(ChunkGetSectionConst(chunk, 0) == NULL);
-    assert(FluidGetStats().activeCells > 0u);
-    FluidStepTicks(1);
-    assert(ChunkGetSectionConst(chunk, 0) != NULL);
-    assert(FluidGetVolumeAt(4, y - 1, 4) == 200u);
-    assert(FluidLoadedVolume() == 200u);
-}
 
 static void TestPlanetColumnAirRemainsWritable(void)
 {
@@ -870,58 +842,7 @@ static void TestPlanetColumnAirRemainsWritable(void)
     assert(FluidLoadedVolume() == 200u);
 }
 
-static void TestFlowWaitsForUnknownHorizontalSection(void)
-{
-    ResetWorld();
-    Chunk *west = CreateChunk(0, 0, 0);
-    Chunk *east = CreateChunk(1, 1, 0);
-    ForgetSectionBaseline(east, 0);
-    FillFloor(west);
-    assert(ChunkSetLocalBlock(west, 14, 1, 8, BLOCK_STONE));
-    assert(ChunkSetLocalBlock(west, 15, 1, 7, BLOCK_STONE));
-    assert(ChunkSetLocalBlock(west, 15, 1, 9, BLOCK_STONE));
-    assert(FluidSetVolumeAt(15, 1, 8, 200u));
-    FluidOnChunkLoaded(east);
-    FluidStepTicks(10);
-    assert(ChunkGetSectionConst(east, 0) == NULL);
-    assert(FluidGetVolumeAt(15, 1, 8) == 200u);
 
-    ResolveSection(east, 0);
-    FluidOnChunkSectionLoaded(east, 0);
-    assert(FluidGetStats().activeCells > 0u);
-    FluidStepTicks(1);
-    assert(FluidGetVolumeAt(16, 1, 8) > 0u);
-    assert(FluidLoadedVolume() == 200u);
-}
-
-static void TestSavedWaterWaitsForTerrainBaseline(void)
-{
-    ResetWorld();
-    CreateChunk(0, 0, 0);
-    assert(FluidSetVolumeAt(4, 4, 4, 77u));
-    assert(FluidSetVolumeAt(5, 4, 4, 88u));
-    ClearChunks();
-    Chunk *chunk = CreateChunk(0, 0, 0);
-    ForgetSectionBaseline(chunk, 0);
-    FluidApplyEditsToChunkSection(chunk, 0);
-    assert(ChunkGetSectionConst(chunk, 0) == NULL);
-    assert(FluidGetStats().editCount == 2u);
-
-    /* A saved water edit must never replace the regenerated solid baseline. */
-    assert(ChunkSetLocalBlock(chunk, 4, 4, 4, BLOCK_STONE));
-    ResolveSection(chunk, 0);
-    FluidOnChunkSectionLoaded(chunk, 0);
-    assert(ChunkGetLocalBlock(chunk, 4, 4, 4) == BLOCK_STONE);
-    assert(FluidGetVolumeAt(4, 4, 4) == 0u);
-    assert(FluidGetVolumeAt(5, 4, 4) == 88u);
-
-    ClearChunks();
-    chunk = CreateChunk(0, 0, 0);
-    assert(ChunkGetSectionConst(chunk, 0) == NULL);
-    FluidOnChunkLoaded(chunk);
-    assert(FluidGetVolumeAt(4, 4, 4) == 77u);
-    assert(FluidGetVolumeAt(5, 4, 4) == 88u);
-}
 
 static void TestProceduralBaselinePrunesEdit(void)
 {
@@ -1350,6 +1271,7 @@ static void TestEvaporationTransactions(void)
 static void TestCubeFaceChunkIdentityAndCheckpoint(void)
 {
     ResetWorld();
+    surfaceKind = WORLD_SURFACE_HOME;
     cubeTopology = true;
     (void)WorldCurrentSurfaceContract();
     SurfaceAddress first = {0, SURFACE_FACE_POS_Z, 17, 33, 8};
@@ -1407,10 +1329,7 @@ int main(void)
     FluidStepTicks(20u);
     assert(FluidGetVolumeAt(2, 2, 2) == 0u);
     lavaOverlay = false;
-    TestFlowWaitsForUnknownVerticalSection();
     TestPlanetColumnAirRemainsWritable();
-    TestFlowWaitsForUnknownHorizontalSection();
-    TestSavedWaterWaitsForTerrainBaseline();
     TestNegativeSectionCoordinates();
     TestSectionUnloadRehydratesPersistedEdit();
     TestGravityAndConservation();

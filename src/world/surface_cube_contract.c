@@ -288,12 +288,22 @@ static bool CubeCellRead(const SurfaceContract *contract,
 {
     if (!outCell || !CubeAddressMatches(contract, address)) return false;
     const CubeContract *cube = contract->implementation;
-    BlockType block;
-    if (!WorldCubeBlockAt(CubeBlockAddress(cube, address), &block)) {
+    WorldBlockAddress blockAddress = CubeBlockAddress(cube, address);
+    WorldCell cell;
+    bool edited = WorldCubeGetEditCell(blockAddress, &cell);
+    if (!edited) {
+        if (WorldCubeCellAt(blockAddress, &cell)) {
+            if (!WorldCellIsValid(cell)) return false;
+            *outCell = cell;
+            return true;
+        }
         if (!CubeCellKnownFromChunk(cube, address)) return false;
-        block = BLOCK_AIR;
+        *outCell = (WorldCell){ BLOCK_AIR, 0u };
+        return true;
     }
-    WorldCell cell = WorldCellFromLegacyBlock(block);
+
+    /* Fluid volume can change without replacing the block edit. The resident
+     * chunk owns that mutation, while the edit store owns the block identity. */
     SurfaceCubeChunkKey key;
     Chunk *chunk = SurfaceCubeChunkAt(address, &key)
         ? FindCubeChunk(key) : NULL;

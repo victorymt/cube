@@ -22,7 +22,7 @@ WorldSurfaceContext WorldCurrentSurfaceContext(void)
     return (WorldSurfaceContext){
         .active = true,
         .kind = WORLD_SURFACE_HOME,
-        .topology = SURFACE_TOPOLOGY_MAP_V1,
+        .topology = SURFACE_TOPOLOGY_CUBE_V1,
         .bodyId = 0u,
         .seed = DEFAULT_WORLD_SEED
     };

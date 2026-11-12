@@ -20,11 +20,12 @@ static void AssertNoneSnapshot(const WorldSurfaceSnapshot *snapshot)
 
 static void TestNullResetsSnapshot(void)
 {
+    WorldSetCubeRuntimeEnabled(true);
     WorldSurfaceSnapshot home = {
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_HOME,
-            .topology = SURFACE_TOPOLOGY_MAP_V1,
+            .topology = SURFACE_TOPOLOGY_CUBE_V1,
             .seed = 0x134679acu,
             .originX = 27,
             .originZ = -41
@@ -39,11 +40,12 @@ static void TestNullResetsSnapshot(void)
 
 static void TestHomeSnapshotIsCopiedByValue(void)
 {
+    WorldSetCubeRuntimeEnabled(true);
     WorldSurfaceSnapshot source = {
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_HOME,
-            .topology = SURFACE_TOPOLOGY_MAP_V1,
+            .topology = SURFACE_TOPOLOGY_CUBE_V1,
             .bodyId = 0u,
             .seed = 0x2468ace0u,
             .originX = 123,
@@ -110,7 +112,7 @@ static void TestTopologyValidation(void)
 {
     const SurfaceTopologyVersion none = { SURFACE_TOPOLOGY_NONE, 0u };
     const SurfaceTopologyVersion map = SURFACE_TOPOLOGY_MAP_V1;
-    const SurfaceTopologyVersion cube = { SURFACE_TOPOLOGY_CUBE_GRID, 1u };
+    const SurfaceTopologyVersion cube = SURFACE_TOPOLOGY_CUBE_V1;
     assert(SurfaceTopologyIsKnown(none) && SurfaceTopologyIsRuntimeSupported(none));
     assert(SurfaceTopologyIsKnown(map) && SurfaceTopologyIsRuntimeSupported(map));
     assert(SurfaceTopologyIsKnown(cube) && SurfaceTopologyIsRuntimeSupported(cube));
@@ -124,36 +126,29 @@ static void TestTopologyValidation(void)
     WorldSurfaceTopologyPolicy policy = WorldCurrentTopologyPolicy();
     assert(policy.home.kind == cube.kind && policy.home.version == 1u);
     assert(policy.planets.kind == map.kind && policy.planets.version == 1u);
-    policy = (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY;
-    assert(WorldInstallTopologyPolicy(policy));
+
+    policy.home = map;
+    assert(!WorldInstallTopologyPolicy(policy));
+    policy.home = cube;
     policy.planets = cube;
     assert(WorldInstallTopologyPolicy(policy));
     assert(WorldCurrentTopologyPolicy().planets.kind == SURFACE_TOPOLOGY_CUBE_GRID);
     policy.planets = map;
     assert(WorldInstallTopologyPolicy(policy));
-    policy.home = cube;
-    assert(WorldInstallTopologyPolicy(policy));
-    assert(WorldTopologyForSurface(WORLD_SURFACE_HOME).kind ==
-           SURFACE_TOPOLOGY_CUBE_GRID);
-    assert(WorldTopologyForSurface(WORLD_SURFACE_PLANET).kind == map.kind);
-    policy = WorldCurrentTopologyPolicy();
     policy.home = none;
     assert(!WorldInstallTopologyPolicy(policy));
-    policy = (WorldSurfaceTopologyPolicy){ cube, cube };
-    assert(WorldInstallTopologyPolicy(policy));
     WorldResetTopologyPolicy();
     assert(WorldTopologyForSurface(WORLD_SURFACE_HOME).kind == cube.kind);
     assert(WorldTopologyForSurface(WORLD_SURFACE_PLANET).kind == map.kind);
-    policy = (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY;
-    assert(WorldInstallTopologyPolicy(policy));
 
+    WorldSetCubeRuntimeEnabled(true);
     WorldSurfaceSnapshot home = { .context = {
-        .active = true, .kind = WORLD_SURFACE_HOME, .topology = map, .seed = 123u
+        .active = true, .kind = WORLD_SURFACE_HOME, .topology = cube, .seed = 123u
     } };
     assert(WorldInstallSurfaceSnapshot(&home));
     uint64_t generation = WorldCurrentGeneration();
     const SurfaceTopologyVersion invalid[] = {
-        none, cube, { SURFACE_TOPOLOGY_LEGACY_MAP, 2u }, { (SurfaceTopologyKind)99, 1u }
+        none, map, { SURFACE_TOPOLOGY_LEGACY_MAP, 2u }, { (SurfaceTopologyKind)99, 1u }
     };
     for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
         WorldSurfaceSnapshot bad = home;
@@ -171,10 +166,12 @@ static void TestTopologyValidation(void)
     assert(WorldInstallSurfaceSnapshot(&home));
     assert(WorldCurrentGeneration() != generation);
     assert(WorldCurrentSurfaceSnapshot()->context.topology.kind == SURFACE_TOPOLOGY_NONE);
+    WorldSetCubeRuntimeEnabled(false);
+    WorldResetTopologyPolicy();
 }
 
-/* Policy syntax accepts every known backend, including a mixed staged policy.
- * The cube runtime gate rejects installation, not declaration. */
+/* Home policy must be cube-grid; planets may still use the legacy backend.
+ * The cube runtime gate rejects Home installation, not policy declaration. */
 static void TestCubeRuntimeGate(void)
 {
     WorldSurfaceSnapshot cube = {
@@ -219,8 +216,6 @@ int main(void)
 {
     assert(WorldInstallSurfaceSnapshot(NULL));
     AssertNoneSnapshot(WorldCurrentSurfaceSnapshot());
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
     TestHomeSnapshotIsCopiedByValue();
     TestPlanetIdentityDoesNotAliasSeed();
     TestNullResetsSnapshot();

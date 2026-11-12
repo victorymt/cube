@@ -18,12 +18,12 @@
 | 地形生成 | **11** | `TERRAIN_GENERATION_CURRENT`（terrain_generation.h:7） | 新世界基底生成算法；11 = 叠加历史火山地形层 | 算法或默认参数改变即递增 |
 | cube 基础生成 | **9** | `TERRAIN_GENERATION_CUBE`（terrain_cube.h:8） | cube 专用采样原语的名义版本；**不代表运行时已启用** | cube 采样语义改变即递增 |
 | 世界存档 | **V30** | `WORLD_SAVE_FORMAT_V30`（save_format.h:23） | 整世界序列化格式；只接受 V30，含完整 `WorldCell` 编辑与 canonical `SurfacePose` | 拓扑或字段布局改变即升到 V31 |
-| 表面拓扑 | Home **cube-grid/1**；行星 **legacy-map/1** | `WORLD_SURFACE_TOPOLOGY_DEFAULT`（surface_topology_version.h） | 新 Homeworld 默认 cube-grid；行星保持 legacy-map；策略允许逐表面混合，V30 保存记录实际策略 | 行星迁移或 Home 拓扑版本变化时更新 |
+| 表面拓扑 | Home **cube-grid/1**；行星 **legacy-map/1** | `WORLD_SURFACE_TOPOLOGY_DEFAULT`（surface_topology_version.h） | Homeworld 仅接受 cube-grid；行星保持 legacy-map；V30 保存记录实际策略，legacy Homeworld 头会被拒绝 | 行星迁移或 Home 拓扑版本变化时更新 |
 | CGA 语法 | 5 / 2 / 3 / 4 / 7 | `cga_voxel.h` | 按结构类型分别编号，与地形版本无关 | 单类语法改变只递增该类 |
 
 **关键澄清：**
 
-- 新 Homeworld 同时使用地形生成 v11、cube 基础生成 9 和表面拓扑 cube-grid/1；三个版本仍独立演进。
+- 新 Homeworld 同时使用地形生成 v11、cube 基础生成 9 和表面拓扑 cube-grid/1；三个版本仍独立演进。Homeworld 的 legacy-map 策略不再可安装，也不再兼容旧 Homeworld V30 头。
 - 行星当前仍组合地形生成 v11 与表面拓扑 legacy-map/1，不表示行星已使用 cube 基础生成。
 - 地形版本与存档版本**可独立演进**；V30 中保存的地形版本字段是 2..CURRENT 的值，不是存档格式版本。
 - V30 的 `CUBADDR2` 编辑块保存 `WorldBlockAddress + WorldCell`；它不使用旧的 map-space spherical trailer 来表达 surface identity。

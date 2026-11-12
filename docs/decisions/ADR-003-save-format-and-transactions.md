@@ -20,7 +20,7 @@
 
 `WorldSaveReadHeader` 先比对 `VOXELCRAFT_SAVE_V30` 这个 19 字节 magic，不匹配就返回 `"Load failed: unsupported save format. V29 and older are retired; start a new world."`。magic 之后是 24 字节的 `TOPOL002` 块，逐表面记录 home/planets topology。V30 读档不再依赖进程启动时打开的 cube debug gate；读取策略后由事务安装阶段打开对应后端，使 fresh process 可以直接恢复 cube Homeworld。
 
-写头部的 `WorldSaveWriteHeader` 只要求策略可表达：home 与 planets 可以各自 legacy 或 cube，也可以混用。写档忠实记录当前策略；读档事务负责安装并打开所需后端。
+写头部的 `WorldSaveWriteHeader` 只要求策略可安装：Home 必须是 cube-grid，行星仍可为 legacy-map 或 cube-grid。写档忠实记录当前策略；读档事务负责安装并打开所需后端。
 
 `SaveIoWriteAtomic` 在目标路径旁 `mkstemp` 出 `<path>.tmp.XXXXXX`，写完后 `fflush`、`fsync`、`fclose`，再用同样方式把旧文件复制成备份，最后 `rename` 临时文件到目标并 `fsync` 父目录。`SaveIoWriteAtomic(path, backupPath, writer, context)` 的 writer 回调是 `GameSaveWriteFile`，`SaveIoReadTransactional(source, checkpointWriter, reader, context)` 的 checkpoint 就是同一个 writer。
 

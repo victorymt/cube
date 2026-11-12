@@ -45,6 +45,7 @@ assert stream.chunks.world_generation > home_generation && stream.lod_world_gene
 let planet_generation = stream.chunks.world_generation
 surface debug home
 assert world.dimension == "home"
+assert world.surface_topology == "cube-grid" && stream.cube.active
 assert stream.chunks.world_generation > planet_generation && stream.lod_world_generation == stream.chunks.world_generation
 assert stream.chunks.last_event_sequence == stream.chunks.blocked_reason_sequence
 assert stream.chunks.completed_generation_jobs >= 0 && stream.chunks.completed_mesh_jobs >= 0

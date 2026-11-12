@@ -4,9 +4,12 @@
 #include "world/block_type.h"
 #include "world/block_edit_types.h"
 #include "world/surface_types.h"
+#include "world/world_cell.h"
 
 #include <stdbool.h>
 #include <stdint.h>
+
+struct SurfaceContract;
 
 /*
  * The mutable block surface: reading and writing cells, the persisted edit
@@ -39,6 +42,11 @@ bool SetBlockNoUndoFromSource(int x, int y, int z, BlockType type,
                               WorldMutationSource source);
 WorldMutationSource WorldCurrentMutationSource(void);
 bool SetBlockForImport(int x, int y, int z, BlockType type);
+/* Topology-neutral debug/game write. Physical cube cells record cube undo;
+ * legacy surfaces retain the Cartesian SetBlock undo path. */
+bool WorldSurfaceCellWriteWithUndo(
+    const struct SurfaceContract *contract, SurfaceAddress address,
+    WorldCell cell, int x, int y, int z, BlockType requestedType);
 
 /* The persisted edit store, indexed for save/load and diagnostics. */
 int WorldGetEditCount(void);

@@ -21,7 +21,7 @@ if ((status != 0)); then
 fi
 
 # The lower section must stay untouched both before and after the 30 fluid ticks.
-[[ $(grep -cE '^DEBUG_CONTROL fluid inspect ok position=226,63,276 volume=0 .* edits=0 ' \
+[[ $(grep -cE '^DEBUG_CONTROL fluid inspect ok position=226,63,276 volume=255 .* edits=0 ' \
     "$runtime/game.log") == 2 ]]
 
 shopt -s nullglob

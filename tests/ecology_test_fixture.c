@@ -353,7 +353,7 @@ void EcologyTestSyncWorldSnapshot(void)
         snapshot.context = (WorldSurfaceContext){
             .active = true,
             .kind = WORLD_SURFACE_HOME,
-            .topology = SURFACE_TOPOLOGY_MAP_V1,
+            .topology = SURFACE_TOPOLOGY_CUBE_V1,
             .seed = propertyWorldSeed
         };
     } else {
@@ -363,8 +363,11 @@ void EcologyTestSyncWorldSnapshot(void)
         assert(WorldInstallSurfaceSnapshot(&snapshot));
         return;
     }
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
+    WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    assert(WorldInstallTopologyPolicy(policy));
+    if (snapshot.context.kind == WORLD_SURFACE_HOME) {
+        WorldSetCubeRuntimeEnabled(true);
+    }
     SurfaceContract *contract = calloc(1, sizeof(*contract));
     assert(contract);
     *contract = (SurfaceContract){

@@ -415,10 +415,11 @@ static void TestFailedAndStaleResults(void)
 static void TestQueuedCancellationAndCapacity(void)
 {
     Reset();
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
+    WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    assert(WorldInstallTopologyPolicy(policy));
+    WorldSetCubeRuntimeEnabled(true);
     WorldSurfaceSnapshot home = {.context = {.active = true,
-        .kind = WORLD_SURFACE_HOME, .topology = {SURFACE_TOPOLOGY_LEGACY_MAP, 1}}};
+        .kind = WORLD_SURFACE_HOME, .topology = policy.home, .bodyId = 0u}};
     assert(WorldInstallSurfaceSnapshot(&home));
     TerrainCubeContext *context = Context();
     // Deterministically hold work pending using the scheduler's simulated
@@ -440,7 +441,6 @@ static void TestQueuedCancellationAndCapacity(void)
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++)
         assert(!chunkGenJobs[i].cubeContext && !chunkGenJobs[i].inUse);
     Reset();
-    assert(WorldInstallSurfaceSnapshot(NULL));
 }
 
 static void TestCrossFaceDirtyPropagation(void)
@@ -643,6 +643,7 @@ static void TestCubeEditIndex(void)
     assert(!WorldCubeEditCount());
     assert(!WorldCubeGetEdit(Address(0, SURFACE_FACE_POS_Y, 0, 0, 0), &type));
 }
+
 
 static void TestCubeRuntimeReload(void)
 {

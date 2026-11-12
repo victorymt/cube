@@ -27,10 +27,11 @@ const char *SurfaceTopologyName(SurfaceTopologyVersion topology)
 
 bool WorldSurfaceTopologyPolicyIsSupported(WorldSurfaceTopologyPolicy policy)
 {
-    return SurfaceTopologyIsKnown(policy.home) &&
+    /* Homeworld no longer supports the legacy map backend. Planets still do
+     * while their migration is pending. */
+    return policy.home.kind == SURFACE_TOPOLOGY_CUBE_GRID &&
+           policy.home.version == 1u &&
            SurfaceTopologyIsKnown(policy.planets) &&
-           SurfaceTopologyIsRuntimeSupported(policy.home) &&
            SurfaceTopologyIsRuntimeSupported(policy.planets) &&
-           policy.home.kind != SURFACE_TOPOLOGY_NONE &&
            policy.planets.kind != SURFACE_TOPOLOGY_NONE;
 }

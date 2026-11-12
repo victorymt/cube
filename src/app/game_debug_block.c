@@ -222,11 +222,9 @@ static void BlockSet(GameRuntime *game)
     }
     BlockType previous = previousCell.waterVolume > 0u
         ? BLOCK_WATER : previousCell.block;
-    bool physicalCells = SurfaceContractSupportsPhysicalCoverage(contract);
-    bool changed = physicalCells
-        ? SurfaceContractCellWrite(contract, address,
-                                   WorldCellFromLegacyBlock(type))
-        : SetBlock(x, y, z, type);
+    WorldCell nextCell = WorldCellWithBlock(previousCell, type);
+    bool changed = WorldSurfaceCellWriteWithUndo(
+        contract, address, nextCell, x, y, z, type);
     if (!changed) {
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL block set error reason=mutation_failed "

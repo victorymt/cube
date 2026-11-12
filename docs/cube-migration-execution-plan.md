@@ -517,10 +517,10 @@ planets legacy-map/1. Normal new-world creation opens the cube runtime gate,
 samples spawn terrain through `WorldSurfaceSampleAt`, and streams through the
 contract's physical coverage path without `surface debug cube`. V30 load installs
 the saved per-surface policy before creating its contract. `surface debug home`
-is the explicit legacy baseline; `surface debug cube` remains the explicit cube
+switches Home back to cube-grid; `surface debug cube` remains the explicit cube
 switch. The Hyprland `test-surface-topology-e2e` verifies normal-start cube
-topology and coverage, cube edit save/load, legacy planet behavior, explicit
-legacy Home debugging, retired/unsupported headers, transactional rollback and a
+topology and coverage, cube edit save/load, legacy planet behavior, rejected
+Home legacy topology, retired/unsupported headers, transactional rollback and a
 non-surface save. `test-cube-fluid-face-edge-e2e`,
 `test-cube-v30-reload-e2e`, `test-chunk-diagnostics-e2e`,
 `test-debug-graphics-e2e`, `test-cube-vertical-geometry-e2e`,

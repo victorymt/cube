@@ -2,8 +2,8 @@
 #
 # G2 complete-cell replay: save a flower sharing a cell with water, exercise
 # volume-aware undo/redo, then load in a fresh process and compare the exact
-# volume recorded by the save run. This does not migrate V29 and does not run
-# cube fluid, which remains suspended until the consumer migration.
+# volume recorded by the save run. This does not migrate V29; Home fluid runs
+# through the cube-grid backend.
 set -eu
 
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -39,8 +39,10 @@ terrain flat
 start
 wait until game.screen == "playing" timeout 7200
 load
+wait until world.surface_topology == "cube-grid" timeout 1800
+wait until stream.cube.active timeout 1800
 pause on
-stream wait 1200
+wait until stream.surface_ready timeout 1800
 cell inspect 4 12 8
 assert cell.known && cell.block == "Flower"
 assert cell.water_volume == $expected

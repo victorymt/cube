@@ -1419,13 +1419,13 @@ static void AssertFluidStateOverridesAirAndWaterEdits(void)
 
 int main(void)
 {
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
+    WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    assert(WorldInstallTopologyPolicy(policy));
     const WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,
-            .kind = WORLD_SURFACE_HOME,
-            .topology = SURFACE_TOPOLOGY_MAP_V1,
+            .kind = WORLD_SURFACE_PLANET,
+            .topology = policy.planets,
             .bodyId = 1u,
             .seed = DEFAULT_WORLD_SEED
         }
