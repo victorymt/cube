@@ -8,8 +8,8 @@ static SurfaceVector TriangleNormal(SurfaceTriangle t)
         SurfaceVectorSubtract(t.b, t.a), SurfaceVectorSubtract(t.c, t.a)));
 }
 
-bool SurfaceCellTriangles(SurfaceAddress cell, SurfaceCellBox box,
-                           SurfaceTriangle out[12])
+bool SurfaceCellCorners(SurfaceAddress cell, SurfaceCellBox box,
+                        SurfaceVector out[8])
 {
     if (!out || !SurfaceAddressIsValid(cell) ||
         !isfinite(box.minU) || !isfinite(box.maxU) ||
@@ -17,17 +17,26 @@ bool SurfaceCellTriangles(SurfaceAddress cell, SurfaceCellBox box,
         !isfinite(box.minRadial) || !isfinite(box.maxRadial) ||
         box.minU < 0 || box.minV < 0 || box.minRadial < 0 ||
         box.maxU > 1 || box.maxV > 1 || box.maxRadial > 1 ||
-        box.minU >= box.maxU || box.minV >= box.maxV || box.minRadial >= box.maxRadial)
-        return false;
-    SurfaceVector vertices[8], center = {0};
+        box.minU >= box.maxU || box.minV >= box.maxV ||
+        box.minRadial >= box.maxRadial) return false;
     for (unsigned i = 0; i < 8; i++) {
         SurfaceCoordinates c = {cell.face,
             cell.u + ((i & 1) ? box.maxU : box.minU),
             cell.v + ((i & 2) ? box.maxV : box.minV),
             cell.radial + ((i & 4) ? box.maxRadial : box.minRadial)};
-        if (!SurfacePointFromCoordinates(c, &vertices[i])) return false;
-        center = SurfaceVectorAdd(center, SurfaceVectorScale(vertices[i], .125));
+        if (!SurfacePointFromCoordinates(c, &out[i])) return false;
     }
+    return true;
+}
+
+bool SurfaceCellTriangles(SurfaceAddress cell, SurfaceCellBox box,
+                           SurfaceTriangle out[12])
+{
+    if (!out) return false;
+    SurfaceVector vertices[8], center = {0};
+    if (!SurfaceCellCorners(cell, box, vertices)) return false;
+    for (unsigned i = 0; i < 8; i++)
+        center = SurfaceVectorAdd(center, SurfaceVectorScale(vertices[i], .125));
     static const unsigned char faces[6][4] = {
         {0, 2, 6, 4}, {1, 5, 7, 3}, {0, 4, 5, 1},
         {2, 3, 7, 6}, {0, 1, 3, 2}, {6, 7, 5, 4}

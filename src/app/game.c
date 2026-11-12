@@ -736,45 +736,6 @@ static void GameRenderBackground(GameRuntime *game,
     }
 }
 
-static void GameRenderInteractionGuides(GameRuntime *game,
-                                        const GameFrameView *frame)
-{
-    if (frame->hit.hit) {
-        if (frame->hitParkedShip && !frame->hitShip.legacy) {
-            Vector3 center = {
-                frame->hitShip.coreX + 1.0f,
-                frame->hitShip.coreY + 1.0f,
-                frame->hitShip.coreZ + 1.0f
-            };
-            DrawCubeWires(center, 4.03f, 2.03f, 4.03f, WHITE);
-        } else {
-            Vector3 center = {
-                frame->hit.x + 0.5f,
-                frame->hit.y + 0.5f,
-                frame->hit.z + 0.5f
-            };
-            DrawCubeWires(center, 1.03f, 1.03f, 1.03f, WHITE);
-        }
-    }
-    if (!frame->canPlace) return;
-
-    if (game->hotbar[game->selectedIndex] == BLOCK_SPACESHIP) {
-        Vector3 center = {
-            frame->placeX + 1.0f,
-            frame->placeY + 1.0f,
-            frame->placeZ + 1.0f
-        };
-        DrawCubeWires(center, 4.02f, 2.02f, 4.02f, Fade(GREEN, 0.9f));
-    } else {
-        Vector3 center = {
-            frame->placeX + 0.5f,
-            frame->placeY + 0.5f,
-            frame->placeZ + 0.5f
-        };
-        DrawCubeWires(center, 1.02f, 1.02f, 1.02f, Fade(GREEN, 0.9f));
-    }
-}
-
 static void GameRenderWorldPass(GameRuntime *game,
                                 GameFrameView *frame)
 {
@@ -1240,6 +1201,9 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
         .placeX = interaction.placeX,
         .placeY = interaction.placeY,
         .placeZ = interaction.placeZ,
+        .hasPlaceAddress = interaction.hasPlaceAddress,
+        .placeAddress = interaction.hasPlaceAddress
+            ? interaction.placeAddress : (WorldBlockAddress){ 0 },
         .localWorldActive = localWorldActive,
         .hitParkedShip = interaction.hitParkedShip,
         .haveAimBody = interaction.haveAimBody,

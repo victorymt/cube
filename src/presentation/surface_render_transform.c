@@ -1,6 +1,8 @@
 #include "presentation/surface_render_transform.h"
 #include "raymath.h"
 #include "world/surface_coverage.h"
+#include "world/surface_geometry.h"
+#include "world/surface_topology.h"
 
 Matrix SurfaceChunkRenderTransform(const Chunk *chunk, int sectionY,
                                     Vector3 cameraPosition,
@@ -91,6 +93,26 @@ bool SurfaceChunkRenderBounds(const Chunk *chunk, int sectionY,
         float half = SURFACE_SECTION_HEIGHT * .5f;
         *outCenter = (Vector3){CHUNK_SIZE * .5f, half, CHUNK_SIZE * .5f};
         *outRadius = sqrtf(half * half * 3);
+    }
+    return true;
+}
+
+bool SurfaceCubeCellRenderCorners(SurfaceAddress cell, Vector3 cameraPosition,
+                                  int mapOriginX, int mapOriginZ,
+                                  Vector3 outCorners[8])
+{
+    if (!outCorners || !SurfaceAddressIsValid(cell)) return false;
+    SurfaceVector corners[8];
+    if (!SurfaceCellCorners(cell, SURFACE_CELL_BOX_FULL, corners)) return false;
+    SurfaceFrame reference = SurfaceFrameAtMapCoordinates(
+        cell.bodyId, (float)mapOriginX + cameraPosition.x,
+        (float)mapOriginZ + cameraPosition.z, 0);
+    for (unsigned i = 0; i < 8; i++) {
+        Vector3 local = SurfaceFramePlanetToLocal(&reference, (Vector3){
+            (float)corners[i].x, (float)corners[i].y, (float)corners[i].z });
+        local.x += cameraPosition.x;
+        local.z += cameraPosition.z;
+        outCorners[i] = local;
     }
     return true;
 }

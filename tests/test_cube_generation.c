@@ -1317,6 +1317,75 @@ static void TestCubeMeshProjection(void)
     ChunkMeshWorkerScratchShutdown();
 }
 
+static bool SurfaceCornerNear(SurfaceVector a, SurfaceVector b)
+{
+    return SurfaceVectorLength(SurfaceVectorSubtract(a, b)) < .0001;
+}
+
+static void TestCubeCellSelectionGeometry(void)
+{
+    SurfaceAddress sides[] = {
+        {0, SURFACE_FACE_POS_X, 2048, 2048, 8},
+        {0, SURFACE_FACE_POS_X, 4095, 2048, 8},
+        {0, SURFACE_FACE_POS_Y, 2048, 0, 8}
+    };
+    for (unsigned side = 0; side < sizeof(sides) / sizeof(sides[0]); side++) {
+        SurfaceVector corners[8], repeated[8];
+        assert(SurfaceCellCorners(sides[side], SURFACE_CELL_BOX_FULL, corners));
+        assert(SurfaceCellCorners(sides[side], SURFACE_CELL_BOX_FULL, repeated));
+        for (unsigned i = 0; i < 8; i++) {
+            assert(SurfaceVectorIsFinite(corners[i]));
+            assert(SurfaceCornerNear(corners[i], repeated[i]));
+            for (unsigned j = 0; j < i; j++)
+                assert(!SurfaceCornerNear(corners[i], corners[j]));
+        }
+        SurfaceTriangle triangles[12];
+        assert(SurfaceCellTriangles(sides[side], SURFACE_CELL_BOX_FULL,
+                                    triangles));
+        for (unsigned corner = 0; corner < 8; corner++) {
+            bool found = false;
+            for (unsigned triangle = 0; triangle < 12 && !found; triangle++) {
+                found = SurfaceCornerNear(corners[corner], triangles[triangle].a) ||
+                        SurfaceCornerNear(corners[corner], triangles[triangle].b) ||
+                        SurfaceCornerNear(corners[corner], triangles[triangle].c);
+            }
+            assert(found);
+        }
+    }
+
+    SurfaceAddress source = {0, SURFACE_FACE_POS_X, 4095, 2048, 8};
+    SurfaceAddress neighbor;
+    SurfaceCubeEdge back;
+    assert(SurfaceCubeCellNeighbor(source, SURFACE_CUBE_U_PLUS,
+                                   &neighbor, &back));
+    Vector3 camera = {123.0f, 77.0f, -45.0f};
+    Vector3 sourceRender[8], neighborRender[8];
+    assert(SurfaceCubeCellRenderCorners(source, camera, 100, -50,
+                                        sourceRender));
+    assert(SurfaceCubeCellRenderCorners(neighbor, camera, 100, -50,
+                                        neighborRender));
+    unsigned shared = 0;
+    for (unsigned i = 0; i < 8; i++) {
+        bool matched = false;
+        for (unsigned j = 0; j < 8; j++) {
+            if (Vector3Distance(sourceRender[i], neighborRender[j]) < .0002f) {
+                matched = true;
+                break;
+            }
+        }
+        if (matched) shared++;
+    }
+    assert(shared == 4);
+
+    Vector3 corners[8];
+    assert(!SurfaceCubeCellRenderCorners(
+        (SurfaceAddress){0, SURFACE_FACE_COUNT, 0, 0, 0},
+        camera, 0, 0, corners));
+    assert(!SurfaceCubeCellRenderCorners(
+        (SurfaceAddress){0, SURFACE_FACE_POS_X, 2048, 2048, 8},
+        camera, 0, 0, NULL));
+}
+
 int main(void)
 {
     TestCgaSurfaceCellsCrossFace();
@@ -1326,6 +1395,7 @@ int main(void)
     TestVariedCubeSectionsStayInSlab();
     TestCubeRenderTransformMatchesMeshFrame();
     TestCubeRenderTransform();
+    TestCubeCellSelectionGeometry();
     TestPhysicalCoverage();
     TestCubeLodUsesPhysicalCoverageDistance();
     TestCubeCoverageFollowsDistantFocus();

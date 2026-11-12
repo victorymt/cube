@@ -69,6 +69,8 @@ typedef struct GameFrameView {
     int placeX;
     int placeY;
     int placeZ;
+    bool hasPlaceAddress;
+    WorldBlockAddress placeAddress;
     bool localWorldActive;
     bool underwater;
     bool inNether;
@@ -85,6 +87,7 @@ void GameRequestWorldStreaming(Vector3 position, Vector3 velocity,
                                int effectiveRenderDistance,
                                unsigned coverageBudget);
 void GameUpdateDebugLeftMeshReady(GameRuntime *game);
+void GameRenderInteractionGuides(GameRuntime *game, const GameFrameView *frame);
 /* Releases the owned cube generation input on surface teardown. */
 void GameUpdateFrameEnvironment(GameRuntime *game, GameFrameView *frame);
 void GameCaptureScreenshot(GameRuntime *game, const GameFrameView *frame);
