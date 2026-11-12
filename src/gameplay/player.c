@@ -2,6 +2,7 @@
 
 #include "core/game_effects.h"
 #include "raymath.h"
+#include "world/block_catalog.h"
 #include "world/chunks.h"
 #include "world/world_location.h"
 #include "world/fluid.h"
@@ -201,7 +202,12 @@ static bool PlayerCubeSolid(const WorldBlockBoxQuery *box, void *user)
         WorldCell cell;
         if (!SurfaceContractCellRead(contract, box->cells[i].at.surface,
                                      &cell)) continue;
-        if (cell.block != BLOCK_AIR && cell.block != BLOCK_WATER) return true;
+        if (cell.block >= BLOCK_COLOR_START && cell.block <= BLOCK_COLOR_END)
+            return true;
+        /* Decorative cross plants, carpets and open gates have zero collision
+         * height even though they occupy a block cell. Cube collision must
+         * follow that catalog shape just like the legacy path. */
+        if (BlockCatalogGet(cell.block)->collisionHeight > 0.0f) return true;
     }
     return false;
 }

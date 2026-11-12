@@ -1,5 +1,6 @@
 #include "gameplay/player.h"
 
+#include "world/block_catalog.h"
 #include "world/fluid.h"
 #include "gameplay/ship.h"
 #include "world/block_types.h"
@@ -104,6 +105,9 @@ bool WorldIsSurfaceActive(void)
 static bool cubeSurface = false;
 static int cubeGroundRadial = 0;
 static bool cubeTerrainKnown = true;
+static bool cubeOverrideEnabled = false;
+static SurfaceAddress cubeOverrideAddress;
+static BlockType cubeOverrideBlock = BLOCK_AIR;
 
 WorldSurfaceContext WorldCurrentSurfaceContext(void)
 {
@@ -126,6 +130,11 @@ bool WorldCubeBlockAt(WorldBlockAddress address, BlockType *outType)
 {
     if (!outType) return false;
     if (!cubeTerrainKnown) return false;
+    if (cubeOverrideEnabled &&
+        SurfaceAddressEqual(address.at.surface, cubeOverrideAddress)) {
+        *outType = cubeOverrideBlock;
+        return true;
+    }
     *outType = address.at.surface.radial <= cubeGroundRadial
         ? BLOCK_STONE : BLOCK_AIR;
     return true;
@@ -595,6 +604,37 @@ static void TestCubeOverlapBranch(void)
     cubeSurface = false;
 }
 
+static void TestCubeDecorationBlocksArePassable(void)
+{
+    cubeSurface = true;
+    cubeTerrainKnown = true;
+    cubeGroundRadial = -100000;
+
+    SurfacePose pose;
+    assert(SurfacePoseFromGeographic(0, 0.0, 0.0, 40.0, 0.0, 0.0, &pose));
+    Vector3 position;
+    assert(PlayerLocalFromSurfacePose(&pose, &position));
+    assert(SurfaceCellFromPoint(0, pose.position, &cubeOverrideAddress));
+    cubeOverrideEnabled = true;
+
+    const BlockType passable[] = {
+        BLOCK_FLOWER, BLOCK_TALL_GRASS, BLOCK_FERN, BLOCK_REED,
+        BLOCK_COMMON_REED, BLOCK_MOSS_CARPET, BLOCK_LEAF_LITTER,
+        BLOCK_SPHAGNUM, BLOCK_FENCE_GATE_OPEN, BLOCK_LAVA
+    };
+    for (size_t index = 0; index < sizeof(passable) / sizeof(passable[0]); index++) {
+        cubeOverrideBlock = passable[index];
+        assert(BlockCatalogGet(cubeOverrideBlock)->collisionHeight <= 0.0f);
+        assert(!PlayerOverlapsWorld(position));
+    }
+
+    cubeOverrideBlock = BLOCK_STONE;
+    assert(PlayerOverlapsWorld(position));
+
+    cubeOverrideEnabled = false;
+    cubeSurface = false;
+}
+
 /* Cube movement must be physical: the same input travels the same distance in
  * blocks regardless of latitude. Stepping in map cells would make it shrink
  * with latitude, which is exactly the defect this path replaces. */
@@ -718,6 +758,7 @@ int main(void)
     TestWaterStateUsesActualColumnSurface();
     InstallPlayerCubeContract();
     TestCubeOverlapBranch();
+    TestCubeDecorationBlocksArePassable();
     TestCubeGroundedPlayerWalks();
     TestCubeHeightSurvivesMovement();
     TestCubeMoveIsPhysical();
