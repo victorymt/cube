@@ -596,9 +596,10 @@ static void TestCubeOverlapBranch(void)
     /* Body sunk into the ground cell collides. */
     assert(PlayerOverlapsWorld((Vector3){0.5f, (float)cell.radial - 0.5f, 0.5f}));
 
-    /* Ungenerated terrain blocks a walking player. */
+    /* Experimental cube rule: unresolved cells are passable while readiness
+     * diagnostics continue to report the missing chunk. */
     cubeTerrainKnown = false;
-    assert(PlayerOverlapsWorld((Vector3){0.5f, (float)cell.radial + 1.0f, 0.5f}));
+    assert(!PlayerOverlapsWorld((Vector3){0.5f, (float)cell.radial + 1.0f, 0.5f}));
 
     cubeTerrainKnown = true;
     cubeSurface = false;
@@ -646,10 +647,10 @@ static void TestCubeReadinessUsesPhysicalBodyCells(void)
     Vector3 position;
     assert(PlayerLocalFromSurfacePose(&pose, &position));
 
-    /* The cube body has unknown cells, so readiness must agree with collision
-     * even though the legacy SurfaceBlockReadyAt stub returns true. */
+    /* The cube body has unknown cells, so readiness must still report missing
+     * chunks even though collision intentionally treats them as air. */
     assert(PlayerMissingSurfaceChunkCount(position) > 0);
-    assert(PlayerOverlapsWorld(position));
+    assert(!PlayerOverlapsWorld(position));
 
     cubeTerrainKnown = true;
     cubeGroundRadial = -100000;
