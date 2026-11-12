@@ -24,6 +24,10 @@ typedef struct SurfaceGeometryHit {
     WorldBlockSide side;
 } SurfaceGeometryHit;
 
+// Corner bit order: 1=max U, 2=max V, 4=max radial. The triangle and render
+// paths share this order so projected cell geometry has one source of truth.
+bool SurfaceCellCorners(SurfaceAddress cell, SurfaceCellBox box,
+                        SurfaceVector outCorners[8]);
 // Same twelve triangles for exact near rendering, ray tests and collision.
 // Outward winding; side IDs use the integer neighbor contract.
 bool SurfaceCellTriangles(SurfaceAddress cell, SurfaceCellBox box,

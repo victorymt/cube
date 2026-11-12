@@ -394,8 +394,13 @@ test-cube-surface-matrix-e2e: $(TARGET)
 .PHONY: test-cube-vertical-geometry-e2e
 test-cube-vertical-geometry-e2e: $(TARGET)
 	bash tests/test_cube_vertical_geometry_e2e.sh $(TARGET)
+	bash tests/test_cube_selection_alignment_e2e.sh $(TARGET)
 	bash tests/test_cube_v30_reload_e2e.sh $(TARGET)
 	bash tests/test_v30_cell_reload_e2e.sh $(TARGET)
+
+.PHONY: test-cube-selection-alignment-e2e
+test-cube-selection-alignment-e2e: $(TARGET)
+	bash tests/test_cube_selection_alignment_e2e.sh $(TARGET)
 
 .PHONY: test-cube-v30-reload-e2e
 test-cube-v30-reload-e2e: $(TARGET)
