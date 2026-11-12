@@ -50,13 +50,14 @@ static PlanetProfile TestPlanetProfile(void)
 
 static void InstallHomeSurface(void)
 {
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
+    WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    assert(WorldInstallTopologyPolicy(policy));
+    WorldSetCubeRuntimeEnabled(true);
     const WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_HOME,
-            .topology = SURFACE_TOPOLOGY_MAP_V1,
+            .topology = policy.home,
             .seed = 0x68b32f19u
         }
     };
@@ -65,13 +66,13 @@ static void InstallHomeSurface(void)
 
 static void InstallPlanetSurface(void)
 {
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
+    WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    assert(WorldInstallTopologyPolicy(policy));
     const WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_PLANET,
-            .topology = SURFACE_TOPOLOGY_MAP_V1,
+            .topology = policy.planets,
             .bodyId = 7u,
             .seed = 0x2938a4d1u
         },

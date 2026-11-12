@@ -58,13 +58,17 @@ static bool InstallTestSurfaceContract(uint32_t bodyId)
         sizeof(testSurfaceContracts) / sizeof(testSurfaceContracts[0])) {
         return false;
     }
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
+    WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    assert(WorldInstallTopologyPolicy(policy));
+    bool home = bodyId == 0;
+    if (home) WorldSetCubeRuntimeEnabled(true);
     WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,
-            .kind = bodyId == 0 ? WORLD_SURFACE_HOME : WORLD_SURFACE_PLANET,
-            .topology = SURFACE_TOPOLOGY_MAP_V1,
+            .kind = home ? WORLD_SURFACE_HOME : WORLD_SURFACE_PLANET,
+            .topology = home
+                ? (SurfaceTopologyVersion)SURFACE_TOPOLOGY_CUBE_V1
+                : (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1,
             .bodyId = bodyId,
             .seed = bodyId ^ UINT32_C(0x51a7e)
         }

@@ -15,6 +15,7 @@
 #include "world/terrain.h"
 #include "world/terrain_generation.h"
 #include "world/world_environment.h"
+#include "world/surface_contract.h"
 #include "world/world_surface_snapshot.h"
 #include "world/world_extension.h"
 #include "world/world_persistence.h"
@@ -609,11 +610,13 @@ typedef struct BlockUndo {
     int x;
     int y;
     int z;
+    WorldBlockAddress cubeAddress;
     BlockType prev;
     BlockType next;
     uint8_t prevVolume;
     uint8_t nextVolume;
     FluidBlockDisplacement fluidDisplacement;
+    bool cube;
     bool groupStart;
 } BlockUndo;
 
@@ -648,24 +651,9 @@ void WorldEndUndoGroup(void)
     pendingGroupStart = false;
 }
 
-static void PushBlockUndo(
-    int x, int y, int z, BlockType prev, BlockType next,
-    uint8_t prevVolume, uint8_t nextVolume,
-    const FluidBlockDisplacement *fluidDisplacement)
+static void PushUndoEntry(BlockUndo entry)
 {
-    BlockUndo entry = {
-        .x = x,
-        .y = y,
-        .z = z,
-        .prev = prev,
-        .next = next,
-        .prevVolume = prevVolume,
-        .nextVolume = nextVolume,
-        .groupStart = !undoGroupActive || pendingGroupStart
-    };
-    if (fluidDisplacement) {
-        entry.fluidDisplacement = *fluidDisplacement;
-    }
+    entry.groupStart = !undoGroupActive || pendingGroupStart;
     pendingGroupStart = false;
 
     if (undoCount >= UNDO_STACK_CAPACITY) {
@@ -684,6 +672,50 @@ static void PushBlockUndo(
     undoStack[(undoHead + undoCount - 1) % UNDO_STACK_CAPACITY] = entry;
     redoHead = 0;
     redoCount = 0;
+}
+
+static void PushBlockUndo(
+    int x, int y, int z, BlockType prev, BlockType next,
+    uint8_t prevVolume, uint8_t nextVolume,
+    const FluidBlockDisplacement *fluidDisplacement)
+{
+    BlockUndo entry = {
+        .x = x,
+        .y = y,
+        .z = z,
+        .prev = prev,
+        .next = next,
+        .prevVolume = prevVolume,
+        .nextVolume = nextVolume
+    };
+    if (fluidDisplacement) entry.fluidDisplacement = *fluidDisplacement;
+    PushUndoEntry(entry);
+}
+
+static void PushCubeBlockUndo(WorldBlockAddress address,
+                              WorldCell previous, WorldCell next)
+{
+    PushUndoEntry((BlockUndo){
+        .cubeAddress = address,
+        .cube = true,
+        .prev = previous.block,
+        .next = next.block,
+        .prevVolume = previous.waterVolume,
+        .nextVolume = next.waterVolume
+    });
+}
+
+bool WorldCubeSetCellWithUndo(WorldBlockAddress address, WorldCell cell)
+{
+    WorldCell previous;
+    if (cell.block == BLOCK_WATER) cell = WorldCellFromLegacyBlock(BLOCK_WATER);
+    if (!WorldCellIsValid(cell) || !WorldCubeCellAt(address, &previous)) {
+        return false;
+    }
+    if (WorldCellEqual(previous, cell)) return true;
+    if (!WorldCubeSetCell(address, cell)) return false;
+    PushCubeBlockUndo(address, previous, cell);
+    return true;
 }
 
 void ClearUndoHistory(void)
@@ -731,6 +763,25 @@ static bool UndoSetCell(int x, int y, int z, BlockType type,
     return true;
 }
 
+static bool UndoApplyEntry(const BlockUndo *entry, bool forward)
+{
+    if (!entry) return false;
+    if (entry->cube) {
+        WorldCell cell = {
+            forward ? entry->next : entry->prev,
+            forward ? entry->nextVolume : entry->prevVolume
+        };
+        return WorldCubeSetCell(entry->cubeAddress, cell);
+    }
+    const FluidBlockDisplacement *replay =
+        entry->fluidDisplacement.count > 0u
+            ? &entry->fluidDisplacement : NULL;
+    return UndoSetCell(entry->x, entry->y, entry->z,
+                       forward ? entry->next : entry->prev,
+                       forward ? entry->nextVolume : entry->prevVolume,
+                       replay, forward);
+}
+
 bool UndoBlockEdit(void)
 {
     if (undoCount <= 0) return false;
@@ -745,22 +796,10 @@ bool UndoBlockEdit(void)
 
     int groupSize = 0;
     for (int i = tail;; i = (i - 1 + UNDO_STACK_CAPACITY) % UNDO_STACK_CAPACITY) {
-        const FluidBlockDisplacement *replay =
-            undoStack[i].fluidDisplacement.count > 0u
-                ? &undoStack[i].fluidDisplacement : NULL;
-        if (!UndoSetCell(
-                undoStack[i].x, undoStack[i].y, undoStack[i].z,
-                undoStack[i].prev, undoStack[i].prevVolume,
-                replay, false)) {
+        if (!UndoApplyEntry(&undoStack[i], false)) {
             int rollback = (i + 1) % UNDO_STACK_CAPACITY;
             for (int restored = 0; restored < groupSize; restored++) {
-                const FluidBlockDisplacement *rollbackReplay =
-                    undoStack[rollback].fluidDisplacement.count > 0u
-                        ? &undoStack[rollback].fluidDisplacement : NULL;
-                (void)UndoSetCell(
-                    undoStack[rollback].x, undoStack[rollback].y,
-                    undoStack[rollback].z, undoStack[rollback].next,
-                    undoStack[rollback].nextVolume, rollbackReplay, true);
+                (void)UndoApplyEntry(&undoStack[rollback], true);
                 rollback = (rollback + 1) % UNDO_STACK_CAPACITY;
             }
             return false;
@@ -794,22 +833,10 @@ bool RedoBlockEdit(void)
 
     int groupSize = 0;
     for (int i = tail;; i = (i - 1 + UNDO_STACK_CAPACITY) % UNDO_STACK_CAPACITY) {
-        const FluidBlockDisplacement *replay =
-            redoStack[i].fluidDisplacement.count > 0u
-                ? &redoStack[i].fluidDisplacement : NULL;
-        if (!UndoSetCell(
-                redoStack[i].x, redoStack[i].y, redoStack[i].z,
-                redoStack[i].next, redoStack[i].nextVolume,
-                replay, true)) {
+        if (!UndoApplyEntry(&redoStack[i], true)) {
             int rollback = (i + 1) % UNDO_STACK_CAPACITY;
             for (int restored = 0; restored < groupSize; restored++) {
-                const FluidBlockDisplacement *rollbackReplay =
-                    redoStack[rollback].fluidDisplacement.count > 0u
-                        ? &redoStack[rollback].fluidDisplacement : NULL;
-                (void)UndoSetCell(
-                    redoStack[rollback].x, redoStack[rollback].y,
-                    redoStack[rollback].z, redoStack[rollback].prev,
-                    redoStack[rollback].prevVolume, rollbackReplay, false);
+                (void)UndoApplyEntry(&redoStack[rollback], false);
                 rollback = (rollback + 1) % UNDO_STACK_CAPACITY;
             }
             return false;
@@ -1092,6 +1119,23 @@ bool SetBlock(int x, int y, int z, BlockType type)
         WorldExtensionOnBlockCommitted(x, y, z, previous, type);
     }
     return true;
+}
+
+bool WorldSurfaceCellWriteWithUndo(
+    const SurfaceContract *contract, SurfaceAddress surface,
+    WorldCell cell, int x, int y, int z, BlockType requestedType)
+{
+    if (!contract) return false;
+    if (SurfaceContractSupportsPhysicalCoverage(contract)) {
+        WorldSurfaceContext context = WorldCurrentSurfaceContext();
+        WorldBlockAddress address = {
+            .dimension = context.kind == WORLD_SURFACE_HOME
+                ? WORLD_DIMENSION_HOME : WORLD_DIMENSION_PLANET,
+            .at.surface = surface
+        };
+        return WorldCubeSetCellWithUndo(address, cell);
+    }
+    return SetBlock(x, y, z, requestedType);
 }
 
 bool SetBlockForImport(int x, int y, int z, BlockType type)

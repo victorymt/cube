@@ -9,6 +9,7 @@
 #include "world/world_extension.h"
 #include "world/world_persistence.h"
 #include "world/world_surface_snapshot.h"
+#include "world/world_cube.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -232,6 +233,14 @@ WorldSurfaceContext WorldCurrentSurfaceContext(void)
 bool WorldIsSurfaceActive(void)
 {
     return true;
+}
+
+bool WorldIsProceduralOceanWaterAt(int x, int y, int z)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    return false;
 }
 
 void WorldSetNetherActive(bool active)
@@ -1276,40 +1285,6 @@ static void TestMaterializedAirDiffersFromMissingSection(void)
     assert(!ChunkTryGetLocalBlock(chunk, 2, 17, 3, NULL));
 }
 
-static void TestImplicitTerrainLookupAndEditOverride(void)
-{
-    ChunksTestResetScheduler();
-    assert(!SurfaceBlockReadyAt(2, 4, 3));
-    ChunksTestConfigureChunk(0, 0, 0, true, false);
-
-    assert(SurfaceBlockReadyAt(2, 4, 3));
-    assert(ChunkGetSectionConst(&chunks[0], 0) == NULL);
-    assert(GetBlockAt(2, 4, 3) == BLOCK_STONE);
-    assert(GetBlockAt(2, 12, 3) == BLOCK_AIR);
-
-    assert(SetBlock(2, 4, 3, BLOCK_AIR));
-    assert(ChunkGetSectionConst(&chunks[0], 0) != NULL);
-    assert(GetBlockAt(2, 4, 3) == BLOCK_AIR);
-    assert(GetBlockAt(3, 4, 3) == BLOCK_STONE);
-
-    assert(GetBlockAt(2, -1, 3) == BLOCK_AIR);
-    assert(SetBlock(2, -1, 3, BLOCK_GLASS));
-    assert(ChunkGetSectionConst(&chunks[0], -1) != NULL);
-    assert(GetBlockAt(2, -1, 3) == BLOCK_GLASS);
-    assert(GetBlockAt(3, -1, 3) == BLOCK_AIR);
-
-    assert(SetBlock(2 * CHUNK_SIZE, 4, 0, BLOCK_GLASS));
-    ChunksTestConfigureChunk(1, 2, 0, true, false);
-    assert(ChunkGetSectionConst(&chunks[1], 0) == NULL);
-    assert(GetBlockAt(2 * CHUNK_SIZE, 4, 0) == BLOCK_GLASS);
-    assert(GetBlockAt(2 * CHUNK_SIZE + 1, 4, 0) == BLOCK_STONE);
-
-    assert(SetBlock(2 * CHUNK_SIZE + 1, 4, 0, BLOCK_AIR));
-    assert(ChunkGetSectionConst(&chunks[1], 0) != NULL);
-    assert(GetBlockAt(2 * CHUNK_SIZE, 4, 0) == BLOCK_GLASS);
-    assert(GetBlockAt(2 * CHUNK_SIZE + 1, 4, 0) == BLOCK_AIR);
-    assert(GetBlockAt(2 * CHUNK_SIZE + 2, 4, 0) == BLOCK_STONE);
-}
 
 static void TestSectionGenerationJobsStageAndValidateResults(void)
 {
@@ -2205,15 +2180,40 @@ static void TestPreloadJobsYieldToCurrentWork(void)
     assert(ChunksTestNextMeshJobIndex() == 0);
 }
 
+static void TestCubeCellUndoPreservesWater(void)
+{
+    ClearUndoHistory();
+    WorldCubeClearEdits();
+    WorldBlockAddress address = {
+        .dimension = WORLD_DIMENSION_HOME,
+        .at.surface = { 0, SURFACE_FACE_POS_Y, 100, 200, 8 }
+    };
+    WorldCell original = { BLOCK_FLOWER, 128u };
+    assert(WorldCubeSetCell(address, original));
+    WorldCell changed = WorldCellWithBlock(original, BLOCK_AIR);
+    assert(WorldCubeSetCellWithUndo(address, changed));
+
+    WorldCell current;
+    assert(UndoBlockEdit());
+    assert(WorldCubeCellAt(address, &current));
+    assert(WorldCellEqual(current, original));
+    assert(RedoBlockEdit());
+    assert(WorldCubeCellAt(address, &current));
+    assert(WorldCellEqual(current, changed));
+
+    ClearUndoHistory();
+    WorldCubeClearEdits();
+}
+
 int main(void)
 {
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
+    WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    assert(WorldInstallTopologyPolicy(policy));
     const WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,
-            .kind = WORLD_SURFACE_HOME,
-            .topology = SURFACE_TOPOLOGY_MAP_V1,
+            .kind = WORLD_SURFACE_PLANET,
+            .topology = policy.planets,
             .bodyId = 1u,
             .seed = DEFAULT_WORLD_SEED
         }
@@ -2251,7 +2251,6 @@ int main(void)
     TestSparseWaterBoundariesPreserveUnknownSections();
     TestSparseSignedSectionStorage();
     TestMaterializedAirDiffersFromMissingSection();
-    TestImplicitTerrainLookupAndEditOverride();
     TestSectionGenerationJobsStageAndValidateResults();
     TestNearbySectionSchedulingPrioritizesPlayerSection();
     TestNearbySectionSchedulingUsesRenderDistance();
@@ -2282,6 +2281,7 @@ int main(void)
     TestPreloadRejectsNonFiniteVelocity();
     TestPreloadJobsYieldToCurrentWork();
     TestWorkerPoolRunsJobsConcurrently();
+    TestCubeCellUndoPreservesWater();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");
     return 0;

@@ -48,6 +48,7 @@ assert landform.elevation == bed
 assert landform.water_level == water
 assert landform.deflection_blocks == deflection
 surface debug home
+assert world.surface_topology == "cube-grid"
 assert landform.strategy == "homeworld"
 assert !landform.coriolis_enabled
 exit 0

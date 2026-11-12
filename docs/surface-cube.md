@@ -86,10 +86,11 @@ hashes are unchanged.
 Every `WorldSurfaceContext` carries its topology. The world policy contains
 Homeworld and planetary defaults: Home is cube-grid/1 and planets are
 legacy-map/1. Every planet inherits the planetary policy; there are no per-body
-overrides. New-world reset restores these defaults, while `surface debug home`
-can install an explicit legacy Home baseline and `surface debug cube` can switch
-back. Normal composition opens the cube runtime gate before creating the Home
-contract, and V30 load installs the saved policy first. Snapshot installation
+overrides. New-world reset restores these defaults. `surface debug home` and
+`surface debug cube` both activate Home on cube-grid; Homeworld legacy policy
+installation is rejected. Normal composition opens the cube runtime gate before
+creating the Home contract, and V30 load installs the saved policy first.
+Snapshot installation
 rejects unknown, unsupported, or active/inactive-inconsistent descriptors
 without changing state or generation. Valid snapshots remain value copies and
 use the existing stale-job generation.

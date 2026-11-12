@@ -265,13 +265,14 @@ static void ActivateTestPlanet(uint32_t seed, SolarBodyStyle style)
 
 static void DeactivateTestPlanet(void)
 {
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
+    WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    assert(WorldInstallTopologyPolicy(policy));
+    WorldSetCubeRuntimeEnabled(true);
     const WorldSurfaceSnapshot snapshot = {
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_HOME,
-            .topology = SURFACE_TOPOLOGY_MAP_V1,
+            .topology = policy.home,
             .seed = terrainSeed
         }
     };

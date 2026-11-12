@@ -223,27 +223,24 @@ static void TestHomeAndNether(void)
     WorldSetNetherActive(false);
     assert(WorldGravityScale() == 1.0f);
     assert(WorldCurrentSurfaceId() == 0u);
-    assert(WorldSurfaceHeightAt(3, 4) == 7 + (int)terrainMode);
+    assert(WorldSurfaceHeightAt(3, 4) == cubeSampleHeight);
     SurfaceContractSample sample;
     assert(WorldSurfaceSampleAt(3, 4, &sample));
     assert((int)lroundf(sample.elevation) == WorldSurfaceHeightAt(3, 4));
-    assert(sample.slope == 2.5f);
-    assert(sample.bathymetryZone == BATHYMETRY_ZONE_COAST);
-    assert(sample.bathymetryMaterial == BATHYMETRY_MATERIAL_SEDIMENT);
+    assert(sample.slope == 1.25f);
+    assert(sample.bathymetryZone == BATHYMETRY_ZONE_SHELF);
+    assert(sample.bathymetryMaterial == BATHYMETRY_MATERIAL_ROCK);
     assert(!sample.hasPlanetBiome);
     float waterSurface = 0.0f;
     assert(WorldProceduralWaterSurfaceAt(3, 4, &waterSurface));
-    assert(waterSurface == (float)HOME_SEA_LEVEL + 1.0f);
-    assert(!WorldIsProceduralOceanWaterAt(3, 20, 4));
-    assert(WorldIsProceduralOceanWaterAt(3, 21, 4));
-    assert(WorldIsProceduralOceanWaterAt(3, HOME_SEA_LEVEL, 4));
-    assert(!WorldIsProceduralOceanWaterAt(3, HOME_SEA_LEVEL + 1, 4));
+    assert(waterSurface == 81.0f);
+    assert(!WorldIsProceduralOceanWaterAt(3, 30, 4));
+    assert(WorldIsProceduralOceanWaterAt(3, 31, 4));
+    assert(WorldIsProceduralOceanWaterAt(3, 80, 4));
+    assert(!WorldIsProceduralOceanWaterAt(3, 81, 4));
 
-    WorldSetTerrainMode(TERRAIN_FLAT);
-    assert(!WorldIsProceduralOceanWaterAt(3, 21, 4));
-    WorldSetTerrainMode(TERRAIN_VARIED);
     WorldSetNetherActive(true);
-    assert(!WorldIsProceduralOceanWaterAt(3, 21, 4));
+    assert(!WorldIsProceduralOceanWaterAt(3, 31, 4));
     WorldSetNetherActive(false);
 }
 
@@ -453,8 +450,9 @@ static void TestLandformWaterlineSample(void)
 
 int main(void)
 {
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
+    WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    assert(WorldInstallTopologyPolicy(policy));
+    WorldSetCubeRuntimeEnabled(true);
     TestBlockRegions();
     TestHomeAndNether();
     TestPlanet();

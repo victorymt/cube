@@ -480,7 +480,7 @@ Runtime values are sampled when an expression is evaluated:
 | `ui.scale_x`, `ui.scale_y` | number | Raylib window DPI scale |
 | `world.seed` | number | Current world seed (default `1448040515`; override with `world seed SEED` before `start`) |
 | `world.dimension` | string | Current dimension name |
-| `world.surface_topology` | string | `cube-grid` for a fresh Homeworld, `legacy-map` after `surface debug home`, and `none` outside surface dimensions |
+| `world.surface_topology` | string | `cube-grid` for Homeworld (including after `surface debug home`), `legacy-map` for planets, and `none` outside surface dimensions |
 | `world.surface_topology_version` | number | `1` for both `legacy-map` and `cube-grid`; `0` for no active surface |
 | `world.surface_body` | number | Canonical ID of the active solid body |
 | `world.longitude` | number | Canonical longitude in radians |
@@ -916,10 +916,11 @@ file next to the PNG. Debug-controlled sessions start with the help overlay
 hidden so visual captures remain unobstructed. `map` toggles the surface map
 and requires an active surface world. `map layer liquids` controls the
 map's water-cave/lava-cavity
-overlay. `surface debug home` switches directly to the legacy Homeworld baseline;
-`surface debug cube` switches directly to cube-grid (it opens the cube runtime
-gate and installs a cube topology policy, rolling both back if activation fails).
-A fresh normal Homeworld already starts on cube-grid. The planet form
+overlay. `surface debug home` switches to Homeworld on cube-grid and opens the
+cube runtime gate; `surface debug cube` is the explicit cube-grid activation
+command. Both roll the gate and policy back if activation fails. A fresh normal
+Homeworld already starts on cube-grid. Homeworld legacy topology is no longer
+accepted. The planet form
 creates a deterministic solid surface for the requested style and seed. These
 surface commands use normal chunk teardown and surface activation, and require
 the playing screen. `save` and `load` require the playing screen.
@@ -941,14 +942,18 @@ Homeworld and planetary topology descriptors. The core stores a canonical
 `SurfacePose` and a `CUBADDR2` block of complete `WorldBlockAddress + WorldCell`
 edits. V29 and older, missing/invalid topology metadata are rejected before
 applying state. Cube topology is installed from the header during the load
-transaction, so a cube save is loadable in a fresh process. Failures report
+transaction, so a cube save is loadable in a fresh process. A V30 header that
+records legacy topology for Homeworld is rejected; planets may still record
+legacy topology. Failures report
 through `DEBUG_CONTROL load result=Load failed: ...`; this reply is not a
 successful load. Follow it with state assertions when testing rejection. Late
 payload errors restore the full V30 checkpoint. Neither failed path deletes the
 file or resets caller clocks/input.
 `make test-surface-topology-e2e` runs these checks in a temporary directory.
-The topology fields are read-only. `surface debug home` installs a legacy policy
-and `surface debug cube` installs a cube-grid policy as side effects.
+The topology fields are read-only. `surface debug home` installs the Home
+cube-grid policy and `surface debug cube` installs an explicit Home cube-grid
+policy as side effects. Legacy Homeworld policy installation is rejected;
+planets remain on legacy-map/1.
 
 `map`, `map layer liquids`, `view`, and `look` report their resulting state in
 their `DEBUG_CONTROL` reply; they do not currently expose dedicated typed
@@ -977,11 +982,13 @@ stream audit [RADIUS]
 stream audit at X Y Z [RADIUS]
 ```
 
-`stream wait` defaults to 300 frames and accepts 1-3,600. It records the
-player's starting chunk and section, then waits for the surrounding 3x3x3
-section region to reach the `ready` or `implicit` pipeline stage for two
-consecutive frames. Global generation/mesh queue counts are diagnostics only.
-The start and result replies look like:
+`stream wait` defaults to 300 frames and accepts 1-3,600. On legacy-map it
+records the player's starting chunk and section, then waits for the surrounding
+3x3x3 section region to reach the `ready` or `implicit` pipeline stage for two
+consecutive frames. On cube-grid it waits for physical coverage evidence with
+local terrain and visual readiness, no pending/missing admitted columns, and no
+target-LOD gaps for two consecutive frames. Global generation/mesh queue counts
+are diagnostics only. The start and result replies look like:
 
 ```text
 DEBUG_CONTROL stream wait started timeout_frames=300
@@ -1142,7 +1149,7 @@ redo
 `block inspect` accepts a stable numeric ID or a canonical block name;
 spaces, hyphens, underscores, and letter case are equivalent. It reports the
 resolved ID and name, face textures, render shape, collision, translucency,
-material response, and Stage 05 membership. `block set` resolves the target through the active `SurfaceContract`; physical cube cells use the contract write path, while the legacy map backend keeps the ordinary persistent `SetBlock` path. It requires the target cell to be loaded, reads the result back through the contract, and reports the submitted coordinate plus its canonical spherical cell.
+material response, and Stage 05 membership. `block set` resolves the target through the active `SurfaceContract`; physical cube cells record a volume-preserving cube edit in the shared undo history, while the legacy map backend keeps the ordinary persistent `SetBlock` path. It requires the target cell to be loaded, reads the result back through the contract, and reports the submitted coordinate plus its canonical spherical cell.
 `cell inspect` resolves the target through the active `SurfaceContract` and
 reports block plus authoritative water volume, submerged state and plant flood
 tolerance. `undo` and `redo` apply the ordinary volume-aware edit history. It is

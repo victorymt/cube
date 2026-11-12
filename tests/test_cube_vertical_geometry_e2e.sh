@@ -1,9 +1,9 @@
 #!/bin/sh
 #
-# G1 visual replay: the same flat vertical wall is captured through legacy and
-# cube-grid. The unit test owns the exact per-vertex transform invariant; this
-# scene keeps the real Hyprland render path, cube activation, block edits and
-# mesh upload deterministic and reviewable. It does not claim polar coverage.
+# G1 visual replay: a flat vertical wall is captured through Home cube-grid.
+# The unit test owns the exact per-vertex transform invariant; this scene keeps
+# the real Hyprland render path, cube activation, block edits and mesh upload
+# deterministic and reviewable. It does not claim polar coverage.
 set -eu
 
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -19,17 +19,17 @@ scripts/run-scene.sh \
 
 reports=$(find "$run_dir/screenshots" -name '*.txt' | wc -l | tr -d ' ')
 images=$(find "$run_dir/screenshots" -name '*.png' | wc -l | tr -d ' ')
-[ "$reports" -eq 4 ] || {
-    printf 'expected 4 capture reports, got %s\n' "$reports" >&2
+[ "$reports" -eq 3 ] || {
+    printf 'expected 3 capture reports, got %s\n' "$reports" >&2
     exit 1
 }
-[ "$images" -eq 4 ] || {
-    printf 'expected 4 screenshots, got %s\n' "$images" >&2
+[ "$images" -eq 3 ] || {
+    printf 'expected 3 screenshots, got %s\n' "$images" >&2
     exit 1
 }
 grep -q '^camera.position=0.000000,10.550000,0.000000$' \
     "$run_dir"/screenshots/*.txt || {
-    echo 'cube/legacy captures did not share the expected camera pose' >&2
+    echo 'cube captures did not observe the expected camera pose' >&2
     exit 1
 }
 grep -q 'surface debug ok world=cube' "$run_dir/game.log" || {
@@ -54,8 +54,8 @@ if ready["mouse_left_mesh_ready"]["frame"] <= ready["mouse_left_set_block"]["fra
 PY
 
 set -- $(find "$run_dir/screenshots" -name '*.txt' | sort)
-before_report=$3
-after_report=$4
+before_report=$2
+after_report=$3
 before_triangles=$(sed -n 's/^render.coverage.main_solid_triangles=//p' "$before_report")
 after_triangles=$(sed -n 's/^render.coverage.main_solid_triangles=//p' "$after_report")
 [ -n "$before_triangles" ] && [ -n "$after_triangles" ] || {

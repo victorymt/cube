@@ -106,7 +106,8 @@ assert data[19:27] == b'TOPOL002'
 assert struct.unpack_from('<4I', data, 27) == (2, 1, 1, 1)
 for version in range(18, 30):
     (p / f'v{version}.save').write_bytes(f'VOXELCRAFT_SAVE_V{version}'.encode() + data[43:])
-for name, offset, value in [('unknown', 35, 99), ('version', 39, 2)]:
+for name, offset, value in [('unknown', 35, 99), ('version', 39, 2),
+                            ('legacy-home', 27, 1)]:
     buf = bytearray(data)
     struct.pack_into('<I', buf, offset, value)
     (p / f'{name}.save').write_bytes(buf)
@@ -123,6 +124,9 @@ for case in unknown version truncated; do
     reject_load '(unknown surface topology|topology metadata)'
     cmp "$runtime_dir/$case.save" "$runtime_dir/voxelcraft_save.txt"
 done
+cp "$runtime_dir/legacy-home.save" "$runtime_dir/voxelcraft_save.txt"
+reject_load 'surface topology policy is not installable\.'
+cmp "$runtime_dir/legacy-home.save" "$runtime_dir/voxelcraft_save.txt"
 run_command 'assert world.dimension == "planet" && world.surface_body == planet_body && player.position == planet_pose'
 run_command 'assert world.surface_topology == "legacy-map" && world.surface_topology_version == 1'
 save_world
@@ -139,10 +143,12 @@ run_command 'stream wait 1200'
 send_command 'block set 40 200 55 Brick'
 wait_for_reply '^DEBUG_CONTROL block set ok .*previous_name="Brick"'
 run_command 'surface debug home'
+run_command 'assert world.surface_topology == "cube-grid" && world.surface_topology_version == 1'
+run_command 'wait until stream.cube.active timeout 1800'
 run_command 'teleport 4 200 8 0 0'
-run_command 'stream wait 1200'
+run_command 'wait until stream.surface_ready timeout 1800'
 send_command 'block set 4 200 8 Glass'
-wait_for_reply '^DEBUG_CONTROL block set ok .*previous_name="Air"'
+wait_for_reply '^DEBUG_CONTROL block set ok .*previous_name="Glass"'
 # Normal gameplay ascent provides a non-surface save without a topology switch.
 run_command 'teleport 0 1000 0 0 0'
 run_command 'pause off'
@@ -153,7 +159,7 @@ save_world
 load_world
 run_command 'assert world.dimension == "space" && world.surface_topology == "none" && world.surface_topology_version == 0'
 run_command 'surface debug home'
-run_command 'assert world.surface_topology == "legacy-map" && world.surface_topology_version == 1'
+run_command 'assert world.surface_topology == "cube-grid" && world.surface_topology_version == 1'
 send_command 'exit 0'
 wait_for_reply '^DEBUG_SCRIPT exit code=0$'
 wait "$game_pid"

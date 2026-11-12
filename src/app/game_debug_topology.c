@@ -292,10 +292,10 @@ bool GameDebugTransitionSurface(GameRuntime *game, bool homeWorld,
     bool previousGate = WorldCubeRuntimeEnabled();
     WorldSurfaceTopologyPolicy nextPolicy = previousPolicy;
     if (homeWorld) {
-        /* `surface debug home` is the explicit legacy baseline now that a
-         * fresh normal Homeworld starts on cube-grid. */
-        nextPolicy = (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY;
-        WorldSetCubeRuntimeEnabled(false);
+        /* Homeworld has no legacy backend anymore. */
+        nextPolicy.home =
+            (SurfaceTopologyVersion)SURFACE_TOPOLOGY_CUBE_V1;
+        WorldSetCubeRuntimeEnabled(true);
     } else {
         nextPolicy.planets = (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1;
     }

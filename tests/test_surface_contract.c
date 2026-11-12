@@ -153,7 +153,8 @@ static void TestAddressIdentity(void)
 }
 
 static void AssertWorldCellFacade(const SurfaceContract *contract,
-                                  SurfaceAddress address)
+                                  SurfaceAddress address,
+                                  bool expectedPlanetBiome)
 {
     SurfaceMapCell canonical;
     assert(SurfaceAddressCanonicalMapCell(address, &canonical));
@@ -188,7 +189,7 @@ static void AssertWorldCellFacade(const SurfaceContract *contract,
     assert(WorldSurfaceBathymetryAt(localX, localZ, &bathymetry));
     assert(bathymetry.seabedY == directSample.seabedY);
     assert(bathymetry.waterDepth == directSample.waterDepth);
-    assert(!directSample.hasPlanetBiome);
+    assert(directSample.hasPlanetBiome == expectedPlanetBiome);
 }
 
 static int RuntimeRegionCoordinate(int mapCoordinate)
@@ -346,23 +347,24 @@ static void AssertHydrologySamplingRegionTransition(
 static void TestLegacyContract(void)
 {
     ResetWorldMemory();
-    assert(WorldInstallTopologyPolicy(
-        (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_LEGACY));
+    WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    assert(WorldInstallTopologyPolicy(policy));
     WorldSetSeed(0x12345678u);
     WorldSurfaceSnapshot snapshot = Snapshot(
-        WORLD_SURFACE_HOME, (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1, 0, 0x12345678u, 0, 0);
+        WORLD_SURFACE_PLANET, (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1,
+        77u, 0x12345678u, 0, 0);
     SurfaceContract *contract = SurfaceContractCreate(
         &snapshot, TERRAIN_VARIED, WorldNextSurfaceGeneration());
     assert(contract && SurfaceContractIsValid(contract));
     assert(strcmp(SurfaceContractBackendName(contract), "legacy-map") == 0);
-    assert(SurfaceContractBodyId(contract) == 0u);
+    assert(SurfaceContractBodyId(contract) == 77u);
     assert(WorldInstallSurfaceSnapshotWithContract(&snapshot, contract));
     assert(WorldCurrentSurfaceContract() == contract);
 
-    SurfaceAddress address = SurfaceAddressFromMapCoordinates(0, 100.0f, 100.0f, 0);
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(77u, 100.0f, 100.0f, 0);
     SurfaceAddress sameRegion = SurfaceAddressFromMapCoordinates(
-        0, 127.0f, 127.0f, 0);
-    SurfaceAddress twin = SurfaceAddressFromMapCoordinates(0, 260.0f, 100.0f, 0);
+        77u, 127.0f, 127.0f, 0);
+    SurfaceAddress twin = SurfaceAddressFromMapCoordinates(77u, 260.0f, 100.0f, 0);
     assert(SurfaceContractAddressIsValid(address));
     assert(SurfaceContractAddressIsValid(twin));
     assert(!SurfaceContractCellIsKnown(contract, address));
@@ -400,7 +402,7 @@ static void TestLegacyContract(void)
         .reloadContext = &layout
     };
     SurfaceContractFixtureAssert(&fixture);
-    AssertWorldCellFacade(contract, address);
+    AssertWorldCellFacade(contract, address, true);
     AssertRegionRuntimeFacade(contract, address, sameRegion, twin);
     assert(!SurfaceContractSupportsPhysicalCoverage(contract));
     assert(!SurfaceContractSupportsPhysicalRaycast(contract));
@@ -462,7 +464,7 @@ static void TestCubeContract(void)
         .reloadContext = &layout
     };
     SurfaceContractFixtureAssert(&fixture);
-    AssertWorldCellFacade(contract, address);
+    AssertWorldCellFacade(contract, address, false);
     AssertRegionRuntimeFacade(contract, address, sameRegion, twin);
     AssertHydrologySamplingRegionTransition(
         contract, address,

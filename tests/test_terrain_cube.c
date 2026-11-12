@@ -103,12 +103,16 @@ static void TestMountainSurfaceUsesAltitude(void)
     assert(TerrainCubeBlock(context, &column, 82, &block));
     assert(block == BLOCK_DIRT);
 
+    assert(column.terrain.biome == BIOME_MOUNTAIN);
     column.terrain.elevation = 125;
     assert(TerrainCubeBlock(context, &column, 125, &block));
     assert(block == BLOCK_STONE);
     assert(TerrainCubeBlock(context, &column, 124, &block));
     assert(block == BLOCK_STONE);
 
+    column.terrain.elevation = 164;
+    assert(TerrainCubeBlock(context, &column, 164, &block));
+    assert(block == BLOCK_STONE);
     column.terrain.elevation = 165;
     assert(TerrainCubeBlock(context, &column, 165, &block));
     assert(block == BLOCK_SNOW);

@@ -122,6 +122,10 @@ wait_for_reply '^DEBUG_CONTROL map closed$'
 # window to settle before injecting interaction input.
 send_command 'surface debug home'
 wait_for_reply '^DEBUG_CONTROL surface debug ok world=home seed=1448040515$' 120
+send_command 'wait until world.surface_topology == "cube-grid" timeout 1800'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$' 120
+send_command 'wait until stream.cube.active timeout 1800'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$' 120
 send_command 'wait until stream.surface_ready timeout 1800'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$' 120
 send_command 'wait until hydrology.active timeout 300'

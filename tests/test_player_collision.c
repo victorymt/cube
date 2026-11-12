@@ -109,11 +109,11 @@ WorldSurfaceContext WorldCurrentSurfaceContext(void)
 {
     return (WorldSurfaceContext){
         .active = true,
-        .kind = WORLD_SURFACE_HOME,
+        .kind = cubeSurface ? WORLD_SURFACE_HOME : WORLD_SURFACE_PLANET,
         .topology = cubeSurface
-            ? (SurfaceTopologyVersion){SURFACE_TOPOLOGY_CUBE_GRID, 1u}
+            ? (SurfaceTopologyVersion)SURFACE_TOPOLOGY_CUBE_V1
             : (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1,
-        .bodyId = 0u,
+        .bodyId = cubeSurface ? 0u : 1u,
         .seed = 1234u,
         .originX = 0,
         .originZ = 0
@@ -215,7 +215,7 @@ static void InstallPlayerCubeContract(void)
 }
 int WorldSurfaceMapOriginX(void) { return 0; }
 int WorldSurfaceMapOriginZ(void) { return 0; }
-uint32_t WorldCurrentSurfaceId(void) { return 0u; }
+uint32_t WorldCurrentSurfaceId(void) { return cubeSurface ? 0u : 1u; }
 
 bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY)
 {

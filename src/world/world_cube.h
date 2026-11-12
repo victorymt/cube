@@ -11,9 +11,11 @@
 
 // Main-thread cube edit store. Addresses never pass through map coordinates.
 // Home uses body 0; planetary bodies are nonzero. Space/Nether use their own
-// Cartesian stores. Disk persistence/undo are not yet connected to this API.
+// Cartesian stores. Debug cell writes record undo history; disk persistence
+// remains a separate V30 codec path.
 bool WorldCubeSetBlock(WorldBlockAddress address, BlockType type);
 bool WorldCubeSetCell(WorldBlockAddress address, WorldCell cell);
+bool WorldCubeSetCellWithUndo(WorldBlockAddress address, WorldCell cell);
 // Returns false for unknown/unresolved terrain; never invents air there.
 bool WorldCubeBlockAt(WorldBlockAddress address, BlockType *outType);
 bool WorldCubeCellAt(WorldBlockAddress address, WorldCell *outCell);

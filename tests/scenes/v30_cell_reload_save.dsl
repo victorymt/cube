@@ -5,11 +5,13 @@ terrain flat
 start
 wait until game.screen == "playing" timeout 7200
 surface debug home
+wait until world.surface_topology == "cube-grid" timeout 1800
+wait until stream.cube.active timeout 1800
 wait until stream.surface_ready timeout 1800
 pause on
 teleport 4 13 8 0 0
 pause off
-stream wait 1200
+wait until stream.surface_ready timeout 1800
 pause on
 block set 4 12 8 Flower
 fluid set 4 12 8 128

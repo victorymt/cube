@@ -1,11 +1,13 @@
 #include "app/game_stream_audit.h"
 
 #include "app/game_runtime.h"
+#include "app/game_coverage_evidence.h"
 #include "core/debug_control.h"
 #include "world/chunks.h"
 #include "world/block_types.h"
 #include "world/block_edits.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -319,11 +321,54 @@ static int PendingStreamWaitSections(const GameStreamAuditState *audit,
     return pending;
 }
 
+static void GameStreamWaitCubeFrame(GameRuntime *game)
+{
+    GameStreamAuditState *audit = &game->streamAudit;
+    GameCoverageEvidence evidence;
+    bool captured = GameCoverageEvidenceCapture(game, &evidence);
+    const SurfaceCoverageEvidence *coverage = &evidence.coverage;
+    bool settled = captured && evidence.available && coverage->visualReady;
+    int pendingLocalSections = (int)(coverage->pending + coverage->missing);
+    if (!AdvanceStreamWait(audit, settled)) return;
+    bool complete = audit->wait.settledFrames >= 2u;
+
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL stream wait result=%s elapsed_frames=%u "
+        "focus=%d,%d,%d pending_local_sections=%d "
+        "first_pending=0,0,0 "
+        "pending_stages=missing:%u,gen_wait:0,gen:0,dirty:0,mesh:%u "
+        "pending_gen=0 pending_mesh=0 pending_mesh_snapshot_bytes=0 "
+        "missing_surface_chunks=%u backend=cube-grid "
+        "cube_requested=%u cube_admitted=%u cube_ready=%u "
+        "cube_target_missing=%u\n",
+        complete ? "settled" : "timeout", audit->wait.elapsedFrames,
+        audit->wait.focusCx, audit->wait.focusSectionY,
+        audit->wait.focusCz, pendingLocalSections,
+        coverage->missing, coverage->pending,
+        coverage->missing, coverage->requested, coverage->admitted,
+        coverage->ready, coverage->targetLodMissingSections);
+    audit->wait.active = false;
+    if (!complete) {
+        game->debugStreamWaitFailed = true;
+        snprintf(game->debugStreamWaitFailure,
+                 sizeof(game->debugStreamWaitFailure),
+                 "stream wait timed out after %u frames",
+                 audit->wait.elapsedFrames);
+    }
+}
+
 static void GameStreamWaitFrame(GameRuntime *game)
 {
     if (!game || !game->streamAudit.wait.active) return;
 
     GameStreamAuditState *audit = &game->streamAudit;
+    WorldSurfaceContext surface = WorldCurrentSurfaceContext();
+    if (surface.active &&
+        SurfaceContractSupportsPhysicalCoverage(WorldCurrentSurfaceContract())) {
+        GameStreamWaitCubeFrame(game);
+        return;
+    }
     RequestStreamWaitSections(audit);
     ChunkStreamingStats stats = ChunksGetStreamingStats();
     int pendingGeneration = GetPendingGenJobCount();

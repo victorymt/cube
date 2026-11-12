@@ -102,13 +102,28 @@ bool WorldCubeGetEdit(WorldBlockAddress address, BlockType *outType)
 bool WorldCubeCellAt(WorldBlockAddress address, WorldCell *outCell)
 {
     if (!outCell || !ValidAddress(address)) return false;
-    if (WorldCubeGetEditCell(address, outCell)) return true;
     Chunk *chunk = FindCubeChunk(Key(address));
     int y = address.at.surface.radial;
     int sectionY = SurfaceSectionYFromBlockY(y);
-    if (!chunk || chunk->cubeWorldGeneration != WorldCurrentGeneration() ||
-        (!ChunkGetSectionConst(chunk, sectionY) &&
-         !ChunkTerrainSectionIsResolved(chunk, sectionY))) return false;
+    bool resident = chunk &&
+        chunk->cubeWorldGeneration == WorldCurrentGeneration() &&
+        (ChunkGetSectionConst(chunk, sectionY) ||
+         ChunkTerrainSectionIsResolved(chunk, sectionY));
+    WorldCell edited;
+    if (WorldCubeGetEditCell(address, &edited)) {
+        /* Fluid volume may change without replacing the block edit. */
+        if (resident) {
+            WorldCell runtime;
+            if (ChunkTryGetLocalCell(chunk, address.at.surface.u % CHUNK_SIZE,
+                                     y, address.at.surface.v % CHUNK_SIZE,
+                                     &runtime)) {
+                edited.waterVolume = runtime.waterVolume;
+            }
+        }
+        *outCell = edited;
+        return true;
+    }
+    if (!resident) return false;
     if (ChunkTryGetLocalCell(chunk, address.at.surface.u % CHUNK_SIZE, y,
                              address.at.surface.v % CHUNK_SIZE, outCell)) {
         return true;

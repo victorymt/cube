@@ -210,6 +210,19 @@ static void TestTopologyHeader(void)
     assert(loaded.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID);
     fclose(file);
     assert(!WorldSaveWriteHeader(NULL, policy));
+
+    WorldSurfaceTopologyPolicy legacyHome = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+    legacyHome.home = (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1;
+    file = tmpfile();
+    assert(file && !WorldSaveWriteHeader(file, legacyHome));
+    fclose(file);
+
+    unsigned char legacyHomeHeader[sizeof(expected) - 1];
+    memcpy(legacyHomeHeader, expected, sizeof(legacyHomeHeader));
+    legacyHomeHeader[27] = SURFACE_TOPOLOGY_LEGACY_MAP;
+    file = BytesFile(legacyHomeHeader, sizeof(legacyHomeHeader));
+    assert(WorldSaveReadHeader(file, &loaded));
+    fclose(file);
     assert(WorldSaveReadHeader(NULL, &loaded));
 }
 

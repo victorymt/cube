@@ -34,6 +34,8 @@ new physical-simulation stages.
 | 24 | [world type decoupling (2026-10-25)](24-world-type-decoupling-2026-10-25.md) | `world_types.h` and `surface_topology.h` split into focused type headers with measured rebuild radius; two targets missed and one phase abandoned after measurement, all recorded |
 | 25 | [test honesty pass (2026-10-25)](25-test-honesty-2026-10-25.md) | CI was red while local runs were green, one gate guarded the previous split, a documented invariant was a literal, and six tests existed that nothing invoked |
 
+Programmatic-generation review: [2026-11-12 procedural generation analysis](../procedural-generation-analysis-2026-11-12.md) records the current generation pipeline, determinism model, content gaps and suggested order.
+
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,
 which are represented by the records above.
