@@ -308,6 +308,7 @@ Practical notes:
 
 ```sh
 make test
+make test-one TEST=test_player_collision
 make test-sanitize
 make check-docs
 # Focused input-log and cross-system deterministic replay checks:
@@ -315,7 +316,10 @@ make test-simulation-replay
 ```
 
 `make test` builds and runs every test binary with a per-test timeout and a
-summary. `make test-sanitize` rebuilds the same matrix under
+summary. For local iteration, `make test-one TEST=<name>` builds and runs only
+that registered test. Use the complete manifest as the pre-merge/CI gate, not as
+the default loop for every single-module change. `make test-sanitize` rebuilds
+the same matrix under
 `build/sanitize/` with AddressSanitizer and UndefinedBehaviorSanitizer, so it
 cannot contaminate a later regular test run. Environments that run every
 process under `ptrace` can use `make SANITIZER_LEAKS=0 test-sanitize`; CI keeps

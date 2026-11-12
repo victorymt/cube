@@ -122,6 +122,7 @@ Cube 世界的方块选择以 cell 边界遍历为准：射线通过 `SurfaceCel
 
 ```sh
 sh tests/test_architecture.sh   # 边界规则；失败信息会指出具体文件与规则
+make test-one TEST=test_cube_raycast   # 先跑受影响 C 测试，不跑完整 manifest
 make test-headers               # 每个公共头独立编译
 make test-modules               # 七个组件归档都能单独构建
 python3 scripts/coupling-report.py

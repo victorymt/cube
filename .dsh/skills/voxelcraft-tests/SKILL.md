@@ -218,3 +218,9 @@ mesh/LOD partition and selective removal; `cube_tree_generation.dsl` owns the
 real Hyprland generation/diagnostic/flora-draw path. When changing structure
 records or flora diagnostics, update both layers rather than treating one green
 test as coverage of the other.
+
+Use `make test-one TEST=<test_name>` during the local edit loop. Run the complete
+`make test` only for public contracts, build/test manifests, scheduling,
+persistence, shared formats or other cross-component changes. `test-clean-root`
+and `test-ci` stay at merge/release boundaries and must not become the default
+response to every small fix.

@@ -25,6 +25,28 @@ mid-flow saves and from the production frame-driven gameplay loop.
 Tests cover identical replay hashes, changed-input divergence, monotonic tick
 validation, bounded capacity, and ordered playback.
 
+## Focused local verification
+
+The complete manifest remains the CI and pre-merge gate, but it is not the
+default loop for a single-module change. Build and run one registered test with:
+
+```sh
+make test-one TEST=test_player_collision
+```
+
+The normal escalation is:
+
+1. **Local fix:** the directly affected unit test, plus its E2E when the change
+   is player-visible.
+2. **Cross-component change:** `make test` for public headers, build/test
+   manifests, scheduling, persistence, surface contracts or shared formats.
+3. **Merge/release:** `make test-clean-root`; use `make test-ci` only for the
+   full CI-equivalent sanitizer/coverage/clean-root sequence.
+
+Documentation-only changes run `make check-docs` and, when runtime field names
+changed, `make docs-probe`. A missing direct test is a reason to add one, not a
+reason to run the full suite as a substitute.
+
 Run the focused input-log and cross-system tests with
 `make test-simulation-replay`. Both are also included in `make test` and the
 sanitized test matrix. Current cross-system results are recorded in

@@ -74,3 +74,8 @@ The cube-native tree replay also uses this single vendored binary. Its
 `test-cube-tree-generation-e2e` route renders the same exact/LOD flora meshes
 under Hyprland, so adding tree content did not introduce another platform or
 raylib variant.
+
+The local iteration loop does not re-verify this ADR by rebuilding raylib.
+`make test-one` exercises the selected test against the existing vendored
+archive; `test-clean-root` remains the deliberate merge/release check that
+rebuilds raylib from an empty build root.
