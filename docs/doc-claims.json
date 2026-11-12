@@ -1054,6 +1054,26 @@
         "make test-public-header-seams"
       ]
     },
+    "docs/architecture/26-player-world-topology-decoupling-analysis-2026-11-12.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/gameplay/player.c",
+        "src/gameplay/player.h",
+        "src/gameplay/player_types.h",
+        "src/gameplay/ship.h",
+        "src/world/world_location.h",
+        "src/world/surface_pose.h",
+        "src/world/world_environment.h",
+        "src/app/game_save.c",
+        "src/app/input_source.h",
+        "tests/test_architecture.sh"
+      ],
+      "recipes": [
+        "make check-docs",
+        "make test-architecture"
+      ]
+    },
     ".dsh/skills/voxelcraft-tests/SKILL.md": {
       "tier": "skill",
       "trackCode": true,
