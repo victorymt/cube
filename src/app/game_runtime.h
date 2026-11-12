@@ -14,6 +14,7 @@
 #include "app/game_debug_trace.h"
 #include "space/planet_profile.h"
 #include "gameplay/player_input.h"
+#include "gameplay/player_world.h"
 #include "gameplay/inventory.h"
 #include "gameplay/ship.h"
 #include "world/block_type.h"
@@ -83,6 +84,7 @@ typedef struct GameRuntime {
   PauseMenuUiState pauseMenuUi;
   PlayerInput scriptedPlayerInput;
   PlayerInput appliedPlayerInput;
+  PlayerWorldOps playerWorldOps;
   ShipControlInput scriptedShipInput;
   BlockType hotbar[HOTBAR_SIZE];
   InventoryBrowser inventory;

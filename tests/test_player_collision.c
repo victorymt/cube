@@ -550,6 +550,54 @@ static void TestRightVectorMatchesCameraFrame(void)
     }
 }
 
+static bool TestPlayerWorldMove(void *user, PlayerBodyState *body,
+                                const PlayerMoveRequest *request)
+{
+    (void)user;
+    Player player = {
+        .position = body->position,
+        .velocity = body->velocity,
+        .onGround = body->onGround,
+        .floating = body->floating
+    };
+    PlayerMoveWithOptions(&player, request->delta, request->allowUnready,
+                          request->canStepUp);
+    body->position = player.position;
+    body->velocity = player.velocity;
+    body->onGround = player.onGround;
+    body->floating = player.floating;
+    return true;
+}
+
+static bool TestPlayerWorldOverlaps(void *user, Vector3 position,
+                                    bool allowUnready)
+{
+    (void)user;
+    return PlayerOverlapsWorldWithOptions(position, allowUnready);
+}
+
+static PlayerWaterState TestPlayerWorldWater(void *user, Vector3 position)
+{
+    (void)user;
+    return PlayerWaterStateAt(position);
+}
+
+static bool TestPlayerWorldGravity(void *user, Vector3 position,
+                                   PlayerGravitySample *out)
+{
+    (void)user;
+    (void)position;
+    *out = (PlayerGravitySample){ .gravityScale = 1.0f };
+    return true;
+}
+
+static const PlayerWorldOps testPlayerWorldOps = {
+    .move = TestPlayerWorldMove,
+    .overlaps = TestPlayerWorldOverlaps,
+    .sampleWater = TestPlayerWorldWater,
+    .sampleGravity = TestPlayerWorldGravity
+};
+
 static void TestSwimmingSpeedAndAscent(void)
 {
     ResetCollisionWorld();
@@ -562,7 +610,8 @@ static void TestSwimmingSpeedAndAscent(void)
     };
     PlayerInput forward = { .forward = 1.0f };
     for (int frame = 0; frame < 120; frame++) {
-        UpdatePlayerWithInput(&player, 1.0f / 60.0f, &forward);
+        UpdatePlayerWithWorld(&player, 1.0f / 60.0f, &forward,
+                              &testPlayerWorldOps);
     }
     float distance = player.position.z - 0.5f;
     assert(distance > 5.0f && distance < 6.1f);
@@ -575,7 +624,8 @@ static void TestSwimmingSpeedAndAscent(void)
     PlayerInput ascend = { .vertical = 1.0f, .jumpPressed = true };
     for (int frame = 0; frame < 120; frame++) {
         ascend.jumpPressed = frame == 0;
-        UpdatePlayerWithInput(&player, 1.0f / 60.0f, &ascend);
+        UpdatePlayerWithWorld(&player, 1.0f / 60.0f, &ascend,
+                              &testPlayerWorldOps);
     }
     assert(player.position.y > 3.01f);
 }

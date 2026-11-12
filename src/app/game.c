@@ -686,7 +686,8 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
         }
     } else if (!game->perfMode && !inputBlocked) {
         game->appliedPlayerInput = GameReadPlayerInput(game);
-        UpdatePlayerWithInput(&game->player, dt, &game->appliedPlayerInput);
+        UpdatePlayerWithWorld(&game->player, dt, &game->appliedPlayerInput,
+                              &game->playerWorldOps);
         if (PlanetWorldIsActive()) {
             game->wasInSpace = false;
         } else {

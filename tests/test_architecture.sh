@@ -86,7 +86,8 @@ for player_header in \
     src/gameplay/player_input.h \
     src/gameplay/player_sensors.h \
     src/gameplay/player_motion.h \
-    src/gameplay/player_camera.h
+    src/gameplay/player_camera.h \
+    src/gameplay/player_world.h
 do
     [ -f "$player_header" ] || fail "missing focused player header: $player_header"
 done
@@ -108,6 +109,11 @@ fi
 if grep -nE '\b(GetMouseDelta|IsKeyDown|IsKeyPressed)\b' \
     src/gameplay/player.c; then
     fail "gameplay must consume InputFrame instead of polling physical input"
+fi
+
+if grep -nE '\b(MovePlayer|PlayerOverlapsWorld|PlayerWaterStateAt|WorldGravityScale|PlanetSurfaceAt|SurfaceBlockReadyAt|SpaceBlockReadyAt|WorldToChunkLocal)\b' \
+    src/gameplay/player.c; then
+    fail "player policy must use PlayerWorldOps for motion and environment queries"
 fi
 
 # Cross-domain rules intentionally target public/narrow interfaces and direct

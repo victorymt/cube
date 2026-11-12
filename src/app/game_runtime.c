@@ -431,6 +431,7 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
     runtime->chunkWorkerCount = runtime->settings.chunkWorkerCount;
   }
   PlayerResetRuntimeState(&runtime->player);
+  runtime->playerWorldOps = PlayerWorldOpsDefault();
   runtime->camera.up = (Vector3){0.0f, 1.0f, 0.0f};
   runtime->camera.fovy =
       CameraFovForHeight(runtime->player.position.y + EYE_HEIGHT);
