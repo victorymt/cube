@@ -130,6 +130,7 @@ make check-docs                 # 本文自身的链接、锚点与散文规则
 make test-cube-vertical-geometry-e2e  # Hyprland 下 legacy/cube 同一竖墙回放
 make test-cube-v30-reload-e2e       # fresh process 从 V30 恢复 cube backend
 make test-v30-cell-reload-e2e       # 植物供水单元与 undo/redo 跨进程恢复
+make test-cube-decorative-collision-e2e # 方块碰撞高度与真实行走输入一致
 ```
 
 规则清单本身在 `tests/test_architecture.sh`，本文只解释它为什么这样划；两者不一致时以脚本为准，并修本文。

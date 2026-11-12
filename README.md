@@ -338,6 +338,7 @@ make test-chunk-diagnostics-e2e
 # Independent 600-frame polar route, also included in that CI job:
 make test-polar-e2e
 make test-cube-vertical-geometry-e2e
+make test-cube-decorative-collision-e2e
 make test-cube-v30-reload-e2e
 make test-v30-cell-reload-e2e
 ```

@@ -79,3 +79,7 @@ The local iteration loop does not re-verify this ADR by rebuilding raylib.
 `make test-one` exercises the selected test against the existing vendored
 archive; `test-clean-root` remains the deliberate merge/release check that
 rebuilds raylib from an empty build root.
+
+The cube decoration-collision replay also uses that same vendored binary; it
+checks catalogue collision shapes through real scripted movement without adding
+a platform or raylib variant.

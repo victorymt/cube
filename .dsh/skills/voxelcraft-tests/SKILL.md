@@ -224,3 +224,8 @@ Use `make test-one TEST=<test_name>` during the local edit loop. Run the complet
 persistence, shared formats or other cross-component changes. `test-clean-root`
 and `test-ci` stay at merge/release boundaries and must not become the default
 response to every small fix.
+
+Collision changes need two layers: enumerate the relevant block-catalog shapes
+in the unit test (including zero-height decorations and a solid control), then
+exercise the scripted movement path in the matching Hyprland scene. Do not infer
+shape collisions only from a rendered mesh or from one hand-picked block.
