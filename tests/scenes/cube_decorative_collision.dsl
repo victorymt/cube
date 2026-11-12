@@ -36,4 +36,15 @@ wait until player.input_frames == 0 timeout 180
 assert player.position.z < 1.5
 
 block set 0 20 2 Air
+
+# The same collision query must not treat the curved floor as a horizontal
+# wall after landing. Sprint across several cube cells under normal gravity.
+fly off
+teleport 0 20 0 0 0
+input 0 0 0 0 180
+wait until player.input_frames == 0 timeout 300
+assert player.position.y > 8.95 && player.position.y < 9.05
+input 1 0 0 1 600
+wait until player.input_frames == 0 timeout 600
+assert player.position.z > 20.0
 exit 0

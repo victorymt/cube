@@ -1,7 +1,8 @@
 #!/bin/sh
-# Hyprland replay for cube decoration collision. The unit suite enumerates all
-# zero-height block families; this route proves a real Flower/Tall Grass edit is
-# passable while the same Stone edit remains solid.
+# Hyprland replay for cube block collision. The unit suite enumerates all
+# zero-height block families and body-corner overlap; this route proves real
+# Flower/Tall Grass edits are passable, Stone remains solid, and a grounded
+# player can sprint across the flat curved surface without sticking to it.
 set -eu
 
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)

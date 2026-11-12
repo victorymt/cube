@@ -24,6 +24,7 @@
 
 #define PLAYER_COLLISION_STEP 0.25f
 #define PLAYER_MAX_MOVE_SUBSTEPS 64u
+#define PLAYER_CUBE_COLLISION_SKIN 0.001f
 #define WATER_WALK_SPEED 3.0f
 #define WATER_SPRINT_SPEED 4.2f
 #define WATER_VERTICAL_SPEED 3.0f
@@ -287,7 +288,9 @@ static bool PlayerCubeBodyQuery(Vector3 position, WorldBlockBoxQuery *outBody)
             (double)position.y + (double)PLAYER_HEIGHT * 0.5, 0.0, 0.0,
             &centre)) return false;
     const Vector3 half = {
-        PLAYER_RADIUS, PLAYER_HEIGHT * 0.5f, PLAYER_RADIUS
+        PLAYER_RADIUS - PLAYER_CUBE_COLLISION_SKIN,
+        PLAYER_HEIGHT * 0.5f - PLAYER_CUBE_COLLISION_SKIN,
+        PLAYER_RADIUS - PLAYER_CUBE_COLLISION_SKIN
     };
     return WorldBlockBoxCollect(&centre, half, outBody);
 }

@@ -132,6 +132,23 @@ bool WorldBlockBoxCollect(const SurfacePose *pose, Vector3 halfSize,
                         fabsf(local.z) <= halfSize.z + 1e-6f)
                         overlaps = true;
                 }
+        /* The inverse containment test is required when the body is smaller
+         * than a cube cell: its corner can enter the cell while no cell corner
+         * enters the body and the body centre remains in the adjacent cell.
+         * Without this, a grounded player can sink into the floor and then get
+         * stuck because horizontal moves remain "inside" the same cell. */
+        for (int sx = -1; sx <= 1 && !overlaps; sx += 2)
+            for (int sy = -1; sy <= 1 && !overlaps; sy += 2)
+                for (int sz = -1; sz <= 1 && !overlaps; sz += 2) {
+                    SurfaceVector planet = SurfacePointFromLocal(&basis,
+                        (Vector3){ (float)sx * halfSize.x,
+                                   (float)sy * halfSize.y,
+                                   (float)sz * halfSize.z });
+                    SurfaceAddress owner;
+                    if (SurfaceCellFromPoint(pose->bodyId, planet, &owner) &&
+                        SurfaceAddressEqual(owner, cell))
+                        overlaps = true;
+                }
         if (!overlaps) {
             /* The body centre may sit inside the cell even when no corner is
              * inside the body (a body smaller than one cell). */

@@ -113,6 +113,26 @@ static void TestNoDuplicates(void)
                                         query.cells[j].at.surface));
 }
 
+static void TestBodyCornerInsideCell(void)
+{
+    SurfacePose pose;
+    assert(SurfacePoseFromGeographic(0, 0.0, 0.0, 10.5, 0.0, 0.0, &pose));
+    WorldBlockBoxQuery query;
+    assert(WorldBlockBoxCollect(
+        &pose, (Vector3){0.3f, 0.6f, 0.3f}, &query));
+    SurfaceAddress centre;
+    assert(SurfaceCellFromPoint(0, pose.position, &centre));
+    bool sawBelow = false;
+    for (unsigned i = 0; i < query.count; i++) {
+        const SurfaceAddress cell = query.cells[i].at.surface;
+        if (cell.radial + 1 == centre.radial) sawBelow = true;
+    }
+    /* The body centre is in the upper cell and no lower-cell corner reaches its
+     * narrower X/Z extent, but the body's bottom corners are inside the lower
+     * cell. The overlap must therefore include the cell below. */
+    assert(sawBelow);
+}
+
 static void TestRadialExtent(void)
 {
     /* A tall box must also reach cells above and below the centre. Half-height
@@ -158,6 +178,7 @@ int main(void)
     TestExactVolume();
     TestCapacityIsRespected();
     TestNoDuplicates();
+    TestBodyCornerInsideCell();
     TestRadialExtent();
     TestInvalidInputRejected();
     assert(WorldInstallSurfaceSnapshot(NULL));
