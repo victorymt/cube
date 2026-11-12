@@ -519,7 +519,10 @@ Vector3 FlatForward(float yaw)
 
 Vector3 RightFromYaw(float yaw)
 {
-    return Vector3Normalize((Vector3){ cosf(yaw), 0.0f, -sinf(yaw) });
+    /* Match the camera's screen-right basis: cross(forward, world-up). The
+     * opposite convention made D move left while the camera still looked in
+     * the ForwardFromAngles() direction. */
+    return Vector3Normalize((Vector3){ -cosf(yaw), 0.0f, sinf(yaw) });
 }
 
 float CameraHeightFactor(float eyeHeight)

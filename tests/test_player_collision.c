@@ -523,6 +523,20 @@ static void TestWaterStateUsesActualColumnSurface(void)
     assert(water.eyeDepth == 0.0f);
 }
 
+static void TestRightVectorMatchesCameraFrame(void)
+{
+    const float yaws[] = {0.0f, PI * 0.25f, PI * 0.5f, PI,
+                          -PI * 0.5f, 2.0f};
+    for (size_t index = 0; index < sizeof(yaws) / sizeof(yaws[0]); index++) {
+        Vector3 forward = FlatForward(yaws[index]);
+        Vector3 expected = Vector3Normalize(Vector3CrossProduct(
+            forward, (Vector3){0.0f, 1.0f, 0.0f}));
+        Vector3 right = RightFromYaw(yaws[index]);
+        assert(Vector3Distance(right, expected) < 1.0e-6f);
+        assert(fabsf(Vector3DotProduct(right, forward)) < 1.0e-6f);
+    }
+}
+
 static void TestSwimmingSpeedAndAscent(void)
 {
     ResetCollisionWorld();
@@ -679,6 +693,7 @@ static void TestCubeMoveIsPhysical(void)
 int main(void)
 {
     ResetCollisionWorld();
+    TestRightVectorMatchesCameraFrame();
     partialSolidHeight = 0.25f;
     assert(PlayerOverlapsWorld((Vector3){ 0.5f, 1.1f, 0.5f }));
     assert(!PlayerOverlapsWorld((Vector3){ 0.5f, 1.26f, 0.5f }));

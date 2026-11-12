@@ -63,7 +63,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-architecture test-build-prerequisites test-test-manifest test-simulation-replay test-ci test-clean-root test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e test-debug-fields-e2e test-cube-tree-generation-e2e test-long-run test-declarations-backlog benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-one test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-architecture test-build-prerequisites test-test-manifest test-simulation-replay test-ci test-clean-root test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e test-debug-fields-e2e test-cube-tree-generation-e2e test-player-strafe-direction-e2e test-long-run test-declarations-backlog benchmark-chunks release-linux release-check clean FORCE
 
 # The vendored raylib is a prerequisite rather than a checked precondition: the
 # build either produces it or fails while producing it. There is no state in
@@ -142,6 +142,15 @@ components: $(MODULE_ARCHIVES)
 test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli test-debug-stdin-protocol test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-test-manifest test-build-prerequisites
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS=$(TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
 	@sh tests/test_architecture.sh
+
+# Build and run one registered test without widening to the complete manifest.
+# Use this for local iteration; escalate to `test` when the change crosses a
+# public contract, scheduler, build graph or other multi-component boundary.
+test-one:
+	@test -n "$(TEST)" || { echo "test-one requires TEST=<test_binary_name>" >&2; exit 2; }
+	@test -f "tests/$(TEST).c" || { echo "tests/$(TEST).c does not exist" >&2; exit 2; }
+	@$(MAKE) --no-print-directory $(TEST_BUILD_DIR)/$(TEST)
+	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS=$(TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_BUILD_DIR)/$(TEST)
 
 # The default CFLAGS carry no -Werror, but CI passes its own flags with it, so a
 # warning in production code passed locally and failed on CI. Sweeping src here
@@ -266,6 +275,7 @@ test-e2e: $(TARGET) $(BUILD_DIR)/diagnostics-plugins/diagnostics.so
 	bash tests/test_debug_fields_e2e.sh $(TARGET)
 	bash tests/test_cube_vertical_geometry_e2e.sh $(TARGET)
 	bash tests/test_cube_tree_generation_e2e.sh $(TARGET)
+	bash tests/test_player_strafe_direction_e2e.sh $(TARGET)
 	bash tests/test_cube_v30_reload_e2e.sh $(TARGET)
 	bash tests/test_v30_cell_reload_e2e.sh $(TARGET)
 
@@ -299,6 +309,10 @@ test-debug-graphics-e2e: $(TARGET)
 .PHONY: test-cube-tree-generation-e2e
 test-cube-tree-generation-e2e: $(TARGET)
 	bash tests/test_cube_tree_generation_e2e.sh $(TARGET)
+
+.PHONY: test-player-strafe-direction-e2e
+test-player-strafe-direction-e2e: $(TARGET)
+	bash tests/test_player_strafe_direction_e2e.sh $(TARGET)
 
 .PHONY: test-render-debug-modes-e2e
 test-render-debug-modes-e2e: $(TARGET)
