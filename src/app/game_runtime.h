@@ -13,7 +13,7 @@
 #include "app/input_source.h"
 #include "app/game_debug_trace.h"
 #include "space/planet_profile.h"
-#include "gameplay/player.h"
+#include "gameplay/player_input.h"
 #include "gameplay/inventory.h"
 #include "gameplay/ship.h"
 #include "world/block_type.h"

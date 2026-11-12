@@ -78,6 +78,38 @@ core_domain_symbols=$(
     fail "core headers must not reference domain symbols; take them as parameters"
 }
 
+# Player's long-lived state, commands, sensor results, camera utilities and
+# world queries have different lifecycles. Keep the type headers separated so
+# a consumer does not pull the whole player/world stack for one value.
+for player_header in \
+    src/gameplay/interaction_types.h \
+    src/gameplay/player_input.h \
+    src/gameplay/player_sensors.h \
+    src/gameplay/player_motion.h \
+    src/gameplay/player_camera.h
+do
+    [ -f "$player_header" ] || fail "missing focused player header: $player_header"
+done
+
+if grep -nE '#include "world/' \
+    src/gameplay/player_types.h src/gameplay/player.h; then
+    fail "player state/update headers must not include world headers"
+fi
+
+if grep -n 'HitResult' src/gameplay/player_types.h; then
+    fail "HitResult belongs to gameplay/interaction_types.h"
+fi
+
+if grep -nE '\b(MovePlayer|PlayerOverlapsWorld|PlayerWaterStateAt|UpdatePlayerCamera|PlayerCameraPositionInsideSolid|PlayerFindLandingSpot)\b' \
+    src/gameplay/player.h; then
+    fail "player.h must stay focused on player update/reset policy"
+fi
+
+if grep -nE '\b(GetMouseDelta|IsKeyDown|IsKeyPressed)\b' \
+    src/gameplay/player.c; then
+    fail "gameplay must consume InputFrame instead of polling physical input"
+fi
+
 # Cross-domain rules intentionally target public/narrow interfaces and direct
 # bypasses only. Terrain/entity implementations may still consume narrow
 # contracts from another domain; a full include ban would reject valid seams.

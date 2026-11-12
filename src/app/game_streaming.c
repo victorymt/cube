@@ -1,5 +1,6 @@
 #include "app/game_runtime.h"
 #include "ecology/entity.h"
+#include "gameplay/player_camera.h"
 #include "gameplay/ship.h"
 #include "space/space_chunks.h"
 #include "space/space_runtime.h"

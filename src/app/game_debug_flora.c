@@ -1,7 +1,7 @@
 #include "app/game_debug_flora.h"
 
 #include "app/game_runtime.h"
-#include "gameplay/player.h"
+#include "gameplay/player_motion.h"
 #include "world/flora_taxa.h"
 #include "world/chunks.h"
 #include "world/terrain.h"

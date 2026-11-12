@@ -5,6 +5,7 @@
 #include "core/simulation_clock.h"
 #include "ecology/ecology.h"
 #include "ecology/entity.h"
+#include "gameplay/player_sensors.h"
 #include "presentation/homeworld_map.h"
 #include "presentation/render.h"
 #include "space/space_runtime.h"

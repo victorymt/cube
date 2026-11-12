@@ -1,7 +1,7 @@
 #include "app/game_coverage_evidence.h"
 
 #include "app/game_runtime.h"
-#include "gameplay/player.h"
+#include "gameplay/player_motion.h"
 #include "world/chunks_cube.h"
 #include "world/world_environment.h"
 

@@ -1,4 +1,5 @@
 #include "app/game_internal.h"
+#include "gameplay/player_sensors.h"
 #include "presentation/render.h"
 #include "presentation/render_ui.h"
 #include "space/planet_atmosphere.h"

@@ -13,6 +13,7 @@
 #include "gameplay/inventory.h"
 #include "gameplay/map_markers.h"
 #include "gameplay/player.h"
+#include "gameplay/player_camera.h"
 #include "gameplay/ship.h"
 #include "gameplay/ship_locator.h"
 #include "space/space_chunks.h"

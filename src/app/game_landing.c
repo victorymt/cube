@@ -6,6 +6,7 @@
 #include "core/game_notice.h"
 #include "ecology/ecology.h"
 #include "presentation/render.h"
+#include "gameplay/player_motion.h"
 #include "gameplay/ship.h"
 #include "space/space_query.h"
 #include "space/space_state.h"

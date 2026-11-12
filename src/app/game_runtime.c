@@ -2,6 +2,7 @@
 
 #include "core/game_notice.h"
 #include "gameplay/player.h"
+#include "gameplay/player_camera.h"
 #include "world/chunks.h"
 #include "world/world_surface_snapshot.h"
 

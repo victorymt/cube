@@ -2,6 +2,7 @@
 #define VOXELCRAFT_INTERACTION_H
 
 #include "world/block_type.h"
+#include "gameplay/interaction_types.h"
 #include "gameplay/player_types.h"
 #include "gameplay/ui_types.h"
 

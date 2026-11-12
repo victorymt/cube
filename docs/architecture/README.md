@@ -33,7 +33,7 @@ new physical-simulation stages.
 | 23 | [documentation truth gate (2026-10-24)](23-doc-truth-gate-2026-10-24.md) | why a green prose gate coexisted with three false documents, the `docs/doc-claims.json` registry, stale detection by commit comparison, and what the runtime probe costs |
 | 24 | [world type decoupling (2026-10-25)](24-world-type-decoupling-2026-10-25.md) | `world_types.h` and `surface_topology.h` split into focused type headers with measured rebuild radius; two targets missed and one phase abandoned after measurement, all recorded |
 | 25 | [test honesty pass (2026-10-25)](25-test-honesty-2026-10-25.md) | CI was red while local runs were green, one gate guarded the previous split, a documented invariant was a literal, and six tests existed that nothing invoked |
-| 26 | [player/world-topology decoupling analysis (2026-11-12)](26-player-world-topology-decoupling-analysis-2026-11-12.md) | static dependency audit of Player movement/input/sensors/camera, cube-versus-legacy semantic differences, feasibility options and a staged migration plan; no gameplay code changed |
+| 26 | [player/world-topology decoupling analysis (2026-11-12)](26-player-world-topology-decoupling-analysis-2026-11-12.md) | static dependency audit of Player movement/input/sensors/camera, cube-versus-legacy semantic differences, feasibility options and a staged migration plan; its P0 type/input split is implemented in the follow-up |
 
 Programmatic-generation review: [2026-11-12 procedural generation analysis](../procedural-generation-analysis-2026-11-12.md) records the current generation pipeline, determinism model, content gaps and suggested order.
 

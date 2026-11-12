@@ -5,6 +5,7 @@
 #include "core/perf.h"
 #include "core/simulation_time.h"
 #include "gameplay/interaction_cube.h"
+#include "gameplay/player_sensors.h"
 #include "gameplay/ship.h"
 #include "presentation/audio.h"
 #include "presentation/effect_dispatch.h"

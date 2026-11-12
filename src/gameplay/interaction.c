@@ -7,7 +7,6 @@
 #include "world/block_types.h"
 #include "world/world_state.h"
 #include "world/terrain.h"
-#include "gameplay/player.h"
 #include "space/space_chunks.h"
 #include "world/world_environment.h"
 #include "world/cube_raycast.h"
@@ -24,8 +23,6 @@
 
 #include "world/chunks.h"
 #include "world/terrain.h"
-#include "gameplay/player.h"
-
 #define RAYCAST_MAX_STEPS 4096u
 
 static bool RaycastPrepare(Vector3 origin, Vector3 *direction,

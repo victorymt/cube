@@ -37,6 +37,8 @@
 #include "world/block_atlas.h"
 #include "world/chunks.h"
 #include "gameplay/player.h"
+#include "gameplay/player_camera.h"
+#include "gameplay/player_sensors.h"
 #include "gameplay/interaction.h"
 #include "gameplay/album.h"
 #include "gameplay/discovery.h"

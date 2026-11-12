@@ -2,7 +2,6 @@
 #define VOXELCRAFT_PLAYER_TYPES_H
 
 #include "core/config.h"
-#include "world/world_location.h"
 
 #include "raylib.h"
 
@@ -19,18 +18,5 @@ typedef struct Player {
     bool wasInWater;
     float stepTimer;
 } Player;
-
-typedef struct HitResult {
-    bool hit;
-    int x;
-    int y;
-    int z;
-    int nx;
-    int ny;
-    int nz;
-    bool hasAddress;
-    WorldBlockAddress address;
-    WorldBlockSide enteringSide;
-} HitResult;
 
 #endif

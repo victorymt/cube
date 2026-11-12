@@ -43,7 +43,6 @@
 #include "app/game_world_transition.h"
 #include "gameplay/interaction.h"
 #include "gameplay/map_markers.h"
-#include "gameplay/player.h"
 #include "gameplay/ship.h"
 #include "presentation/homeworld_map.h"
 #include "presentation/import_dialog_ui.h"

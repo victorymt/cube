@@ -9,6 +9,9 @@
 #include "world/block_types.h"
 #include "world/block_edits.h"
 #include "gameplay/interaction.h"
+#include "gameplay/player_camera.h"
+#include "gameplay/player_motion.h"
+#include "gameplay/player_sensors.h"
 #include "gameplay/ship.h"
 #include "space/space_chunks.h"
 #include "space/space_query.h"
@@ -778,29 +781,6 @@ PlayerWaterState PlayerWaterStateAt(Vector3 position)
     return state;
 }
 
-PlayerInput PlayerInputFromKeyboard(void)
-{
-    Vector2 lookDelta = GetMouseDelta();
-    if (IsKeyDown(KEY_RIGHT)) lookDelta.x += KEYBOARD_LOOK_SPEED;
-    if (IsKeyDown(KEY_LEFT)) lookDelta.x -= KEYBOARD_LOOK_SPEED;
-    if (IsKeyDown(KEY_DOWN)) lookDelta.y += KEYBOARD_LOOK_SPEED;
-    if (IsKeyDown(KEY_UP)) lookDelta.y -= KEYBOARD_LOOK_SPEED;
-
-    PlayerInput input = {
-        .forward = (IsKeyDown(KEY_W) ? 1.0f : 0.0f) -
-                   (IsKeyDown(KEY_S) ? 1.0f : 0.0f),
-        .strafe = (IsKeyDown(KEY_D) ? 1.0f : 0.0f) -
-                  (IsKeyDown(KEY_A) ? 1.0f : 0.0f),
-        .vertical = (IsKeyDown(KEY_SPACE) ? 1.0f : 0.0f) -
-                    (IsKeyDown(KEY_LEFT_CONTROL) ? 1.0f : 0.0f),
-        .sprint = IsKeyDown(KEY_LEFT_SHIFT),
-        .jumpPressed = IsKeyPressed(KEY_SPACE),
-        .toggleFloating = IsKeyPressed(KEY_F),
-        .lookDelta = lookDelta
-    };
-    return input;
-}
-
 static float PlayerApproach(float current, float target, float dt,
                             float response)
 {
@@ -938,10 +918,4 @@ void UpdatePlayerWithInput(Player *player, float dt, const PlayerInput *input)
             }
         }
     }
-}
-
-void UpdatePlayer(Player *player, float dt)
-{
-    PlayerInput input = PlayerInputFromKeyboard();
-    UpdatePlayerWithInput(player, dt, &input);
 }

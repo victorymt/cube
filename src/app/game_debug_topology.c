@@ -3,6 +3,7 @@
 #include "app/game_runtime.h"
 #include "core/debug_control.h"
 #include "gameplay/player.h"
+#include "gameplay/player_motion.h"
 #include "world/chunks.h"
 #include "world/surface_topology.h"
 #include "presentation/homeworld_map.h"

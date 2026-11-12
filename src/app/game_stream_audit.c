@@ -3,6 +3,7 @@
 #include "app/game_runtime.h"
 #include "app/game_coverage_evidence.h"
 #include "core/debug_control.h"
+#include "gameplay/player_motion.h"
 #include "world/chunks.h"
 #include "world/block_types.h"
 #include "world/block_edits.h"

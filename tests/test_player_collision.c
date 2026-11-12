@@ -1,4 +1,8 @@
 #include "gameplay/player.h"
+#include "gameplay/player_camera.h"
+#include "gameplay/player_input.h"
+#include "gameplay/player_motion.h"
+#include "gameplay/player_sensors.h"
 
 #include "world/block_catalog.h"
 #include "world/fluid.h"

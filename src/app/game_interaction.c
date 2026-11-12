@@ -13,6 +13,8 @@
 #include "world/fluid.h"
 #include "app/game_runtime.h"
 #include "gameplay/interaction.h"
+#include "gameplay/player_camera.h"
+#include "gameplay/player_motion.h"
 #include "gameplay/inventory.h"
 #include "presentation/particles.h"
 #include "gameplay/player.h"

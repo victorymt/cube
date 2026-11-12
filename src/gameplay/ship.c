@@ -9,7 +9,7 @@
 
 #include "raymath.h"
 #include "world/block_edits.h"
-#include "gameplay/player.h"
+#include "gameplay/player_motion.h"
 #include "space/space_chunks.h"
 #include "space/space_query.h"
 #include "space/space_state.h"

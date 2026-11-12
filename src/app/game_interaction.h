@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_GAME_INTERACTION_H
 #define VOXELCRAFT_GAME_INTERACTION_H
 
+#include "gameplay/interaction_types.h"
 #include "gameplay/ship.h"
 #include "space/space_types.h"
 
