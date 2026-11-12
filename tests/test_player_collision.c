@@ -635,6 +635,30 @@ static void TestCubeDecorationBlocksArePassable(void)
     cubeSurface = false;
 }
 
+static void TestCubeReadinessUsesPhysicalBodyCells(void)
+{
+    cubeSurface = true;
+    cubeTerrainKnown = false;
+    surfaceReady = true; /* Stub says the legacy map column is ready. */
+
+    SurfacePose pose;
+    assert(SurfacePoseFromGeographic(0, 0.0, 0.0, 40.0, 0.0, 0.0, &pose));
+    Vector3 position;
+    assert(PlayerLocalFromSurfacePose(&pose, &position));
+
+    /* The cube body has unknown cells, so readiness must agree with collision
+     * even though the legacy SurfaceBlockReadyAt stub returns true. */
+    assert(PlayerMissingSurfaceChunkCount(position) > 0);
+    assert(PlayerOverlapsWorld(position));
+
+    cubeTerrainKnown = true;
+    cubeGroundRadial = -100000;
+    assert(PlayerMissingSurfaceChunkCount(position) == 0);
+    assert(!PlayerOverlapsWorld(position));
+    cubeOverrideEnabled = false;
+    cubeSurface = false;
+}
+
 /* Cube movement must be physical: the same input travels the same distance in
  * blocks regardless of latitude. Stepping in map cells would make it shrink
  * with latitude, which is exactly the defect this path replaces. */
@@ -759,6 +783,7 @@ int main(void)
     InstallPlayerCubeContract();
     TestCubeOverlapBranch();
     TestCubeDecorationBlocksArePassable();
+    TestCubeReadinessUsesPhysicalBodyCells();
     TestCubeGroundedPlayerWalks();
     TestCubeHeightSurvivesMovement();
     TestCubeMoveIsPhysical();

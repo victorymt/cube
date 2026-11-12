@@ -43,6 +43,8 @@ typedef struct PlayerCollisionBounds {
     int maxZ;
 } PlayerCollisionBounds;
 
+static bool PlayerCubeBodyQuery(Vector3 position, WorldBlockBoxQuery *outBody);
+
 void PlayerResetRuntimeState(Player *player)
 {
     if (!player) return;
@@ -110,6 +112,36 @@ static int PlayerChunkCoordinate(int blockCoordinate)
 
 int PlayerMissingSurfaceChunkCount(Vector3 position)
 {
+    if (WorldIsSurfaceActive() &&
+        SurfaceContractSupportsPhysicalPose(WorldCurrentSurfaceContract())) {
+        WorldBlockBoxQuery body;
+        if (!PlayerCubeBodyQuery(position, &body)) return 1;
+        const SurfaceContract *contract = WorldCurrentSurfaceContract();
+        SurfaceChunkHandle missing[WORLD_BLOCK_BOX_MAX_CELLS];
+        unsigned missingCount = 0u;
+        for (unsigned i = 0; i < body.count; i++) {
+            WorldCell cell;
+            if (SurfaceContractCellRead(
+                    contract, body.cells[i].at.surface, &cell)) continue;
+            SurfaceChunkHandle chunk;
+            if (!SurfaceContractChunkFromAddress(
+                    contract, body.cells[i].at.surface, &chunk)) {
+                missingCount++;
+                continue;
+            }
+            bool seen = false;
+            for (unsigned j = 0; j < missingCount; j++) {
+                if (SurfaceContractChunkEqual(contract, missing[j], chunk)) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen && missingCount < WORLD_BLOCK_BOX_MAX_CELLS)
+                missing[missingCount++] = chunk;
+        }
+        return (int)missingCount;
+    }
+
     PlayerCollisionBounds bounds;
     if (!PlayerCollisionBoundsAt(position, &bounds)) return 0;
     int surfaceY = INT_MIN;
@@ -226,25 +258,8 @@ static bool PlayerCubeKnown(const WorldBlockBoxQuery *box, void *user)
 
 static bool PlayerOverlapsCubeWorld(Vector3 position)
 {
-    if (position.y < (float)SURFACE_MIN_Y ||
-        position.y + PLAYER_HEIGHT > (float)SURFACE_MAX_Y_EXCLUSIVE)
-        return true;
-    WorldSurfaceContext context = WorldCurrentSurfaceContext();
-    if (!context.active) return true;
-    SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
-        (float)context.originX + position.x,
-        (float)context.originZ + position.z);
-    SurfacePose centre;
-    if (!SurfacePoseFromGeographic(context.bodyId,
-            (double)projection.longitude, (double)projection.latitude,
-            (double)position.y + (double)PLAYER_HEIGHT * 0.5, 0.0, 0.0,
-            &centre)) return true;
-    const Vector3 half = {
-        PLAYER_RADIUS, PLAYER_HEIGHT * 0.5f, PLAYER_RADIUS
-    };
-
     WorldBlockBoxQuery body;
-    if (!WorldBlockBoxCollect(&centre, half, &body)) {
+    if (!PlayerCubeBodyQuery(position, &body)) {
         /* An unenumerable body box means the cells could not be resolved. Keep
          * the legacy rule: blocked on foot, passable while driving a ship. */
         return !ShipIsDriving();
@@ -253,6 +268,28 @@ static bool PlayerOverlapsCubeWorld(Vector3 position)
      * streamed frontier; a ship may keep moving while chunks catch up. */
     if (!PlayerCubeKnown(&body, NULL)) return !ShipIsDriving();
     return PlayerCubeSolid(&body, NULL);
+}
+
+static bool PlayerCubeBodyQuery(Vector3 position, WorldBlockBoxQuery *outBody)
+{
+    if (!outBody) return false;
+    if (position.y < (float)SURFACE_MIN_Y ||
+        position.y + PLAYER_HEIGHT > (float)SURFACE_MAX_Y_EXCLUSIVE)
+        return false;
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    if (!context.active) return false;
+    SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
+        (float)context.originX + position.x,
+        (float)context.originZ + position.z);
+    SurfacePose centre;
+    if (!SurfacePoseFromGeographic(context.bodyId,
+            (double)projection.longitude, (double)projection.latitude,
+            (double)position.y + (double)PLAYER_HEIGHT * 0.5, 0.0, 0.0,
+            &centre)) return false;
+    const Vector3 half = {
+        PLAYER_RADIUS, PLAYER_HEIGHT * 0.5f, PLAYER_RADIUS
+    };
+    return WorldBlockBoxCollect(&centre, half, outBody);
 }
 
 bool PlayerOverlapsWorld(Vector3 position)
