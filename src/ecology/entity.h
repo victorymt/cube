@@ -2,7 +2,7 @@
 #define VOXELCRAFT_ENTITY_H
 
 #include "world/block_type.h"
-#include "gameplay/player_types.h"
+#include "world/actor_body.h"
 #include "ecology/ecology.h"
 #include "ecology/evolution.h"
 #include "ecology/fauna_behavior.h"
@@ -152,7 +152,7 @@ typedef struct EntityEvolutionDebugInfo {
 } EntityEvolutionDebugInfo;
 
 void EntitiesInit(void);
-void EntitiesUpdate(float dt, const Player *player, float daylight,
+void EntitiesUpdate(float dt, const ActorBody *player, float daylight,
                     double simulationTime);
 void EntitiesApplyWeatherHazards(float dt, WeatherFieldSample weather,
                                  float daylight);

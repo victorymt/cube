@@ -2,7 +2,7 @@
 #define VOXELCRAFT_SHIP_H
 
 #include "world/block_type.h"
-#include "gameplay/player_types.h"
+#include "world/actor_body.h"
 #include "gameplay/ship_locator.h"
 
 #include <stdio.h>
@@ -41,15 +41,15 @@ typedef struct ParkedShip {
     bool legacy;
 } ParkedShip;
 
-bool ShipTryEnter(int x, int y, int z, Player *player);
-bool ShipBeginDebugFlight(Player *player);
+bool ShipTryEnter(int x, int y, int z, ActorBody *player);
+bool ShipBeginDebugFlight(ActorBody *player);
 ShipDirection ShipDirectionFromYaw(float yaw);
 BlockType ShipCoreBlockForDirection(ShipDirection direction);
 bool ShipBlockIsParkedCore(BlockType type);
 bool ShipBlockIsOccupied(BlockType type);
 bool ShipResolveParkedAt(int x, int y, int z, ParkedShip *out);
 bool ShipCanPlaceParked(int coreX, int coreY, int coreZ,
-                        ShipDirection direction, const Player *player);
+                        ShipDirection direction, const ActorBody *player);
 bool ShipPlaceParked(int coreX, int coreY, int coreZ,
                      ShipDirection direction, bool recordUndo);
 bool ShipRemoveParkedAt(int x, int y, int z, bool recordUndo);
@@ -77,8 +77,8 @@ float ShipTargetBrakingDistance(void);
 float ShipTargetEtaSeconds(void);
 float ShipInterstellarWarpVisualIntensity(void);
 float ShipDriveTunnelIntensity(void);
-bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ);
-void ShipToggleNavigation(Player *player);
+bool ShipBeginSystemWarp(ActorBody *player, int systemAnchorX, int systemAnchorZ);
+void ShipToggleNavigation(ActorBody *player);
 void ShipReset(void);
 float ShipGetFuel(void);
 /* Consume fuel atomically; invalid or insufficient amounts return false. */
@@ -90,19 +90,19 @@ void ShipTrackParkedAt(int x, int y, int z);
 void ShipForgetParkedAt(int x, int y, int z);
 bool ShipLocatorTargetAt(Vector3 observer, ShipLocatorTarget *out);
 void ShipToggleCruise(void);
-void ShipUpdate(Player *player, float dt);
-void ShipUpdateWithInput(Player *player, float dt,
+void ShipUpdate(ActorBody *player, float dt);
+void ShipUpdateWithInput(ActorBody *player, float dt,
                          const ShipControlInput *input);
-bool ShipExit(Player *player);
-bool ShipForceExit(Player *player);
+bool ShipExit(ActorBody *player);
+bool ShipForceExit(ActorBody *player);
 void ShipLoadModel(void);
 void ShipCleanup(void);
-void ShipDraw(const Player *player);
+void ShipDraw(const ActorBody *player);
 void ShipResetVisualEffects(void);
 float ShipVisualExhaustIntensity(void);
-bool ShipSetDebugExhaust(const Player *player, float demand);
-void ShipUpdateLandingEffects(const Player *player, float dt,
+bool ShipSetDebugExhaust(const ActorBody *player, float demand);
+void ShipUpdateLandingEffects(const ActorBody *player, float dt,
                               float descentProgress);
-void ShipEmitTouchdownDust(const Player *player);
+void ShipEmitTouchdownDust(const ActorBody *player);
 
 #endif

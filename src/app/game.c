@@ -37,6 +37,7 @@
 #include "world/block_atlas.h"
 #include "world/chunks.h"
 #include "gameplay/player.h"
+#include "gameplay/player_actor.h"
 #include "gameplay/player_camera.h"
 #include "gameplay/player_sensors.h"
 #include "gameplay/interaction.h"
@@ -417,7 +418,9 @@ static void GameUpdateViewModes(GameRuntime *game)
         if (!WorldIsSpaceActive() ||
             !LandingTransitionBegin(&game->landingTransition,
                                     &game->player)) {
-            ShipExit(&game->player);
+            ActorBody ship = PlayerActorBody(&game->player);
+            ShipExit(&ship);
+            PlayerApplyActorBody(&game->player, &ship);
         }
     }
     bool openedHomeMap = false;
@@ -457,8 +460,10 @@ static void GameUpdateViewModes(GameRuntime *game)
         SolarSystemDef destination = { 0 };
         StarMapUpdate(game->player.position);
         if (StarMapConsumeTravel(&destination)) {
-            ShipBeginSystemWarp(&game->player, destination.anchorX,
+            ActorBody ship = PlayerActorBody(&game->player);
+            ShipBeginSystemWarp(&ship, destination.anchorX,
                                 destination.anchorZ);
+            PlayerApplyActorBody(&game->player, &ship);
             StarMapClose();
             game->cursorReleased = false;
             DisableCursor();
@@ -677,9 +682,13 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
                 game->scriptedShipInputFrames -= consumed;
                 game->scriptedShipInputFrameCarry -= (float)consumed;
             }
-            ShipUpdateWithInput(&game->player, dt, &input);
+            ActorBody ship = PlayerActorBody(&game->player);
+            ShipUpdateWithInput(&ship, dt, &input);
+            PlayerApplyActorBody(&game->player, &ship);
         } else {
-            ShipUpdate(&game->player, dt);
+            ActorBody ship = PlayerActorBody(&game->player);
+            ShipUpdate(&ship, dt);
+            PlayerApplyActorBody(&game->player, &ship);
         }
         if (GameWorldTransitionTryLaunch(&game->player)) {
             game->wasInSpace = true;
@@ -706,9 +715,13 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
         }
     }
     if (!game->landingTransition.active && WorldIsSpaceActive() &&
-        !StarMapIsOpen() && SpaceRebasePlayer(&game->player)) {
-        // Particles are cosmetic local-frame data; discard the old frame.
-        ParticlesClear();
+        !StarMapIsOpen()) {
+        ActorBody actor = PlayerActorBody(&game->player);
+        if (SpaceRebaseActor(&actor)) {
+            PlayerApplyActorBody(&game->player, &actor);
+            // Particles are cosmetic local-frame data; discard the old frame.
+            ParticlesClear();
+        }
     }
     if (WorldCanonicalizeSurfacePose(
             &game->player.position, &game->player.velocity,
@@ -772,7 +785,10 @@ static void GameRenderWorldPass(GameRuntime *game,
         EntityRendererDrawInterpolated(EntitiesView(), MAX_ENTITIES, entityAlpha);
     }
     // The ship model is only useful as an exterior reference.
-    if (ShipIsDriving() && game->thirdPerson) ShipDraw(&game->player);
+    if (ShipIsDriving() && game->thirdPerson) {
+        ActorBody ship = PlayerActorBody(&game->player);
+        ShipDraw(&ship);
+    }
     if (!frame->underwater) {
         DrawHomePlanet(&game->camera, frame->spaceFade);
         if (game->showOrbitTrajectories) {

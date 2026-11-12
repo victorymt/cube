@@ -13,6 +13,7 @@
 #include "world/fluid.h"
 #include "app/game_runtime.h"
 #include "gameplay/interaction.h"
+#include "gameplay/player_actor.h"
 #include "gameplay/player_camera.h"
 #include "gameplay/player_motion.h"
 #include "gameplay/inventory.h"
@@ -394,11 +395,12 @@ static void GamePreparePlacement(GameRuntime *game, bool inputBlocked,
             context->placeZ = context->hit.z + context->hit.nz;
         }
         if (game->hotbar[game->selectedIndex] == BLOCK_SPACESHIP) {
+            ActorBody ship = PlayerActorBody(&game->player);
             context->canPlace =
                 InventoryCount(BLOCK_SPACESHIP) > 0 &&
                 ShipCanPlaceParked(
                     context->placeX, context->placeY, context->placeZ,
-                    context->placementDirection, &game->player);
+                    context->placementDirection, &ship);
         } else {
             BlockType selectedType = game->hotbar[game->selectedIndex];
             BlockType targetType = context->hasPlaceAddress
@@ -551,6 +553,15 @@ static bool GamePlaceSelectedBlock(GameRuntime *game,
     return false;
 }
 
+static bool GameTryEnterShip(GameRuntime *game, const HitResult *hit)
+{
+    if (!game || !hit || ShipIsDriving()) return false;
+    ActorBody ship = PlayerActorBody(&game->player);
+    if (!ShipTryEnter(hit->x, hit->y, hit->z, &ship)) return false;
+    PlayerApplyActorBody(&game->player, &ship);
+    return true;
+}
+
 static void GameHandleRightInteraction(
     GameRuntime *game, bool inputBlocked,
     GameInteractionContext *context)
@@ -565,9 +576,7 @@ static void GameHandleRightInteraction(
     BlockType targetType = GameHitBlockType(&context->hit);
     if (targetType == BLOCK_ALBUM) {
         GameOpenAlbumFromWorld(game);
-    } else if (!ShipIsDriving() &&
-               ShipTryEnter(context->hit.x, context->hit.y,
-                            context->hit.z, &game->player)) {
+    } else if (GameTryEnterShip(game, &context->hit)) {
     } else if (targetType == BLOCK_NETHER_PORTAL) {
         GameUseNetherPortal(game);
     } else if (targetType == BLOCK_DOOR || targetType == BLOCK_DOOR_OPEN) {

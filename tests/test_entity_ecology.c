@@ -168,7 +168,7 @@ static void LoadSimulation(FILE *file)
     assert(EntitiesLoadState(file));
 }
 
-static void PrepareEntityEcology(Player *player, double time, float daylight)
+static void PrepareEntityEcology(ActorBody *player, double time, float daylight)
 {
     unsigned batches = 0u;
     while (!PlanetEcologyAdvanceActiveRegionsBudgetedAt(
@@ -178,7 +178,7 @@ static void PrepareEntityEcology(Player *player, double time, float daylight)
     }
 }
 
-static void RunFrames(Player *player, int frameCount, float daylight)
+static void RunFrames(ActorBody *player, int frameCount, float daylight)
 {
     const float dt = 0.1f;
     for (int frame = 0; frame < frameCount; frame++) {
@@ -189,7 +189,7 @@ static void RunFrames(Player *player, int frameCount, float daylight)
     }
 }
 
-static void RunEntityFrames(Player *player, int frameCount, float daylight)
+static void RunEntityFrames(ActorBody *player, int frameCount, float daylight)
 {
     const float dt = 0.1f;
     double simulationTime = SpaceElapsedSimulationTime();
@@ -199,7 +199,7 @@ static void RunEntityFrames(Player *player, int frameCount, float daylight)
     }
 }
 
-static uint32_t ActivateFertilePlanet(Player *player, float daylight,
+static uint32_t ActivateFertilePlanet(ActorBody *player, float daylight,
                                      float *outFaunaActivity)
 {
     assert(player && outFaunaActivity);
@@ -306,7 +306,7 @@ static int EntityPopulationCapAt(int x, int z, float daylight)
         PlanetEcologyFaunaDensityAt(x, z, daylight), MAX_ENTITIES - 4);
 }
 
-static void PlacePlayerAt(Player *player, int x, int z)
+static void PlacePlayerAt(ActorBody *player, int x, int z)
 {
     assert(player);
     player->position = (Vector3){
@@ -316,7 +316,7 @@ static void PlacePlayerAt(Player *player, int x, int z)
     };
 }
 
-static void PrepareChunksAt(const Player *player)
+static void PrepareChunksAt(const ActorBody *player)
 {
     assert(player);
     UpdateChunks(&(ChunkStreamingRequest){
@@ -326,7 +326,7 @@ static void PrepareChunksAt(const Player *player)
     DrainChunkGen();
 }
 
-static int SettleEntitiesAtCurrentTime(Player *player, float daylight,
+static int SettleEntitiesAtCurrentTime(ActorBody *player, float daylight,
                                        int *outCap)
 {
     assert(player && outCap);
@@ -437,7 +437,7 @@ static int CollectFertileSites(FertileSite *sites, int maximumSites,
 }
 
 static void RunSeasonalEntityScenario(
-    const FertileSite *site, Player *player, float daylight,
+    const FertileSite *site, ActorBody *player, float daylight,
     EntityEcologyRunSummary *summary)
 {
     assert(site && player && summary);
@@ -539,7 +539,7 @@ static void TestCrossSeedSeasonalEntityProperties(void)
         EntitiesInit();
         UnloadAllChunks();
 
-        Player player = { 0 };
+        ActorBody player = { 0 };
         PlacePlayerAt(&player, site->x, site->z);
         PrepareChunksAt(&player);
         PlanetLocalEcology initial = PlanetEcologyLocalAt(
@@ -639,7 +639,7 @@ static float MaxNearbyHarvestPressure(int centerX, int centerZ,
     return maximum;
 }
 
-static void WaitForEntitySpawn(Player *player, float daylight)
+static void WaitForEntitySpawn(ActorBody *player, float daylight)
 {
     for (int frame = 0;
          frame < 10000 && GetActiveEntityCount() == 0; frame++) {
@@ -660,7 +660,7 @@ static int EntityEcologyRegionCenterLocal(int localCoordinate,
 static void TestEntityDeathCauseFeedback(void)
 {
     const float daylight = 0.72f;
-    Player player = { 0 };
+    ActorBody player = { 0 };
     float faunaActivity = 0.0f;
     uint32_t seed = ActivateFertilePlanet(
         &player, daylight, &faunaActivity);
@@ -772,7 +772,7 @@ static void TestCrossSeedEntityHarvestFeedback(void)
         EcologyTestSetSeed(site->seed);
         EcologyTestActivatePlanet(site->seed, 0, site->originZ);
         PlanetEcologyResetState();
-        Player player = { 0 };
+        ActorBody player = { 0 };
         PlacePlayerAt(&player, site->x, site->z);
         PrepareChunksAt(&player);
         EntitiesInit();
@@ -826,7 +826,7 @@ static void TestCrossSeedEntityHarvestFeedback(void)
 static void TestEntityEcologySystemReplay(void)
 {
     const float daylight = 0.72f;
-    Player player = { 0 };
+    ActorBody player = { 0 };
     float faunaActivity = 0.0f;
     uint32_t seed = ActivateFertilePlanet(
         &player, daylight, &faunaActivity);
@@ -1012,7 +1012,7 @@ static void TestHomeWorldEvolvableEntities(void)
     assert(PlanetEcologyCurrent().faunaDensity > 0.0f);
 
     assert(ChunksStartGenThread());
-    Player player = { 0 };
+    ActorBody player = { 0 };
     PlacePlayerAt(&player, 0, 0);
     PrepareChunksAt(&player);
     Chunk *spawnChunk = FindChunk(0, 0);

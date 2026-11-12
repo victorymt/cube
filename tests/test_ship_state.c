@@ -1,5 +1,6 @@
 #include "gameplay/ship.h"
 #include "gameplay/ship_navigation.h"
+#include "gameplay/player_types.h"
 #include "space/space.h"
 #include "raymath.h"
 
@@ -186,14 +187,14 @@ Vector3 SpacePhysicsBrakeVelocity(Vector3 velocity, float deceleration,
 
 void ShipResetVisualEffects(void) {}
 float ShipVisualExhaustIntensity(void) { return 0.0f; }
-void ShipVisualSetDebugExhaust(const Player *player, float demand,
+void ShipVisualSetDebugExhaust(const ActorBody *player, float demand,
                                float atmosphereDensity)
 {
     (void)player;
     (void)demand;
     (void)atmosphereDensity;
 }
-void ShipVisualUpdateMainExhaust(const Player *player, float dt,
+void ShipVisualUpdateMainExhaust(const ActorBody *player, float dt,
                                  ShipDriveMode mode, float demand,
                                  float atmosphereDensity)
 {
@@ -204,7 +205,7 @@ void ShipVisualUpdateMainExhaust(const Player *player, float dt,
     testLastExhaustDemand = demand;
 }
 void ShipGroundEffectsReset(void) {}
-void ShipGroundEffectsEmit(const Player *player, float dt,
+void ShipGroundEffectsEmit(const ActorBody *player, float dt,
                            float intensity, bool touchdown)
 {
     (void)player;
@@ -343,7 +344,7 @@ static void TestScriptedFlightUpdateContract(void)
 {
     ResetTestWorld();
     SetBlock(0, 4, 0, BLOCK_SPACESHIP);
-    Player player = { 0 };
+    ActorBody player = { 0 };
     ShipReset();
     assert(ShipTryEnter(0, 4, 0, &player));
 
@@ -377,7 +378,7 @@ static void TestScriptedFlightUpdateContract(void)
 
 static void TestLoadIsAtomicAndResetsRuntimeState(void)
 {
-    Player player = { 0 };
+    ActorBody player = { 0 };
     ResetTestWorld();
     SetBlock(1, 2, 3, BLOCK_SPACESHIP);
     ShipReset();
@@ -424,7 +425,7 @@ static void TestLoadIsAtomicAndResetsRuntimeState(void)
 static void TestParkedShipLayoutAndInteraction(void)
 {
     ResetTestWorld();
-    Player distantPlayer = { .position = { 7.0f, 20.0f, 7.0f } };
+    ActorBody distantPlayer = { .position = { 7.0f, 20.0f, 7.0f } };
     for (int direction = SHIP_DIRECTION_NORTH;
          direction <= SHIP_DIRECTION_WEST; direction++) {
         assert(ShipCanPlaceParked(0, 4, 0, (ShipDirection)direction,
@@ -468,11 +469,11 @@ static void TestParkedShipLayoutAndInteraction(void)
     assert(GetBlockAt(2, 5, 2) == BLOCK_STONE);
     SetBlock(2, 5, 2, BLOCK_AIR);
 
-    Player overlappingPlayer = { .position = { 0.5f, 4.0f, 0.5f } };
+    ActorBody overlappingPlayer = { .position = { 0.5f, 4.0f, 0.5f } };
     assert(!ShipCanPlaceParked(0, 4, 0, SHIP_DIRECTION_EAST,
                                &overlappingPlayer));
     assert(ShipPlaceParked(0, 4, 0, SHIP_DIRECTION_EAST, false));
-    Player pilot = { 0 };
+    ActorBody pilot = { 0 };
     assert(ShipTryEnter(2, 5, 2, &pilot));
     assert(ShipIsDriving());
     assert(fabsf(pilot.position.x - 1.0f) < 0.001f);
@@ -549,7 +550,7 @@ static void TestSystemWarpTargetsPreferredPlanet(void)
     testWarpSolidSurfaces[0] = true;
     testWarpSolidSurfaces[2] = true;
 
-    Player player = { 0 };
+    ActorBody player = { 0 };
     ShipReset();
     SetBlock(0, 4, 0, BLOCK_SPACESHIP);
     assert(ShipTryEnter(0, 4, 0, &player));
@@ -630,7 +631,7 @@ static void TestFlightAtmosphereFollowsAltitude(void)
 {
     ResetTestWorld();
     SetBlock(0, 4, 0, BLOCK_SPACESHIP);
-    Player player = { 0 };
+    ActorBody player = { 0 };
     ShipReset();
     assert(ShipTryEnter(0, 4, 0, &player));
     ShipControlInput input = { .forward = 1 };

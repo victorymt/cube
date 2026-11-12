@@ -6,6 +6,7 @@
 #include "core/game_notice.h"
 #include "ecology/ecology.h"
 #include "presentation/render.h"
+#include "gameplay/player_actor.h"
 #include "gameplay/player_motion.h"
 #include "gameplay/ship.h"
 #include "space/space_query.h"
@@ -219,8 +220,11 @@ static void LandingTransitionFinishLanding(LandingTransition *transition, Player
     player->pitch = -0.12f;
     player->floating = false;
     player->onGround = false;
-    ShipEmitTouchdownDust(player);
-    if (!ShipExit(player)) {
+    ActorBody ship = PlayerActorBody(player);
+    ShipEmitTouchdownDust(&ship);
+    bool exited = ShipExit(&ship);
+    PlayerApplyActorBody(player, &ship);
+    if (!exited) {
         player->floating = true;
         transition->active = false;
         transition->summaryRemaining = 0.0f;
@@ -298,7 +302,8 @@ bool LandingTransitionUpdate(LandingTransition *transition, Player *player,
                 return skipPressed;
             }
         } else {
-            ShipUpdateLandingEffects(player, dt, 0.0f);
+            ActorBody ship = PlayerActorBody(player);
+            ShipUpdateLandingEffects(&ship, dt, 0.0f);
         }
     }
 
@@ -318,7 +323,8 @@ bool LandingTransitionUpdate(LandingTransition *transition, Player *player,
             Vector3Subtract(transition->landingPosition,
                             transition->atmosphereStart),
             easeRate);
-        ShipUpdateLandingEffects(player, dt, linearAtmosphere);
+        ActorBody ship = PlayerActorBody(player);
+        ShipUpdateLandingEffects(&ship, dt, linearAtmosphere);
         if (transition->elapsed >= LANDING_TRANSITION_TOUCHDOWN_TIME) {
             LandingTransitionFinishLanding(transition, player);
             if (!transition->active) return skipPressed;

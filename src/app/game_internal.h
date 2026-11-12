@@ -6,6 +6,7 @@
 #include "app/game_plugins.h"
 #include "gameplay/interaction_types.h"
 #include "gameplay/player_camera.h"
+#include "gameplay/player_actor.h"
 #include "gameplay/player_input.h"
 #include "gameplay/player_motion.h"
 #include "gameplay/player_sensors.h"
@@ -21,6 +22,38 @@
 #include "world/world_environment.h"
 #include "world/world_lighting.h"
 #include "world/tornado.h"
+
+static inline bool GameTryEnterShipAt(GameRuntime *game, int x, int y, int z)
+{
+    if (!game) return false;
+    ActorBody ship = PlayerActorBody(&game->player);
+    if (!ShipTryEnter(x, y, z, &ship)) return false;
+    PlayerApplyActorBody(&game->player, &ship);
+    return true;
+}
+
+static inline bool GameBeginDebugShip(GameRuntime *game)
+{
+    if (!game) return false;
+    ActorBody ship = PlayerActorBody(&game->player);
+    if (!ShipBeginDebugFlight(&ship)) return false;
+    PlayerApplyActorBody(&game->player, &ship);
+    return true;
+}
+
+static inline bool GameSetShipDebugExhaust(GameRuntime *game, float demand)
+{
+    if (!game) return false;
+    ActorBody ship = PlayerActorBody(&game->player);
+    return ShipSetDebugExhaust(&ship, demand);
+}
+
+static inline void GameEmitShipDust(GameRuntime *game)
+{
+    if (!game) return;
+    ActorBody ship = PlayerActorBody(&game->player);
+    ShipEmitTouchdownDust(&ship);
+}
 
 typedef struct GameFrameView {
     HitResult hit;

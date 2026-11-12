@@ -256,7 +256,7 @@ void EntitiesApplyWildfireHazards(float dt, float daylight, bool damageEnabled,
     CurrentTick()->hazardDt[2] = dt;
 }
 
-void EntitiesUpdate(float dt, const Player *player, float daylight, double time)
+void EntitiesUpdate(float dt, const ActorBody *player, float daylight, double time)
 {
     ExpectSequence(11u);
     assert(dt == CurrentTick()->dt && player->position.x == CurrentTick()->playerX);

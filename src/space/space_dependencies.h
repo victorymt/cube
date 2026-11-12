@@ -10,7 +10,6 @@
 #include "space/space_world_transition.h"
 
 #include "ecology/ecology.h"
-#include "gameplay/player_types.h"
 #include "core/render_resources.h"
 #include "space/solar_catalog.h"
 #include "space/space_barycenter.h"

@@ -346,8 +346,8 @@ static void GameDebugEnterShip(GameRuntime *game)
                           "DEBUG_CONTROL ship enter error reason=ship_not_local\n");
         return;
     }
-    if (!ShipTryEnter(target.blockX, target.blockY, target.blockZ,
-                      &game->player)) {
+    if (!GameTryEnterShipAt(
+            game, target.blockX, target.blockY, target.blockZ)) {
         GameDebugMarkCommandError(game, "ship_unavailable");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship enter error reason=unavailable\n");
@@ -368,7 +368,7 @@ static void GameDebugBeginShip(GameRuntime *game)
                           "DEBUG_CONTROL ship begin error reason=not_playing\n");
         return;
     }
-    if (!ShipBeginDebugFlight(&game->player)) {
+    if (!GameBeginDebugShip(game)) {
         GameDebugMarkCommandError(game, "ship_already_driving");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship begin error reason=already_driving\n");
@@ -415,7 +415,7 @@ static void GameDebugSetShipExhaust(GameRuntime *game)
         return;
     }
     float demand = game->debugControl.shipExhaustDemand;
-    if (!ShipSetDebugExhaust(&game->player, demand)) {
+    if (!GameSetShipDebugExhaust(game, demand)) {
         GameDebugMarkCommandError(game, "ship_exhaust_invalid");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship exhaust error reason=invalid\n");
@@ -434,7 +434,7 @@ static void GameDebugEmitShipDust(GameRuntime *game)
                           "DEBUG_CONTROL ship dust error reason=no_surface_ship\n");
         return;
     }
-    ShipEmitTouchdownDust(&game->player);
+    GameEmitShipDust(game);
     DebugControlReply(&game->debugControl, "DEBUG_CONTROL ship dust ok\n");
 }
 

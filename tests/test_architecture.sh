@@ -116,6 +116,21 @@ if grep -nE '\b(MovePlayer|PlayerOverlapsWorld|PlayerWaterStateAt|WorldGravitySc
     fail "player policy must use PlayerWorldOps for motion and environment queries"
 fi
 
+[ -f src/world/actor_body.h ] || fail "missing neutral world/actor_body.h"
+
+if grep -R -n 'gameplay/player_types.h' \
+    src/space/space_dependencies.h src/space/space_runtime.h \
+    src/space/space_world_transition.h src/ecology/entity.h \
+    src/gameplay/ship.h; then
+    fail "actor consumers must use world/actor_body.h instead of player types"
+fi
+
+if grep -nE '\b(Player|SpaceRebasePlayer|struct Player)\b' \
+    src/gameplay/ship.h src/space/space_runtime.h \
+    src/space/space_world_transition.h src/ecology/entity.h; then
+    fail "ship/space/ecology public contracts must not expose Player state"
+fi
+
 # Cross-domain rules intentionally target public/narrow interfaces and direct
 # bypasses only. Terrain/entity implementations may still consume narrow
 # contracts from another domain; a full include ban would reject valid seams.
@@ -225,12 +240,14 @@ world_type_headers=" \
     src/world/block_types.h \
     src/world/block_lighting.h \
     src/world/block_edits.h \
+    src/world/actor_body.h \
 "
 
 for leaf_header in \
     src/world/block_type.h \
     src/world/terrain_types.h \
-    src/world/surface_types.h
+    src/world/surface_types.h \
+    src/world/actor_body.h
 do
     for sibling in $world_type_headers; do
         [ "$sibling" = "$leaf_header" ] && continue

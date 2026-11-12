@@ -10,6 +10,7 @@
 #include "raymath.h"
 #include "world/block_edits.h"
 #include "gameplay/player_motion.h"
+#include "gameplay/player_actor.h"
 #include "space/space_chunks.h"
 #include "space/space_query.h"
 #include "space/space_state.h"
@@ -177,7 +178,7 @@ bool ShipResolveParkedAt(int x, int y, int z, ParkedShip *out)
     return false;
 }
 
-static bool ShipCellOverlapsPlayer(int x, int y, int z, const Player *player)
+static bool ShipCellOverlapsPlayer(int x, int y, int z, const ActorBody *player)
 {
     if (!player) return false;
     float playerMinX = player->position.x - PLAYER_RADIUS;
@@ -192,7 +193,7 @@ static bool ShipCellOverlapsPlayer(int x, int y, int z, const Player *player)
 }
 
 bool ShipCanPlaceParked(int coreX, int coreY, int coreZ,
-                        ShipDirection direction, const Player *player)
+                        ShipDirection direction, const ActorBody *player)
 {
     if ((int)direction < (int)SHIP_DIRECTION_NORTH ||
         (int)direction > (int)SHIP_DIRECTION_WEST) return false;
@@ -425,7 +426,7 @@ static int NavigationPlanetIndexForSystem(const SolarSystemDef *system)
         ? shipRuntime.navigationTarget.planetIndex : -1;
 }
 
-static bool EstablishNavigationOrbit(Player *player,
+static bool EstablishNavigationOrbit(ActorBody *player,
                                      const SolarSystemDef *system,
                                      int planetIndex, Vector3 center,
                                      Vector3 centerVelocity,
@@ -485,7 +486,7 @@ static bool EstablishNavigationOrbit(Player *player,
     return true;
 }
 
-static bool UpdateNavigationOrbit(Player *player, float dt)
+static bool UpdateNavigationOrbit(ActorBody *player, float dt)
 {
     if (!player || !shipRuntime.orbitState.active ||
         shipRuntime.navigationTarget.type != NAVIGATION_TARGET_PLANET) return false;
@@ -578,7 +579,7 @@ static int PreferredSystemArrivalPlanet(const SolarSystemDef *system)
     return largestSolidPlanet >= 0 ? largestSolidPlanet : largestPlanet;
 }
 
-static bool LockNavigationTarget(const Player *player, Vector3 forward)
+static bool LockNavigationTarget(const ActorBody *player, Vector3 forward)
 {
     if (WorldIsSurfaceActive()) {
         GameNoticePost("Launch into space before locking a navigation target.");
@@ -617,7 +618,7 @@ static bool LockNavigationTarget(const Player *player, Vector3 forward)
     return true;
 }
 
-bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
+bool ShipBeginSystemWarp(ActorBody *player, int systemAnchorX, int systemAnchorZ)
 {
     if (!shipRuntime.driving) {
         GameNoticePost("Board your ship before initiating a system warp.");
@@ -687,7 +688,7 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
     return true;
 }
 
-void ShipToggleNavigation(Player *player)
+void ShipToggleNavigation(ActorBody *player)
 {
     if (!player) return;
     if (shipRuntime.driveMode == SHIP_DRIVE_ORBIT) {
@@ -783,7 +784,7 @@ void ShipToggleNavigation(Player *player)
     }
 }
 
-static void ShipBeginFlight(Player *player)
+static void ShipBeginFlight(ActorBody *player)
 {
     player->velocity = Vector3Zero();
     player->floating = true;
@@ -797,7 +798,7 @@ static void ShipBeginFlight(Player *player)
     GameNoticePost("Ship: inertial flight. F toggles braking assist; E exits.");
 }
 
-bool ShipTryEnter(int x, int y, int z, Player *player)
+bool ShipTryEnter(int x, int y, int z, ActorBody *player)
 {
     ParkedShip ship;
     if (shipRuntime.driving || !player || !ShipResolveParkedAt(x, y, z, &ship)) return false;
@@ -819,7 +820,7 @@ bool ShipTryEnter(int x, int y, int z, Player *player)
     return true;
 }
 
-bool ShipBeginDebugFlight(Player *player)
+bool ShipBeginDebugFlight(ActorBody *player)
 {
     if (shipRuntime.driving || !player) return false;
     ShipBeginFlight(player);
@@ -1054,7 +1055,7 @@ static float ShipAtmosphereDensityAt(Vector3 position)
         PlanetWorldIsActive() ? PlanetWorldProfile() : NULL, position.y));
 }
 
-bool ShipSetDebugExhaust(const Player *player, float demand)
+bool ShipSetDebugExhaust(const ActorBody *player, float demand)
 {
     if (!player || !isfinite(demand) || demand < 0.0f || demand > 1.0f) {
         return false;
@@ -1109,7 +1110,7 @@ static ShipFrameControl ShipReadFrameControl(const ShipControlInput *input)
     return control;
 }
 
-static Vector3 ShipApplyFrameCommands(Player *player, bool scripted,
+static Vector3 ShipApplyFrameCommands(ActorBody *player, bool scripted,
                                       bool surfaceActive)
 {
     if (!scripted && IsKeyPressed(KEY_X)) {
@@ -1154,7 +1155,7 @@ static Vector3 ShipApplyFrameCommands(Player *player, bool scripted,
     return forward;
 }
 
-static ShipFrameEnvironment ShipFrameEnvironmentAt(const Player *player)
+static ShipFrameEnvironment ShipFrameEnvironmentAt(const ActorBody *player)
 {
     ShipFrameEnvironment environment = {
         .referenceVelocity = Vector3Zero(),
@@ -1183,7 +1184,7 @@ static ShipFrameEnvironment ShipFrameEnvironmentAt(const Player *player)
     return environment;
 }
 
-static bool ShipConsumeFrameFuel(Player *player, float dt,
+static bool ShipConsumeFrameFuel(ActorBody *player, float dt,
                                  bool propulsionRequested)
 {
     if (!propulsionRequested) return true;
@@ -1206,7 +1207,7 @@ static bool ShipConsumeFrameFuel(Player *player, float dt,
     return false;
 }
 
-static void ShipMoveForFrame(Player *player, float dt,
+static void ShipMoveForFrame(ActorBody *player, float dt,
                              bool positionControlledByDrive)
 {
     Vector3 delta = Vector3Scale(player->velocity, dt);
@@ -1235,7 +1236,9 @@ static void ShipMoveForFrame(Player *player, float dt,
     while (remaining > 0.0f) {
         float stepLength = fminf(remaining, 1.0f);
         Vector3 before = player->position;
-        MovePlayer(player, Vector3Scale(direction, stepLength));
+        Player motionPlayer = PlayerFromActorBody(player);
+        MovePlayer(&motionPlayer, Vector3Scale(direction, stepLength));
+        *player = PlayerActorBody(&motionPlayer);
         if (Vector3Distance(before, player->position) < stepLength * 0.9f) {
             player->velocity = Vector3Zero();
             break;
@@ -1244,7 +1247,7 @@ static void ShipMoveForFrame(Player *player, float dt,
     }
 }
 
-static void ShipCorrectPlanetCollision(Player *player)
+static void ShipCorrectPlanetCollision(ActorBody *player)
 {
     if (shipRuntime.driveMode == SHIP_DRIVE_ORBIT ||
         WorldCurrentDimension() == WORLD_DIMENSION_PLANET) return;
@@ -1267,7 +1270,7 @@ static void ShipCorrectPlanetCollision(Player *player)
     }
 }
 
-static void ShipUpdateFrameEffects(const Player *player, float dt,
+static void ShipUpdateFrameEffects(const ActorBody *player, float dt,
                                    bool surfaceActive, bool automaticDrive,
                                    float forwardInput, float verticalInput,
                                    float atmosphereDensity)
@@ -1298,7 +1301,7 @@ static void ShipUpdateFrameEffects(const Player *player, float dt,
 }
 
 static ShipFrameState ShipPrepareFrameState(
-    Player *player, const ShipControlInput *input)
+    ActorBody *player, const ShipControlInput *input)
 {
     ShipFrameState frame = { 0 };
     frame.control = ShipReadFrameControl(input);
@@ -1345,7 +1348,7 @@ static void ShipUpdateManualCruiseSetSpeed(
                            SHIP_CRUISE_MAX_SPEED);
 }
 
-static void ShipApplyFrameGravity(Player *player, float dt,
+static void ShipApplyFrameGravity(ActorBody *player, float dt,
                                   const ShipFrameState *frame)
 {
     if (dt <= 0.0f || ShipDriveIsWarpTransit() ||
@@ -1375,7 +1378,7 @@ static void ShipGuidanceLimits(ShipDriveMode mode, float *maxSpeed,
 }
 
 static bool ShipCompleteGuidance(
-    Player *player, ShipDriveMode guidanceMode, Vector3 targetCenter,
+    ActorBody *player, ShipDriveMode guidanceMode, Vector3 targetCenter,
     Vector3 targetVelocity, float safeDistance)
 {
     char targetName[sizeof(shipRuntime.navigationTarget.name)];
@@ -1438,7 +1441,7 @@ static bool ShipCompleteGuidance(
     return orbitEstablished;
 }
 
-static bool ShipUpdateGuidedDrive(Player *player, float dt,
+static bool ShipUpdateGuidedDrive(ActorBody *player, float dt,
                                   Vector3 *forward)
 {
     Vector3 targetCenter;
@@ -1494,7 +1497,7 @@ static bool ShipUpdateGuidedDrive(Player *player, float dt,
 }
 
 static void ShipUpdateManualCruiseDrive(
-    Player *player, float dt, const ShipFrameState *frame)
+    ActorBody *player, float dt, const ShipFrameState *frame)
 {
     Vector3 relative = Vector3Subtract(
         player->velocity, frame->environment.referenceVelocity);
@@ -1514,7 +1517,7 @@ static void ShipUpdateManualCruiseDrive(
     shipRuntime.targetEtaSeconds = 0.0f;
 }
 
-static void ShipUpdateManeuverDrive(Player *player, float dt,
+static void ShipUpdateManeuverDrive(ActorBody *player, float dt,
                                     const ShipFrameState *frame)
 {
     float thrust = frame->surfaceActive ? SHIP_SURFACE_THRUST :
@@ -1542,7 +1545,7 @@ static void ShipUpdateManeuverDrive(Player *player, float dt,
     shipRuntime.targetEtaSeconds = 0.0f;
 }
 
-static bool ShipUpdateDriveForFrame(Player *player, float dt,
+static bool ShipUpdateDriveForFrame(ActorBody *player, float dt,
                                     ShipFrameState *frame)
 {
     if (dt <= 0.0f) return false;
@@ -1564,7 +1567,7 @@ static bool ShipUpdateDriveForFrame(Player *player, float dt,
     return false;
 }
 
-static float ShipApplyFrameAtmosphere(Player *player, float dt,
+static float ShipApplyFrameAtmosphere(ActorBody *player, float dt,
                                       const ShipFrameState *frame)
 {
     float density = ShipAtmosphereDensityAt(player->position);
@@ -1578,12 +1581,12 @@ static float ShipApplyFrameAtmosphere(Player *player, float dt,
 }
 
 
-void ShipUpdate(Player *player, float dt)
+void ShipUpdate(ActorBody *player, float dt)
 {
     ShipUpdateWithInput(player, dt, NULL);
 }
 
-void ShipUpdateWithInput(Player *player, float dt,
+void ShipUpdateWithInput(ActorBody *player, float dt,
                          const ShipControlInput *input)
 {
     if (!player) return;
@@ -1613,7 +1616,7 @@ void ShipUpdateWithInput(Player *player, float dt,
         frame.control.forward, frame.control.vertical, atmosphereDensity);
 }
 
-void ShipUpdateLandingEffects(const Player *player, float dt,
+void ShipUpdateLandingEffects(const ActorBody *player, float dt,
                               float descentProgress)
 {
     if (!player || !shipRuntime.driving || !isfinite(dt) || dt <= 0.0f) return;
@@ -1627,14 +1630,14 @@ void ShipUpdateLandingEffects(const Player *player, float dt,
     }
 }
 
-void ShipEmitTouchdownDust(const Player *player)
+void ShipEmitTouchdownDust(const ActorBody *player)
 {
     if (!player) return;
     ShipGroundEffectsEmit(player, 0.0f, 1.0f, true);
 }
 
 static bool FindShipPlacement(int *outX, int *outY, int *outZ,
-                              ShipDirection direction, const Player *player)
+                              ShipDirection direction, const ActorBody *player)
 {
     int centerX = (int)floorf(player->position.x);
     int centerZ = (int)floorf(player->position.z);
@@ -1670,7 +1673,7 @@ static bool FindShipPlacement(int *outX, int *outY, int *outZ,
     return false;
 }
 
-static bool ShipPlaceAfterExit(Player *player)
+static bool ShipPlaceAfterExit(ActorBody *player)
 {
     int sx = 0;
     int sy = 0;
@@ -1692,13 +1695,13 @@ static bool ShipPlaceAfterExit(Player *player)
     return true;
 }
 
-bool ShipExit(Player *player)
+bool ShipExit(ActorBody *player)
 {
     if (!shipRuntime.driving) return true;
     return ShipPlaceAfterExit(player);
 }
 
-bool ShipForceExit(Player *player)
+bool ShipForceExit(ActorBody *player)
 {
     if (!shipRuntime.driving) return true;
     return ShipPlaceAfterExit(player);

@@ -39,35 +39,35 @@ static float ShipVisualRandom(void)
     return (float)(value >> 8) * (1.0f / 16777216.0f);
 }
 
-static Matrix ShipVisualRotation(const Player *player)
+static Matrix ShipVisualRotation(const ActorBody *player)
 {
     return MatrixRotateXYZ((Vector3){ player->pitch, player->yaw, 0.0f });
 }
 
-static Vector3 ShipVisualOrigin(const Player *player)
+static Vector3 ShipVisualOrigin(const ActorBody *player)
 {
     return Vector3Add(player->position, (Vector3){ 0.0f, 0.30f, 0.0f });
 }
 
-static Vector3 ShipVisualWorldPoint(const Player *player, Vector3 local)
+static Vector3 ShipVisualWorldPoint(const ActorBody *player, Vector3 local)
 {
     return Vector3Add(ShipVisualOrigin(player),
                       Vector3Transform(local, ShipVisualRotation(player)));
 }
 
-static Vector3 ShipVisualWorldDirection(const Player *player, Vector3 local)
+static Vector3 ShipVisualWorldDirection(const ActorBody *player, Vector3 local)
 {
     return Vector3Normalize(Vector3Transform(
         local, ShipVisualRotation(player)));
 }
 
-static Vector3 ShipVisualNozzle(const Player *player, int index)
+static Vector3 ShipVisualNozzle(const ActorBody *player, int index)
 {
     float x = index == 0 ? -0.65f : 0.65f;
     return ShipVisualWorldPoint(player, (Vector3){ x, -0.03f, -1.73f });
 }
 
-static Vector3 ShipVisualPlumeDirection(const Player *player, int index)
+static Vector3 ShipVisualPlumeDirection(const ActorBody *player, int index)
 {
     Vector3 backward = ShipVisualWorldDirection(
         player, (Vector3){ 0.0f, 0.0f, -1.0f });
@@ -92,7 +92,7 @@ float ShipVisualExhaustIntensity(void)
     return shipVisualEffects.intensity;
 }
 
-void ShipVisualSetDebugExhaust(const Player *player, float demand,
+void ShipVisualSetDebugExhaust(const ActorBody *player, float demand,
                                float atmosphereDensity)
 {
     if (!player) return;
@@ -104,7 +104,7 @@ void ShipVisualSetDebugExhaust(const Player *player, float demand,
     shipVisualEffects.exhaustCarry = 0.0f;
 }
 
-void ShipVisualUpdateMainExhaust(const Player *player, float dt,
+void ShipVisualUpdateMainExhaust(const ActorBody *player, float dt,
                                   ShipDriveMode mode, float demand,
                                   float atmosphereDensity)
 {
@@ -439,7 +439,7 @@ void ShipCleanup(void)
     ShipResetVisualEffects();
 }
 
-void ShipDraw(const Player *player)
+void ShipDraw(const ActorBody *player)
 {
     if (!player || shipModel.meshCount == 0) return;
     shipModel.transform = ShipVisualRotation(player);

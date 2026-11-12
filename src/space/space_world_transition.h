@@ -2,8 +2,7 @@
 #define VOXELCRAFT_SPACE_WORLD_TRANSITION_H
 
 #include "space/space_types.h"
-
-struct Player;
+#include "world/actor_body.h"
 
 bool HomeWorldCanEnter(Vector3 position);
 Vector3 HomeWorldSurfaceReturnPosition(void);
@@ -12,8 +11,8 @@ bool HomeWorldLaunchTarget(const SpaceTravelPose *surfacePose,
 bool HomeWorldEnterSurface(void);
 void HomeWorldLeaveSurface(Vector3 returnPosition);
 void HomeWorldReset(void);
-void HomeWorldRestoreLegacyState(const struct Player *player);
-void HomeWorldRestoreLegacyStateForSpaceLayer(const struct Player *player,
+void HomeWorldRestoreLegacyState(const ActorBody *actor);
+void HomeWorldRestoreLegacyStateForSpaceLayer(const ActorBody *actor,
                                               int storedLayerY);
 
 bool PlanetWorldLandingTarget(Vector3 position, SpaceBodyInfo *out);

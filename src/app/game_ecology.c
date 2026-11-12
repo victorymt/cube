@@ -7,6 +7,7 @@
 #include "app/game_radiation.h"
 #include "ecology/ecology.h"
 #include "ecology/entity.h"
+#include "gameplay/player_actor.h"
 #include "gameplay/player_sensors.h"
 #include "presentation/homeworld_map.h"
 #include "presentation/render.h"
@@ -271,7 +272,8 @@ void GameAdvanceSimulationStep(double simulationSeconds,
         }
         double entitiesStarted = game->debugTraceEnabled
             ? GameDebugTraceMainCpuNowMs() : 0.0;
-        EntitiesUpdate(dt, &game->player, daylight, simulationTime);
+        ActorBody actor = PlayerActorBody(&game->player);
+        EntitiesUpdate(dt, &actor, daylight, simulationTime);
         if (game->debugTraceEnabled) {
             game->debugSimulationEntitiesMainCpuMs +=
                 GameDebugTraceMainCpuNowMs() - entitiesStarted;

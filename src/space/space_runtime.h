@@ -1,15 +1,15 @@
 #ifndef VOXELCRAFT_SPACE_RUNTIME_H
 #define VOXELCRAFT_SPACE_RUNTIME_H
 
-#include <stdbool.h>
+#include "world/actor_body.h"
 
-struct Player;
+#include <stdbool.h>
 
 void SpaceInit(void);
 void SpaceShutdown(void);
 void SpaceReset(void);
 void SpaceAdvanceTime(float gameTimeDelta);
-bool SpaceRebasePlayer(struct Player *player);
+bool SpaceRebaseActor(ActorBody *actor);
 void SpaceResetOrigin(void);
 
 #endif

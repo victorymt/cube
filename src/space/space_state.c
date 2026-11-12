@@ -259,19 +259,19 @@ void HomeWorldReset(void)
     homeWorld.returnPosition = (Vector3){ 0.5f, 12.0f, 0.5f };
 }
 
-void HomeWorldRestoreLegacyState(const Player *player)
+void HomeWorldRestoreLegacyState(const ActorBody *actor)
 {
-    HomeWorldRestoreLegacyStateForSpaceLayer(player, SPACE_LAYER_Y);
+    HomeWorldRestoreLegacyStateForSpaceLayer(actor, SPACE_LAYER_Y);
 }
 
-void HomeWorldRestoreLegacyStateForSpaceLayer(const Player *player,
+void HomeWorldRestoreLegacyStateForSpaceLayer(const ActorBody *actor,
                                               int storedLayerY)
 {
-    if (!player) return;
+    if (!actor) return;
     homeWorld.surfaceActive = !planetWorld.active &&
-                              player->position.y < (float)storedLayerY;
+                              actor->position.y < (float)storedLayerY;
     homeWorld.returnPosition = homeWorld.surfaceActive
-                                   ? player->position
+                                   ? actor->position
                                    : (Vector3){ 0.5f, 12.0f, 0.5f };
 }
 

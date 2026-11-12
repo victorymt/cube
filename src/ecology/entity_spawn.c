@@ -66,7 +66,7 @@ static bool PlanetBiomeSupportsFauna(int x, int z)
 }
 
 static bool EntitySelectPassiveSpawn(EntityPassiveSpawn *spawn,
-                                     const Player *player)
+                                     const ActorBody *player)
 {
     spawn->slot = EntityNextFreeSlot();
     if (spawn->slot < 0) return false;
@@ -114,7 +114,7 @@ static bool EntitySelectPassiveSpawn(EntityPassiveSpawn *spawn,
 }
 
 static bool EntitySamplePassiveSpawn(EntityPassiveSpawn *spawn,
-                                     const Player *player, float daylight)
+                                     const ActorBody *player, float daylight)
 {
     float angle = (float)EntityRandomBounded(628u) / 100.0f;
     float distance = spawn->evolvable
@@ -161,7 +161,7 @@ static bool EntitySamplePassiveSpawn(EntityPassiveSpawn *spawn,
 }
 
 static bool EntityValidatePassiveSpawn(EntityPassiveSpawn *spawn,
-                                       const Player *player)
+                                       const ActorBody *player)
 {
     if (spawn->evolvable &&
         spawn->archetype == EVOLUTION_ARCHETYPE_FLIGHT &&
@@ -233,7 +233,7 @@ static bool EntityValidatePassiveSpawn(EntityPassiveSpawn *spawn,
 }
 
 static void EntityInitializePassiveSpawn(EntityPassiveSpawn *spawn,
-                                         const Player *player,
+                                         const ActorBody *player,
                                          double simulationTime)
 {
     Entity *entity = &entities[spawn->slot];
@@ -324,7 +324,7 @@ static void EntityInitializePassiveSpawn(EntityPassiveSpawn *spawn,
     EntityCatalogObserveBirth(entity);
 }
 
-void EntitySpawnPassive(const Player *player, float daylight,
+void EntitySpawnPassive(const ActorBody *player, float daylight,
                         double simulationTime)
 {
     EntityPassiveSpawn spawn = { 0 };
@@ -334,7 +334,7 @@ void EntitySpawnPassive(const Player *player, float daylight,
     EntityInitializePassiveSpawn(&spawn, player, simulationTime);
 }
 
-void EntitySpawnHostile(const Player *player, float daylight)
+void EntitySpawnHostile(const ActorBody *player, float daylight)
 {
     if (daylight > 0.15f) return;
     if (player->position.y > 30.0f || player->position.y < -1.0f) return;

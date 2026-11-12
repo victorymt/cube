@@ -39,7 +39,7 @@ void ShipGroundEffectsReset(void)
     randomState = 0x5a17c9e3u;
 }
 
-static ShipGroundEffectSample GroundEffectAt(const Player *player)
+static ShipGroundEffectSample GroundEffectAt(const ActorBody *player)
 {
     ShipGroundEffectSample sample = { 0 };
     if (!player || !WorldIsSurfaceActive()) return sample;
@@ -80,7 +80,7 @@ static Color GroundEffectColor(const ShipGroundEffectSample *sample)
     };
 }
 
-void ShipGroundEffectsEmit(const Player *player, float dt,
+void ShipGroundEffectsEmit(const ActorBody *player, float dt,
                            float requestedIntensity, bool burst)
 {
     ShipGroundEffectSample ground = GroundEffectAt(player);

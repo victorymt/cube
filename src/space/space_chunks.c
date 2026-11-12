@@ -615,17 +615,17 @@ void SpaceReset(void)
     HomeWorldReset();
 }
 
-bool SpaceRebasePlayer(Player *player)
+bool SpaceRebaseActor(ActorBody *actor)
 {
-    if (!player || HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) return false;
-    if (fabsf(player->position.x) < (float)SPACE_REBASE_THRESHOLD &&
-        fabsf(player->position.z) < (float)SPACE_REBASE_THRESHOLD) {
+    if (!actor || HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) return false;
+    if (fabsf(actor->position.x) < (float)SPACE_REBASE_THRESHOLD &&
+        fabsf(actor->position.z) < (float)SPACE_REBASE_THRESHOLD) {
         return false;
     }
 
-    int64_t stepX = (int64_t)llroundf(player->position.x / (float)STAR_SYSTEM_SPACING) *
+    int64_t stepX = (int64_t)llroundf(actor->position.x / (float)STAR_SYSTEM_SPACING) *
                     STAR_SYSTEM_SPACING;
-    int64_t stepZ = (int64_t)llroundf(player->position.z / (float)STAR_SYSTEM_SPACING) *
+    int64_t stepZ = (int64_t)llroundf(actor->position.z / (float)STAR_SYSTEM_SPACING) *
                     STAR_SYSTEM_SPACING;
     if (stepX == 0 && stepZ == 0) return false;
 
@@ -640,8 +640,8 @@ bool SpaceRebasePlayer(Player *player)
     UnloadAllSpaceChunks();
     spaceOriginX = (int)nextOriginX;
     spaceOriginZ = (int)nextOriginZ;
-    player->position.x -= (float)stepX;
-    player->position.z -= (float)stepZ;
+    actor->position.x -= (float)stepX;
+    actor->position.z -= (float)stepZ;
     RebuildTorchList();
     SpaceRebuildTorchList();
     return true;

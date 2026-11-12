@@ -202,7 +202,7 @@ static float EntityWaterDependence(PlanetChemistry chemistry)
     }
 }
 
-static void DespawnDistantAlien(const Player *player)
+static void DespawnDistantAlien(const ActorBody *player)
 {
     int farthest = -1;
     float farthestDistanceSquared = -1.0f;
@@ -805,7 +805,7 @@ static void EntityUpdateEvolutionLifecycle(Entity *entity, int entityIndex,
 typedef struct PassiveUpdateContext {
     Entity *entity;
     int entityIndex;
-    const Player *player;
+    const ActorBody *player;
     float dt;
     float daylight;
     double simulationTime;
@@ -1187,7 +1187,7 @@ static void PassiveIntegrateMotion(PassiveUpdateContext *context)
 }
 
 static void UpdatePassive(Entity *entity, int entityIndex,
-                          const Player *player, float dt,
+                          const ActorBody *player, float dt,
                           float daylight, double simulationTime)
 {
     EntityUpdateEvolutionLifecycle(entity, entityIndex, dt, daylight);
@@ -1227,7 +1227,7 @@ static void UpdatePassive(Entity *entity, int entityIndex,
     }, dt);
 }
 
-static void UpdateHostile(Entity *entity, const Player *player, float dt, float daylight)
+static void UpdateHostile(Entity *entity, const ActorBody *player, float dt, float daylight)
 {
     Vector3 toPlayer = EntitySurfaceVector(
         entity->position, player->position);
@@ -1277,7 +1277,7 @@ static void UpdateHostile(Entity *entity, const Player *player, float dt, float 
     }
 }
 
-void EntitiesUpdate(float dt, const Player *player, float daylight,
+void EntitiesUpdate(float dt, const ActorBody *player, float daylight,
                     double simulationTime)
 {
     entitySpawnTimer -= dt;

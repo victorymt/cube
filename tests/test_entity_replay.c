@@ -415,7 +415,7 @@ static uint64_t EntityStateHash(const unsigned char *data, size_t size)
     return hash;
 }
 
-static void RunFrames(Player *player, int count)
+static void RunFrames(ActorBody *player, int count)
 {
     double simulationTime = 0.0;
     for (int frame = 0; frame < count; frame++) {
@@ -534,7 +534,7 @@ static TestEntityDiskStateV3 CurrentMovingEntity(void)
 
 static void TestEntityReplay(void)
 {
-    Player player = { 0 };
+    ActorBody player = { 0 };
     player.position = (Vector3){ 0.5f, 12.0f, 0.5f };
 
     EntitiesInit();
@@ -577,7 +577,7 @@ static void TestEntityReplay(void)
 static void TestEntityLoadIsAtomic(void)
 {
     EntitiesInit();
-    Player player = { 0 };
+    ActorBody player = { 0 };
     player.position = (Vector3){ 0.5f, 12.0f, 0.5f };
     RunFrames(&player, 5);
     size_t beforeSize = 0;
@@ -629,7 +629,7 @@ static void TestLegacyEntityMotionMigration(void)
     LoadLegacyMovingEntity(PLANET_BODY_QUADRUPED);
     migrated = CurrentMovingEntity();
 
-    Player player = { 0 };
+    ActorBody player = { 0 };
     player.position = (Vector3){ -20.0f, 12.0f, 0.5f };
     RunFrames(&player, 12);
     TestEntityDiskStateV3 moved = CurrentMovingEntity();
@@ -639,7 +639,7 @@ static void TestLegacyEntityMotionMigration(void)
 
 static void TestTerrainAwareGroundMotion(void)
 {
-    Player player = { 0 };
+    ActorBody player = { 0 };
     player.position = (Vector3){ -20.0f, 12.0f, 0.5f };
     const TestTerrainMode blockedModes[] = {
         TEST_TERRAIN_WALL,
@@ -671,7 +671,7 @@ static void TestTerrainAwareGroundMotion(void)
 
 static void TestTerrainFollowingFlight(void)
 {
-    Player player = { 0 };
+    ActorBody player = { 0 };
     player.position = (Vector3){ -20.0f, 12.0f, 0.5f };
 
     testTerrainMode = TEST_TERRAIN_WALL;
@@ -813,7 +813,7 @@ static void TestSphericalEntityAliasMigration(void)
 
 static void TestEvolutionLifecycleAndPredation(void)
 {
-    Player player = { 0 };
+    ActorBody player = { 0 };
     player.position = (Vector3){ -20.0f, 12.0f, 0.5f };
     testTerrainMode = TEST_TERRAIN_FLAT;
 
@@ -901,7 +901,7 @@ static void TestAlertAndPregnancyDanger(void)
     animal->pregnant = true;
     animal->gestationDurationDays = 1000;
     animal->temperament = 0.3f;
-    Player player = {.position = animal->position};
+    ActorBody player = {.position = animal->position};
     player.position.x += 5;
     RunFrames(&player, 1);
     assert(animal->behavior == FAUNA_ACTION_ALERT);
@@ -922,7 +922,7 @@ static void TestAlertAndPregnancyDanger(void)
 
 static void TestNeedsDriveEntityBehavior(void)
 {
-    Player player = { 0 };
+    ActorBody player = { 0 };
     player.position = (Vector3){ -20.0f, 12.0f, 0.5f };
     testTerrainMode = TEST_TERRAIN_FLAT;
 
