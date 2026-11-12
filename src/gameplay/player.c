@@ -244,6 +244,18 @@ static bool PlayerCubeSolid(const WorldBlockBoxQuery *box, void *user)
     return false;
 }
 
+static bool PlayerCubeKnown(const WorldBlockBoxQuery *box, void *user)
+{
+    (void)user;
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
+    for (unsigned i = 0; i < box->count; i++) {
+        WorldCell cell;
+        if (!SurfaceContractCellRead(contract, box->cells[i].at.surface,
+                                     &cell)) return false;
+    }
+    return true;
+}
+
 static bool PlayerOverlapsCubeWorld(Vector3 position)
 {
     WorldBlockBoxQuery body;
@@ -252,9 +264,9 @@ static bool PlayerOverlapsCubeWorld(Vector3 position)
          * the legacy rule: blocked on foot, passable while driving a ship. */
         return !ShipIsDriving();
     }
-    /* Experimental collision rule: unresolved cube cells are treated as air.
-     * Readiness still reports the missing chunk/cell separately, so this only
-     * removes the invisible collision wall while terrain streams in. */
+    /* Unknown terrain is a temporary wall, exactly as the legacy path treats a
+     * streamed frontier; a ship may keep moving while chunks catch up. */
+    if (!PlayerCubeKnown(&body, NULL)) return !ShipIsDriving();
     return PlayerCubeSolid(&body, NULL);
 }
 
