@@ -63,7 +63,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-architecture test-build-prerequisites test-test-manifest test-simulation-replay test-ci test-clean-root test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e test-debug-fields-e2e test-long-run test-declarations-backlog benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-architecture test-build-prerequisites test-test-manifest test-simulation-replay test-ci test-clean-root test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e test-debug-fields-e2e test-cube-tree-generation-e2e test-long-run test-declarations-backlog benchmark-chunks release-linux release-check clean FORCE
 
 # The vendored raylib is a prerequisite rather than a checked precondition: the
 # build either produces it or fails while producing it. There is no state in
@@ -265,6 +265,7 @@ test-e2e: $(TARGET) $(BUILD_DIR)/diagnostics-plugins/diagnostics.so
 	bash tests/test_flat_baseline_e2e.sh $(TARGET)
 	bash tests/test_debug_fields_e2e.sh $(TARGET)
 	bash tests/test_cube_vertical_geometry_e2e.sh $(TARGET)
+	bash tests/test_cube_tree_generation_e2e.sh $(TARGET)
 	bash tests/test_cube_v30_reload_e2e.sh $(TARGET)
 	bash tests/test_v30_cell_reload_e2e.sh $(TARGET)
 
@@ -294,6 +295,10 @@ test-debug-fields-e2e: $(TARGET)
 
 test-debug-graphics-e2e: $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
+
+.PHONY: test-cube-tree-generation-e2e
+test-cube-tree-generation-e2e: $(TARGET)
+	bash tests/test_cube_tree_generation_e2e.sh $(TARGET)
 
 .PHONY: test-render-debug-modes-e2e
 test-render-debug-modes-e2e: $(TARGET)

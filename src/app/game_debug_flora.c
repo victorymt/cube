@@ -1,12 +1,17 @@
 #include "app/game_debug_flora.h"
 
 #include "app/game_runtime.h"
+#include "gameplay/player.h"
 #include "world/flora_taxa.h"
 #include "world/chunks.h"
 #include "world/terrain.h"
 #include "world/weather_impact.h"
 #include "world/block_types.h"
 #include "world/block_edits.h"
+#include "world/surface_contract.h"
+#include "world/surface_pose.h"
+#include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -141,6 +146,17 @@ static bool FloraNearbyBefore(const FloraNearbyEntry *left,
                               const FloraNearbyEntry *right)
 {
     if (left->distance != right->distance) return left->distance < right->distance;
+    if (left->structure.cubeNative && right->structure.cubeNative) {
+        SurfaceAddress a = left->structure.rootAddress;
+        SurfaceAddress b = right->structure.rootAddress;
+        if (a.face != b.face) return a.face < b.face;
+        if (a.u != b.u) return a.u < b.u;
+        if (a.v != b.v) return a.v < b.v;
+        if (a.radial != b.radial) return a.radial < b.radial;
+        return left->structure.kind < right->structure.kind;
+    }
+    if (left->structure.cubeNative != right->structure.cubeNative)
+        return !left->structure.cubeNative;
     if (left->structure.rootX != right->structure.rootX)
         return left->structure.rootX < right->structure.rootX;
     if (left->structure.rootZ != right->structure.rootZ)
@@ -251,9 +267,19 @@ static void FloraNear(GameRuntime *game)
     float radius = (float)game->debugControl.floraNearbyRadius;
     float radiusSquared = radius * radius;
     const Chunk *chunks = ChunksView();
+    unsigned loadedChunks = 0u;
+    unsigned loadedStructures = 0u;
+    unsigned cubeStructures = 0u;
+    unsigned cubeRootChunks = 0u;
+    float nearestCubeRoot = -1.0f;
+    SurfaceAddress nearestCubeAddress = {0};
+    const SurfaceContract *contract = WorldCurrentSurfaceContract();
     for (int chunkIndex = 0; chunkIndex < MAX_ACTIVE_CHUNKS; chunkIndex++) {
         const Chunk *chunk = &chunks[chunkIndex];
-        if (!chunk->loaded || chunk->floraStructureCount <= 0) continue;
+        if (!chunk->loaded) continue;
+        loadedChunks++;
+        loadedStructures += (unsigned)chunk->floraStructureCount;
+        if (chunk->floraStructureCount <= 0) continue;
         int minChunkX = chunk->cx * CHUNK_SIZE;
         int minChunkZ = chunk->cz * CHUNK_SIZE;
         for (int structureIndex = 0;
@@ -263,16 +289,64 @@ static void FloraNear(GameRuntime *game)
             /* A structure is repeated in every intersecting chunk. Count it
              * through the chunk that contains its root so seam trees appear
              * once in this diagnostic. */
-            if (structure->rootX < minChunkX ||
-                structure->rootX >= minChunkX + CHUNK_SIZE ||
-                structure->rootZ < minChunkZ ||
-                structure->rootZ >= minChunkZ + CHUNK_SIZE) continue;
-            float rootX = (float)structure->rootX + 0.5f;
-            float rootZ = (float)structure->rootZ + 0.5f;
-            float rootDx = rootX - game->player.position.x;
-            float rootDz = rootZ - game->player.position.z;
+            Vector3 rootLocal = {0};
+            Vector3 boundsMin = {0};
+            Vector3 boundsMax = {0};
+            if (structure->cubeNative) {
+                cubeStructures++;
+                SurfaceChunkHandle rootHandle;
+                SurfaceChunkHandle chunkHandle;
+                if (!contract ||
+                    !SurfaceContractChunkFromAddress(
+                        contract, structure->rootAddress, &rootHandle) ||
+                    !SurfaceContractChunkFromAddress(
+                        contract, chunk->surfaceAddress, &chunkHandle) ||
+                    !SurfaceContractChunkEqual(contract, rootHandle, chunkHandle))
+                    continue;
+                cubeRootChunks++;
+                SurfacePose rootPose;
+                if (!SurfacePoseFromAddress(structure->rootAddress, 0.0, 0.0,
+                                            &rootPose) ||
+                    !PlayerLocalFromSurfacePose(&rootPose, &rootLocal)) continue;
+                boundsMin = (Vector3){ rootLocal.x + structure->minU,
+                    (float)structure->minY, rootLocal.z + structure->minV };
+                boundsMax = (Vector3){ rootLocal.x + structure->maxU,
+                    (float)structure->maxY, rootLocal.z + structure->maxV };
+            } else {
+                if (structure->rootX < minChunkX ||
+                    structure->rootX >= minChunkX + CHUNK_SIZE ||
+                    structure->rootZ < minChunkZ ||
+                    structure->rootZ >= minChunkZ + CHUNK_SIZE) continue;
+                rootLocal = (Vector3){ (float)structure->rootX + 0.5f,
+                    (float)structure->groundY,
+                    (float)structure->rootZ + 0.5f };
+                boundsMin = (Vector3){ (float)structure->minX,
+                    (float)structure->minY, (float)structure->minZ };
+                boundsMax = (Vector3){ (float)structure->maxX,
+                    (float)structure->maxY, (float)structure->maxZ };
+            }
+            float rootDx = rootLocal.x - game->player.position.x;
+            float rootDz = rootLocal.z - game->player.position.z;
+            if (structure->cubeNative) {
+                float candidate = sqrtf(rootDx * rootDx + rootDz * rootDz);
+                if (nearestCubeRoot < 0.0f || candidate < nearestCubeRoot) {
+                    nearestCubeRoot = candidate;
+                    nearestCubeAddress = structure->rootAddress;
+                }
+            }
             float distance = FloraStructureHorizontalDistance(
                 structure, game->player.position);
+            if (structure->cubeNative) {
+                float dx = game->player.position.x < boundsMin.x
+                    ? boundsMin.x - game->player.position.x
+                    : game->player.position.x > boundsMax.x
+                        ? game->player.position.x - boundsMax.x : 0.0f;
+                float dz = game->player.position.z < boundsMin.z
+                    ? boundsMin.z - game->player.position.z
+                    : game->player.position.z > boundsMax.z
+                        ? game->player.position.z - boundsMax.z : 0.0f;
+                distance = sqrtf(dx * dx + dz * dz);
+            }
             if (rootDx * rootDx + rootDz * rootDz > radiusSquared) continue;
             total++;
             FloraNearbyInsert(entries, &returned, (FloraNearbyEntry){
@@ -298,21 +372,39 @@ static void FloraNear(GameRuntime *game)
     game->floraNearbyNearestWindResponse = 0.0f;
     if (returned > 0u) {
         const FloraNearbyEntry *nearest = &entries[0];
-        game->floraNearbyNearestRoot = (Vector3){
-            (float)nearest->structure.rootX,
-            (float)nearest->structure.groundY,
-            (float)nearest->structure.rootZ
-        };
-        game->floraNearbyNearestBoundsMin = (Vector3){
-            (float)nearest->structure.minX,
-            (float)nearest->structure.minY,
-            (float)nearest->structure.minZ
-        };
-        game->floraNearbyNearestBoundsMax = (Vector3){
-            (float)nearest->structure.maxX,
-            (float)nearest->structure.maxY,
-            (float)nearest->structure.maxZ
-        };
+        if (nearest->structure.cubeNative) {
+            SurfacePose rootPose;
+            Vector3 local = {0};
+            (void)SurfacePoseFromAddress(nearest->structure.rootAddress, 0.0, 0.0,
+                                         &rootPose);
+            (void)PlayerLocalFromSurfacePose(&rootPose, &local);
+            game->floraNearbyNearestRoot = (Vector3){ local.x,
+                (float)nearest->structure.groundY, local.z };
+            game->floraNearbyNearestBoundsMin = (Vector3){
+                local.x + nearest->structure.minU,
+                (float)nearest->structure.minY,
+                local.z + nearest->structure.minV };
+            game->floraNearbyNearestBoundsMax = (Vector3){
+                local.x + nearest->structure.maxU,
+                (float)nearest->structure.maxY,
+                local.z + nearest->structure.maxV };
+        } else {
+            game->floraNearbyNearestRoot = (Vector3){
+                (float)nearest->structure.rootX,
+                (float)nearest->structure.groundY,
+                (float)nearest->structure.rootZ
+            };
+            game->floraNearbyNearestBoundsMin = (Vector3){
+                (float)nearest->structure.minX,
+                (float)nearest->structure.minY,
+                (float)nearest->structure.minZ
+            };
+            game->floraNearbyNearestBoundsMax = (Vector3){
+                (float)nearest->structure.maxX,
+                (float)nearest->structure.maxY,
+                (float)nearest->structure.maxZ
+            };
+        }
         game->floraNearbyNearestPrimary = nearest->structure.primaryBlock;
         game->floraNearbyNearestAccent = nearest->structure.accentBlock;
         game->floraNearbyNearestKind = nearest->structure.kind;
@@ -326,23 +418,51 @@ static void FloraNear(GameRuntime *game)
                       "DEBUG_CONTROL flora near ok radius=%u count=%u "
                       "returned=%u\n",
                       game->debugControl.floraNearbyRadius, total, returned);
+    DebugControlReply(&game->debugControl,
+                      "DEBUG_CONTROL flora near scan loaded_chunks=%u "
+                      "structures=%u cube_structures=%u cube_root_chunks=%u "
+                      "nearest_cube_root=%.3f nearest_cube_address=%d,%d,%d,%d\n",
+                      loadedChunks, loadedStructures, cubeStructures,
+                      cubeRootChunks, nearestCubeRoot,
+                      nearestCubeAddress.face, nearestCubeAddress.u,
+                      nearestCubeAddress.v, nearestCubeAddress.radial);
     for (unsigned index = 0u; index < returned; index++) {
         const FloraNearbyEntry *entry = &entries[index];
         const FloraStructureInstance *structure = &entry->structure;
-        DebugControlReply(
-            &game->debugControl,
-            "DEBUG_CONTROL flora near item index=%u kind=%s "
-            "taxon=\"%s\" root=%d,%d,%d bounds=%d,%d,%d,%d,%d,%d "
-            "distance=%.3f primary=\"%s\" accent=\"%s\" wind=%.3f "
-            "chunk=%d,%d lod=%s\n",
-            index, FloraStructureKindName(structure->kind),
-            FloraTaxonName((FloraTaxonId)structure->taxonId),
-            structure->rootX, structure->groundY, structure->rootZ,
-            structure->minX, structure->minY, structure->minZ,
-            structure->maxX, structure->maxY, structure->maxZ,
-            entry->distance, BlockName(structure->primaryBlock),
-            BlockName(structure->accentBlock), structure->windResponse,
-            entry->chunkX, entry->chunkZ, FloraLodName(entry->activeLod));
+        if (structure->cubeNative) {
+            DebugControlReply(
+                &game->debugControl,
+                "DEBUG_CONTROL flora near item index=%u kind=%s "
+                "taxon=\"%s\" root_address=%d,%d,%d,%d "
+                "local_bounds=%d,%d,%d,%d,%d,%d distance=%.3f "
+                "primary=\"%s\" accent=\"%s\" wind=%.3f chunk=%d,%d lod=%s\n",
+                index, FloraStructureKindName(structure->kind),
+                FloraTaxonName((FloraTaxonId)structure->taxonId),
+                structure->rootAddress.face, structure->rootAddress.u,
+                structure->rootAddress.v, structure->rootAddress.radial,
+                structure->minU, structure->minY, structure->minV,
+                structure->maxU, structure->maxY, structure->maxV,
+                entry->distance, BlockName(structure->primaryBlock),
+                BlockName(structure->accentBlock), structure->windResponse,
+                entry->chunkX, entry->chunkZ,
+                FloraLodName(entry->activeLod));
+        } else {
+            DebugControlReply(
+                &game->debugControl,
+                "DEBUG_CONTROL flora near item index=%u kind=%s "
+                "taxon=\"%s\" root=%d,%d,%d bounds=%d,%d,%d,%d,%d,%d "
+                "distance=%.3f primary=\"%s\" accent=\"%s\" wind=%.3f "
+                "chunk=%d,%d lod=%s\n",
+                index, FloraStructureKindName(structure->kind),
+                FloraTaxonName((FloraTaxonId)structure->taxonId),
+                structure->rootX, structure->groundY, structure->rootZ,
+                structure->minX, structure->minY, structure->minZ,
+                structure->maxX, structure->maxY, structure->maxZ,
+                entry->distance, BlockName(structure->primaryBlock),
+                BlockName(structure->accentBlock), structure->windResponse,
+                entry->chunkX, entry->chunkZ,
+                FloraLodName(entry->activeLod));
+        }
     }
 }
 

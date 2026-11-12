@@ -109,6 +109,14 @@ static void UpdateChunkSectionFloraScale(ChunkSection *section,
             !isfinite(instance->anchor.z)) continue;
         int cellX = (int)floorf(instance->anchor.x);
         int cellZ = (int)floorf(instance->anchor.z);
+        if (instance->cubeNative) {
+            SurfaceMapCell mapCell;
+            if (SurfaceAddressCanonicalMapCell(
+                    instance->rootAddress, &mapCell)) {
+                cellX = mapCell.x;
+                cellZ = mapCell.z;
+            }
+        }
 
         if (refreshTargets) {
             WorldFloraVisualSample flora = {

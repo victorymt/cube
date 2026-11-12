@@ -12,7 +12,7 @@ bool ChunksTestBuildSurfaceWaterMeshDataWithSnapshot(
     Mesh *outMesh)
 {
     return BuildChunkSurfaceWaterMeshDataWithSnapshot(
-        blocks, waterVolumes, layerY, chunkX, chunkZ, structures,
+        blocks, waterVolumes, layerY, chunkX, chunkZ, NULL, structures,
         structureCount, faces, nearbyTorchIndices, nearbyTorchCount,
         (const SurfaceBoundarySnapshot *)boundary, outMesh);
 }

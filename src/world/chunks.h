@@ -272,6 +272,8 @@ bool ChunkFloraStructureOwnsBlock(
  * ordinary terrain blocks. */
 int ChunkFloraStructureOwnerAtBlock(
     const Chunk *chunk, int worldX, int y, int worldZ, BlockType block);
+const Chunk *ChunkFloraStructureOwnerChunkAtCubeCell(
+    SurfaceAddress address, BlockType block, int *outOwner);
 /* Removes one generated flora structure and clears only blocks that it still
  * owns. Water volume in those cells is preserved. */
 bool ChunkRemoveFloraStructure(Chunk *chunk, int structureIndex);

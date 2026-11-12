@@ -43,6 +43,10 @@ bool SurfaceCoordinatesFromPoint(SurfaceVector point,
 bool SurfaceCellFromPoint(uint32_t bodyId, SurfaceVector point,
                           SurfaceAddress *outCell);
 bool SurfaceCellCenter(SurfaceAddress cell, SurfaceVector *outPoint);
+// Offset a cell in the root cell's local U/V tangent frame. The result is
+// canonicalized through SurfaceCellFromPoint, so offsets may cross cube faces.
+bool SurfaceCellOffset(SurfaceAddress root, int deltaU, int deltaV, int radial,
+                       SurfaceAddress *out);
 bool SurfacePoseFromGeographic(uint32_t bodyId, double longitude,
                                double latitude, double radial, double yaw,
                                double pitch, SurfacePose *outPose);

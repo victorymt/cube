@@ -609,7 +609,7 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
     if (chunk->cubeGrid) CaptureCubeBoundary(&job->boundary, chunk->cubeKey, section->sectionY);
     else CaptureSurfaceBoundary(
         &job->boundary, chunk->cx, chunk->cz, section->sectionY);
-    if (lod == CHUNK_LOD_EXACT && !chunk->cubeGrid) {
+    if (lod == CHUNK_LOD_EXACT) {
         job->floraStructureCount = chunk->floraStructureCount;
         if (job->floraStructureCount < 0) job->floraStructureCount = 0;
         if (job->floraStructureCount > MAX_CHUNK_FLORA_STRUCTURES) {
@@ -618,7 +618,7 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
         memcpy(job->floraStructures, chunk->floraStructures,
                (size_t)job->floraStructureCount *
                    sizeof(FloraStructureInstance));
-        job->nearbyCount = CollectNearbyTorchLights(
+        job->nearbyCount = chunk->cubeGrid ? 0 : CollectNearbyTorchLights(
             chunk->cx * CHUNK_SIZE - (int)TORCH_LIGHT_RADIUS,
             chunk->cx * CHUNK_SIZE + CHUNK_SIZE - 1 +
                 (int)TORCH_LIGHT_RADIUS,

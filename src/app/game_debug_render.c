@@ -133,8 +133,11 @@ static void RenderPick(GameRuntime *game)
         }
         game->renderPickLiquid = IsLiquidBlock(game->renderPickBlock);
         int owner = -1;
-        const Chunk *chunk = RenderFloraOwnerChunk(
-            hit.x, hit.y, hit.z, game->renderPickBlock, &owner);
+        const Chunk *chunk = hit.hasAddress
+            ? ChunkFloraStructureOwnerChunkAtCubeCell(
+                  hit.address.at.surface, game->renderPickBlock, &owner)
+            : RenderFloraOwnerChunk(
+                  hit.x, hit.y, hit.z, game->renderPickBlock, &owner);
         if (chunk && owner >= 0) {
             const FloraStructureInstance *structure =
                 &chunk->floraStructures[owner];

@@ -1075,7 +1075,7 @@ static void AssertHomeTreeFloraMeshPartition(void)
         assert(!BuildChunkSurfaceSolidMeshData(
             section->blocks,
             section->sectionY * SURFACE_SECTION_HEIGHT,
-            full.cx, full.cz, full.floraStructures,
+            full.cx, full.cz, NULL, full.floraStructures,
             full.floraStructureCount, faces, NULL, 0,
             GREEDY_MESH_MAX_SPAN, NULL, &solid));
         assert(solid.vertexCount == 0);
@@ -1085,7 +1085,7 @@ static void AssertHomeTreeFloraMeshPartition(void)
         CopyBlocksWithoutFloraStructures(
             lodBlocks, section->blocks,
             section->sectionY * SURFACE_SECTION_HEIGHT,
-            full.cx, full.cz, full.floraStructures,
+            full.cx, full.cz, NULL, full.floraStructures,
             full.floraStructureCount);
         assert(lodBlocks[8][15][8] == BLOCK_AIR);
     }
@@ -1117,10 +1117,10 @@ static void AssertHomeTreeFloraMeshPartition(void)
     Mesh halfProxy = { 0 };
     Mesh quarterProxy = { 0 };
     assert(BuildChunkLodFloraMeshData(
-        0, 0, 0, CHUNK_LOD_HALF, &structure, 1, faces, NULL,
+        0, 0, 0, CHUNK_LOD_HALF, NULL, &structure, 1, faces, NULL,
         &halfProxy));
     assert(BuildChunkLodFloraMeshData(
-        0, 0, 0, CHUNK_LOD_QUARTER, &structure, 1, faces, NULL,
+        0, 0, 0, CHUNK_LOD_QUARTER, NULL, &structure, 1, faces, NULL,
         &quarterProxy));
     assert(halfProxy.vertexCount >= quarterProxy.vertexCount);
     FreeTestMesh(&halfProxy);

@@ -2,6 +2,7 @@
 #define VOXELCRAFT_FLORA_TYPES_H
 
 #include "world/block_type.h"
+#include "world/surface_types.h"
 
 #include "raylib.h"
 
@@ -16,6 +17,8 @@ typedef struct FloraVisualInstance {
     Vector3 anchor;
     float height;
     float windResponse;
+    bool cubeNative;
+    SurfaceAddress rootAddress;
 } FloraVisualInstance;
 
 typedef enum FloraStructureKind {
@@ -45,6 +48,12 @@ typedef struct FloraStructureInstance {
     float floodExposureSeconds;
     float floodDamage;
     bool floodDead;
+    bool cubeNative;
+    SurfaceAddress rootAddress;
+    int minU;
+    int maxU;
+    int minV;
+    int maxV;
 } FloraStructureInstance;
 
 #endif

@@ -2,6 +2,7 @@
 #include "world/chunks.h"
 #include "world/cga_voxel.h"
 #include "world/surface_topology.h"
+#include "world/terrain_cube_flora.h"
 
 #include <limits.h>
 #include <math.h>
@@ -206,7 +207,8 @@ static bool GenerateCubeSectionBase(const TerrainCubeContext *context,
 bool TerrainCubeGenerateChunkSection(const TerrainCubeContext *context,
                                      Chunk *staging, int sectionY)
 {
-    if (!GenerateCubeSectionBase(context, staging, sectionY)) return false;
+    if (!GenerateCubeSectionBase(context, staging, sectionY) ||
+        !TerrainCubeGenerateHomeTrees(context, staging, sectionY)) return false;
     return GenerateCubeStructures(context, staging, staging->cubeKey, sectionY);
 }
 
@@ -244,5 +246,6 @@ bool TerrainCubeGenerateChunk(const TerrainCubeContext *context,
         if (required[sectionY - FIRST] &&
             !GenerateCubeSectionBase(context, staging, sectionY))
             return false;
+    if (!TerrainCubeGenerateHomeTrees(context, staging, INT_MIN)) return false;
     return GenerateCubeStructures(context, staging, key, INT_MIN);
 }

@@ -249,9 +249,20 @@ bool BuildSurfaceWaterMeshDataWithSnapshot(
     int chunkX, int chunkZ, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount,
     const SurfaceBoundarySnapshot *boundary, Mesh *outMesh);
+typedef struct FloraStructureOwners {
+    int16_t cells[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+} FloraStructureOwners;
+
+void FloraStructureOwnersBuild(
+    FloraStructureOwners *owners,
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int layerY, int chunkX, int chunkZ,
+    const SurfaceCubeChunkKey *cubeKey,
+    const FloraStructureInstance *structures, int structureCount);
 bool BuildChunkSurfaceSolidMeshData(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,
+    const SurfaceCubeChunkKey *cubeKey,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
     int nearbyTorchCount, int greedyMaxSpan,
@@ -263,6 +274,7 @@ void CopyBlocksWithoutFloraStructures(
     const unsigned short source[CHUNK_SIZE][SURFACE_SECTION_HEIGHT]
                          [CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,
+    const SurfaceCubeChunkKey *cubeKey,
     const FloraStructureInstance *structures, int structureCount);
 bool BuildChunkLodHeightfieldMeshData(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
@@ -278,6 +290,7 @@ void BuildMeshJobPayload(MeshJob *job);
 bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     const unsigned char *waterVolumes, int layerY, int chunkX, int chunkZ,
+    const SurfaceCubeChunkKey *cubeKey,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
     int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
@@ -285,6 +298,7 @@ bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
 bool BuildChunkFloraMeshDataFromSnapshot(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,
+    const SurfaceCubeChunkKey *cubeKey,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
     int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
@@ -292,6 +306,7 @@ bool BuildChunkFloraMeshDataFromSnapshot(
     FloraVisualInstance **outInstances, int *outInstanceCount);
 bool BuildChunkLodFloraMeshData(
     int layerY, int chunkX, int chunkZ, ChunkLodLevel lod,
+    const SurfaceCubeChunkKey *cubeKey,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const SurfaceBoundarySnapshot *boundary,
     Mesh *outMesh);
@@ -301,6 +316,8 @@ void CaptureSurfaceBoundary(SurfaceBoundarySnapshot *snapshot,
 void CaptureCubeBoundary(SurfaceBoundarySnapshot *snapshot,
                           SurfaceCubeChunkKey key, int sectionY);
 void CurveCubeMeshData(Mesh *mesh, SurfaceCubeChunkKey key, int sectionY);
+void CurveCubeFloraInstances(FloraVisualInstance *instances, int count,
+                             SurfaceCubeChunkKey key, int sectionY);
 bool SurfaceBoundaryBlockAt(const SurfaceBoundarySnapshot *snapshot,
                             int lx, int y, int lz, BlockType *outBlock);
 bool SurfaceBoundaryCellAt(const SurfaceBoundarySnapshot *snapshot,

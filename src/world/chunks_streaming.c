@@ -107,6 +107,7 @@ void GenerateChunkJobPayload(ChunkGenJob *job, bool preload)
     FreeChunkGenJobResult(job);
     job->succeeded = false;
     job->hasSectionBlocks = false;
+    job->sectionFloraStructureCount = 0;
     if (job->cubeGrid && (!job->cubeContext || !job->generateCube ||
                          !job->releaseCube)) return;
 
@@ -165,6 +166,16 @@ void GenerateChunkJobPayload(ChunkGenJob *job, bool preload)
         memcpy(job->sectionBlocks, section->blocks,
                sizeof(job->sectionBlocks));
         job->hasSectionBlocks = true;
+    }
+    if (job->succeeded) {
+        job->sectionFloraStructureCount = staged.floraStructureCount;
+        if (job->sectionFloraStructureCount < 0)
+            job->sectionFloraStructureCount = 0;
+        if (job->sectionFloraStructureCount > MAX_CHUNK_FLORA_STRUCTURES)
+            job->sectionFloraStructureCount = MAX_CHUNK_FLORA_STRUCTURES;
+        memcpy(job->sectionFloraStructures, staged.floraStructures,
+               (size_t)job->sectionFloraStructureCount *
+                   sizeof(job->sectionFloraStructures[0]));
     }
     ChunkClearBlockStorage(&staged);
 }
@@ -764,6 +775,26 @@ static void CompleteChunkSectionGenJob(ChunkGenJob *job)
     if (!chunk->cubeGrid) {
         ApplyEditsToChunkSection(chunk, job->sectionY);
         WorldNotifyChunkSectionLoaded(chunk, job->sectionY);
+    }
+    for (int incoming = 0; incoming < job->sectionFloraStructureCount; incoming++) {
+        FloraStructureInstance *next = &job->sectionFloraStructures[incoming];
+        bool duplicate = false;
+        for (int existing = 0; existing < chunk->floraStructureCount; existing++) {
+            FloraStructureInstance *current = &chunk->floraStructures[existing];
+            if (current->kind != next->kind || current->cubeNative != next->cubeNative)
+                continue;
+            if (next->cubeNative) {
+                duplicate = SurfaceAddressEqual(
+                    current->rootAddress, next->rootAddress);
+            } else {
+                duplicate = current->rootX == next->rootX &&
+                    current->groundY == next->groundY &&
+                    current->rootZ == next->rootZ;
+            }
+            if (duplicate) break;
+        }
+        if (!duplicate && chunk->floraStructureCount < MAX_CHUNK_FLORA_STRUCTURES)
+            chunk->floraStructures[chunk->floraStructureCount++] = *next;
     }
     MarkGeneratedSectionAndNeighborsDirty(chunk, job->sectionY);
 }

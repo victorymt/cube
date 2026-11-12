@@ -149,6 +149,8 @@ typedef struct ChunkGenJob {
     // snapshot only if the chunk incarnation still matches.
     unsigned short sectionBlocks
         [CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    int sectionFloraStructureCount;
+    FloraStructureInstance sectionFloraStructures[MAX_CHUNK_FLORA_STRUCTURES];
 } ChunkGenJob;
 
 #endif

@@ -3,6 +3,8 @@
 
 #include <limits.h>
 #include <math.h>
+#include <stddef.h>
+#include <stdint.h>
 
 bool SurfaceVectorIsFinite(SurfaceVector v)
 {
@@ -87,6 +89,51 @@ bool SurfaceCellCenter(SurfaceAddress cell, SurfaceVector *out)
 {
     return SurfaceAddressIsValid(cell) && SurfacePointFromCoordinates(
         (SurfaceCoordinates){cell.face, cell.u + .5, cell.v + .5, cell.radial + .5}, out);
+}
+
+static bool StepCubeCellOffset(SurfaceAddress *cell,
+                               SurfaceCubeEdge move,
+                               SurfaceCubeEdge *uDirection,
+                               SurfaceCubeEdge *vDirection)
+{
+    SurfaceAddress next;
+    if (!SurfaceCubeCellNeighbor(*cell, move, &next, NULL)) return false;
+    if (next.face != cell->face) {
+        SurfaceCubeEdge nextU = *uDirection;
+        SurfaceCubeEdge nextV = *vDirection;
+        if (!SurfaceCubeTransportEdge(*cell, move, *uDirection, &nextU) ||
+            !SurfaceCubeTransportEdge(*cell, move, *vDirection, &nextV))
+            return false;
+        *uDirection = nextU;
+        *vDirection = nextV;
+    }
+    *cell = next;
+    return true;
+}
+
+bool SurfaceCellOffset(SurfaceAddress root, int deltaU, int deltaV, int radial,
+                       SurfaceAddress *out)
+{
+    if (!out || !SurfaceAddressIsValid(root)) return false;
+    SurfaceAddress cell = root;
+    SurfaceCubeEdge uDirection = deltaU < 0
+        ? SURFACE_CUBE_U_MINUS : SURFACE_CUBE_U_PLUS;
+    SurfaceCubeEdge vDirection = deltaV < 0
+        ? SURFACE_CUBE_V_MINUS : SURFACE_CUBE_V_PLUS;
+    unsigned uSteps = deltaU < 0 ? (unsigned)-(int64_t)deltaU
+                                 : (unsigned)deltaU;
+    unsigned vSteps = deltaV < 0 ? (unsigned)-(int64_t)deltaV
+                                 : (unsigned)deltaV;
+    for (unsigned step = 0; step < uSteps; step++)
+        if (!StepCubeCellOffset(&cell, uDirection, &uDirection, &vDirection))
+            return false;
+    for (unsigned step = 0; step < vSteps; step++)
+        if (!StepCubeCellOffset(&cell, vDirection, &uDirection, &vDirection))
+            return false;
+    cell.radial = radial;
+    if (!SurfaceAddressIsValid(cell)) return false;
+    *out = cell;
+    return true;
 }
 
 bool SurfacePoseFromGeographic(uint32_t bodyId, double longitude,

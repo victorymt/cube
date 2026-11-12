@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "world/chunks_internal.h"
 #include "world/terrain_cube.h"
+#include "world/terrain_cube_flora.h"
 #include "world/chunks_cube.h"
 #include "world/cga_voxel.h"
 #include "world/world_cube.h"
@@ -218,6 +219,357 @@ static TerrainCubeContext *ContextWithMode(TerrainMode mode)
 static TerrainCubeContext *Context(void)
 {
     return ContextWithMode(TERRAIN_FLAT);
+}
+
+static void TestCubeHomeTreeDecision(void)
+{
+    WorldSurfaceSnapshot snapshot = {.context = {.active = true,
+        .kind = WORLD_SURFACE_HOME, .topology = {SURFACE_TOPOLOGY_CUBE_GRID, 1},
+        .bodyId = 0, .seed = 1448040515u}};
+    TerrainCubeContext *context = TerrainCubeContextCreate(
+        &snapshot, TERRAIN_VARIED, WorldCurrentGeneration());
+    assert(context);
+    SurfaceAddress origin = SurfaceAddressFromMapCoordinates(
+        0, 172.5f, 293.5f, 0);
+    SurfaceCubeChunkKey originKey;
+    assert(SurfaceCubeChunkAt(origin, &originKey));
+    unsigned roots = 0;
+    SurfaceAddress first = {0};
+    TerrainCubeHomeTree firstTree = {0};
+    for (int du = -2; du <= 2; du++) {
+        for (int dv = -2; dv <= 2; dv++) {
+            SurfaceCubeChunkKey key = originKey;
+            key.u += du;
+            key.v += dv;
+            if (!SurfaceCubeChunkKeyIsValid(key)) continue;
+            for (int lv = 0; lv < CHUNK_SIZE; lv++) {
+                for (int lu = 0; lu < CHUNK_SIZE; lu++) {
+                    SurfaceAddress root = {key.bodyId, key.face,
+                        key.u * CHUNK_SIZE + lu, key.v * CHUNK_SIZE + lv, 0};
+                    TerrainCubeHomeTree tree;
+                    if (!TerrainCubeHomeTreeAt(context, root, &tree)) continue;
+                    if (roots == 0u) {
+                        first = tree.root;
+                        firstTree = tree;
+                    }
+                    roots++;
+                }
+            }
+        }
+    }
+    fprintf(stderr, "cube home tree roots=%u first=%d,%d,%d,%d\n", roots,
+            first.face, first.u, first.v, first.radial);
+    assert(roots > 0u);
+    TerrainCubeHomeTree repeated;
+    assert(TerrainCubeHomeTreeAt(context, first, &repeated));
+    assert(SurfaceAddressEqual(first, repeated.root));
+    assert(repeated.baseY == firstTree.baseY &&
+           repeated.taxonId == firstTree.taxonId &&
+           repeated.shapeHash == firstTree.shapeHash);
+    assert(repeated.bounds.minX == firstTree.bounds.minX &&
+           repeated.bounds.minY == firstTree.bounds.minY &&
+           repeated.bounds.minZ == firstTree.bounds.minZ &&
+           repeated.bounds.maxX == firstTree.bounds.maxX &&
+           repeated.bounds.maxY == firstTree.bounds.maxY &&
+           repeated.bounds.maxZ == firstTree.bounds.maxZ);
+    SurfaceCubeChunkKey firstKey;
+    assert(SurfaceCubeChunkAt(first, &firstKey));
+    Chunk *staging = calloc(1, sizeof(*staging));
+    assert(staging && TerrainCubeGenerateChunk(context, firstKey, staging));
+    fprintf(stderr, "tree chunk=%d,%d structures=%d trunk=%s\n",
+            firstKey.u, firstKey.v, staging->floraStructureCount,
+            BlockName(ChunkGetLocalBlock(
+                staging, first.u % CHUNK_SIZE, first.radial,
+                first.v % CHUNK_SIZE)));
+    assert(staging->floraStructureCount > 0);
+
+    for (int sectionIndex = 0; sectionIndex < staging->sectionCount;
+         sectionIndex++) {
+        const ChunkSection *columnSection = staging->sections[sectionIndex];
+        Chunk *sectionStaging = calloc(1, sizeof(*sectionStaging));
+        assert(sectionStaging);
+        sectionStaging->cubeGrid = true;
+        sectionStaging->spherical = true;
+        sectionStaging->cubeKey = firstKey;
+        assert(TerrainCubeGenerateChunkSection(
+            context, sectionStaging, columnSection->sectionY));
+        const ChunkSection *generated = ChunkGetSectionConst(
+            sectionStaging, columnSection->sectionY);
+        assert(generated);
+        assert(memcmp(generated->blocks, columnSection->blocks,
+                      sizeof(columnSection->blocks)) == 0);
+        ChunkClearBlockStorage(sectionStaging);
+        free(sectionStaging);
+    }
+
+    Chunk *flatStaging = calloc(1, sizeof(*flatStaging));
+    TerrainCubeContext *flat = ContextWithMode(TERRAIN_FLAT);
+    assert(flatStaging && flat);
+    assert(TerrainCubeGenerateChunk(flat, firstKey, flatStaging));
+    assert(flatStaging->floraStructureCount == 0);
+    ChunkClearBlockStorage(flatStaging);
+    free(flatStaging);
+    TerrainCubeContextRelease(flat);
+
+    int treeSectionY = SurfaceSectionYFromBlockY(first.radial);
+    const ChunkSection *treeSection = ChunkGetSectionConst(
+        staging, treeSectionY);
+    assert(treeSection);
+    FloraStructureOwners owners;
+    FloraStructureOwnersBuild(
+        &owners, treeSection->blocks, treeSectionY * SURFACE_SECTION_HEIGHT,
+        firstKey.u, firstKey.v, &firstKey, staging->floraStructures,
+        staging->floraStructureCount);
+    unsigned ownedCells = 0u;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++)
+        for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++)
+            for (int lz = 0; lz < CHUNK_SIZE; lz++)
+                ownedCells += owners.cells[lx][y][lz] >= 0 ? 1u : 0u;
+    assert(ownedCells > 0u);
+
+    MeshJob *job = calloc(1, sizeof(*job));
+    assert(job);
+    job->cubeGrid = job->spherical = true;
+    job->cubeKey = firstKey;
+    job->cx = firstKey.u;
+    job->cz = firstKey.v;
+    job->sectionY = treeSectionY;
+    memcpy(job->blocks, treeSection->blocks, sizeof(job->blocks));
+    job->floraStructureCount = staging->floraStructureCount;
+    memcpy(job->floraStructures, staging->floraStructures,
+           (size_t)job->floraStructureCount * sizeof(job->floraStructures[0]));
+    memset(job->boundary.known, 1, sizeof(job->boundary.known));
+    BuildMeshJobPayload(job);
+    assert(job->hasFloraMesh && job->floraInstanceCount > 0);
+    assert(job->floraMesh.vertexCount > 0 && job->floraInstances);
+    for (int index = 0; index < job->floraInstanceCount; index++) {
+        const FloraVisualInstance *instance = &job->floraInstances[index];
+        assert(isfinite(instance->anchor.x) && isfinite(instance->anchor.y) &&
+               isfinite(instance->anchor.z));
+        assert(instance->anchor.y > -2.0f && instance->anchor.y < 18.0f);
+        assert(fabsf(instance->anchor.x) < 24.0f &&
+               fabsf(instance->anchor.z) < 24.0f);
+        assert(instance->height > 0.0f && instance->windResponse > 0.0f);
+        assert(instance->cubeNative && SurfaceAddressIsValid(
+            instance->rootAddress));
+    }
+    static const int faces[6][3] = {
+        {1, 0, 0}, {-1, 0, 0}, {0, 1, 0},
+        {0, -1, 0}, {0, 0, 1}, {0, 0, -1}
+    };
+    Mesh lodMesh = {0};
+    assert(BuildChunkLodFloraMeshData(
+        treeSectionY * SURFACE_SECTION_HEIGHT, firstKey.u, firstKey.v,
+        CHUNK_LOD_HALF, &firstKey, staging->floraStructures,
+        staging->floraStructureCount, faces, &job->boundary, &lodMesh));
+    assert(lodMesh.vertexCount > 0);
+    FreeMeshData(&lodMesh);
+    FreeMeshData(&job->mesh);
+    FreeMeshData(&job->waterMesh);
+    FreeMeshData(&job->floraMesh);
+    free(job->floraInstances);
+    free(job);
+
+    int selectedStructure = -1;
+    for (int index = 0; index < staging->floraStructureCount; index++)
+        if (staging->floraStructures[index].cubeNative &&
+            SurfaceAddressEqual(staging->floraStructures[index].rootAddress,
+                                first)) {
+            selectedStructure = index;
+            break;
+        }
+    assert(selectedStructure >= 0);
+    int modifiedX = -1, modifiedY = -1, modifiedZ = -1;
+    int removedX = -1, removedY = -1, removedZ = -1;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++)
+        for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++)
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                if (owners.cells[lx][y][lz] != selectedStructure) continue;
+                if (modifiedX < 0) {
+                    modifiedX = lx;
+                    modifiedY = y;
+                    modifiedZ = lz;
+                } else if (removedX < 0) {
+                    removedX = lx;
+                    removedY = y;
+                    removedZ = lz;
+                    break;
+                }
+            }
+    assert(modifiedX >= 0 && removedX >= 0);
+    int modifiedRadial = treeSectionY * SURFACE_SECTION_HEIGHT + modifiedY;
+    int removedRadial = treeSectionY * SURFACE_SECTION_HEIGHT + removedY;
+    assert(ChunkSetLocalBlock(staging, modifiedX, modifiedRadial, modifiedZ,
+                              BLOCK_BRICK));
+    assert(ChunkRemoveFloraStructure(staging, selectedStructure));
+    assert(ChunkGetLocalBlock(staging, modifiedX, modifiedRadial, modifiedZ) ==
+           BLOCK_BRICK);
+    assert(ChunkGetLocalBlock(staging, removedX, removedRadial, removedZ) ==
+           BLOCK_AIR);
+
+    ChunkClearBlockStorage(staging);
+    free(staging);
+    TerrainCubeContextRelease(context);
+}
+
+static void TestCubeCellOffsetMatchesTopology(void)
+{
+    const int coordinates[][2] = {
+        {0, 0}, {0, SURFACE_FACE_BLOCKS - 1},
+        {SURFACE_FACE_BLOCKS - 1, 0},
+        {SURFACE_FACE_BLOCKS - 1, SURFACE_FACE_BLOCKS - 1},
+        {SURFACE_FACE_BLOCKS / 2, SURFACE_FACE_BLOCKS / 2}
+    };
+    for (int face = 0; face < SURFACE_FACE_COUNT; face++) {
+        for (size_t c = 0; c < sizeof(coordinates) / sizeof(coordinates[0]);
+             c++) {
+            SurfaceAddress root = {0, (SurfaceFace)face, coordinates[c][0],
+                                   coordinates[c][1], 37};
+            SurfaceAddress same;
+            assert(SurfaceCellOffset(root, 0, 0, root.radial, &same));
+            assert(SurfaceAddressEqual(root, same));
+            for (int edge = 0; edge < 4; edge++) {
+                SurfaceAddress expected;
+                SurfaceAddress actual;
+                assert(SurfaceCubeCellNeighbor(
+                    root, (SurfaceCubeEdge)edge, &expected, NULL));
+                int du = edge == SURFACE_CUBE_U_PLUS ? 1 :
+                    edge == SURFACE_CUBE_U_MINUS ? -1 : 0;
+                int dv = edge == SURFACE_CUBE_V_PLUS ? 1 :
+                    edge == SURFACE_CUBE_V_MINUS ? -1 : 0;
+                assert(SurfaceCellOffset(root, du, dv, root.radial, &actual));
+                assert(SurfaceAddressEqual(expected, actual));
+            }
+            SurfaceAddress changedRadial;
+            assert(SurfaceCellOffset(root, 0, 0, root.radial + 9,
+                                     &changedRadial));
+            assert(root.bodyId == changedRadial.bodyId &&
+                   root.face == changedRadial.face &&
+                   root.u == changedRadial.u && root.v == changedRadial.v);
+            assert(changedRadial.radial == root.radial + 9);
+        }
+    }
+}
+
+typedef struct TreeFaceFixture {
+    SurfaceAddress root;
+    unsigned counts[SURFACE_FACE_COUNT];
+    SurfaceAddress crossCell;
+} TreeFaceFixture;
+
+static bool CountTreeFaceCell(void *opaque, int shapeU, int y, int shapeV,
+                              BlockType block, bool replace)
+{
+    (void)block;
+    (void)replace;
+    TreeFaceFixture *fixture = opaque;
+    SurfaceAddress cell;
+    assert(SurfaceCellOffset(fixture->root, shapeU - fixture->root.u,
+                             shapeV - fixture->root.v, y, &cell));
+    fixture->counts[cell.face]++;
+    if (cell.face != fixture->root.face)
+        fixture->crossCell = cell;
+    return true;
+}
+
+static bool FindCrossFaceCubeTree(const TerrainCubeContext *context,
+                                  TreeFaceFixture *outFixture)
+{
+    assert(context && outFixture);
+    for (int face = 0; face < SURFACE_FACE_COUNT; face++) {
+        for (int edgeRoot = 0; edgeRoot < 10; edgeRoot++) {
+            int u = edgeRoot < 5 ? edgeRoot :
+                SURFACE_FACE_BLOCKS - 1 - (edgeRoot - 5);
+            for (int v = 0; v < SURFACE_FACE_BLOCKS; v++) {
+                SurfaceAddress root = {0, (SurfaceFace)face, u, v, 0};
+                TerrainCubeHomeTree tree;
+                if (!TerrainCubeHomeTreeAt(context, root, &tree)) continue;
+                TreeFaceFixture fixture = {.root = tree.root};
+                HomeTreeShapeSpec spec = {
+                    .rootX = tree.root.u,
+                    .baseY = tree.baseY,
+                    .rootZ = tree.root.v,
+                    .taxonId = tree.taxonId,
+                    .shapeHash = tree.shapeHash
+                };
+                const FloraTaxon *taxon = FloraTaxonAt(tree.taxonId);
+                assert(taxon);
+                spec.primaryBlock = taxon->primaryBlock;
+                spec.accentBlock = taxon->accentBlock;
+                assert(HomeTreeShapeEmit(&spec, CountTreeFaceCell, &fixture));
+                unsigned faceCount = 0;
+                for (int index = 0; index < SURFACE_FACE_COUNT; index++)
+                    faceCount += fixture.counts[index] > 0u ? 1u : 0u;
+                if (faceCount < 2u || !SurfaceAddressIsValid(fixture.crossCell))
+                    continue;
+                *outFixture = fixture;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool ChunkHasCubeTreeRoot(const Chunk *chunk, SurfaceAddress root)
+{
+    if (!chunk) return false;
+    for (int index = 0; index < chunk->floraStructureCount; index++) {
+        const FloraStructureInstance *structure = &chunk->floraStructures[index];
+        if (structure->cubeNative &&
+            SurfaceAddressEqual(structure->rootAddress, root)) return true;
+    }
+    return false;
+}
+
+static void TestCrossFaceCubeTreeGeneration(void)
+{
+    WorldSurfaceSnapshot snapshot = {.context = {.active = true,
+        .kind = WORLD_SURFACE_HOME, .topology = {SURFACE_TOPOLOGY_CUBE_GRID, 1},
+        .bodyId = 0, .seed = 1448040515u}};
+    TerrainCubeContext *context = TerrainCubeContextCreate(
+        &snapshot, TERRAIN_VARIED, WorldCurrentGeneration());
+    assert(context);
+    TreeFaceFixture fixture;
+    assert(FindCrossFaceCubeTree(context, &fixture));
+    SurfaceCubeChunkKey rootKey;
+    SurfaceCubeChunkKey crossKey;
+    assert(SurfaceCubeChunkAt(fixture.root, &rootKey));
+    assert(SurfaceCubeChunkAt(fixture.crossCell, &crossKey));
+    assert(!SurfaceCubeChunkKeyEqual(rootKey, crossKey));
+
+    Chunk *rootChunk = calloc(1, sizeof(*rootChunk));
+    Chunk *crossChunk = calloc(1, sizeof(*crossChunk));
+    assert(rootChunk && crossChunk);
+    assert(TerrainCubeGenerateChunk(context, rootKey, rootChunk));
+    assert(TerrainCubeGenerateChunk(context, crossKey, crossChunk));
+    assert(ChunkHasCubeTreeRoot(rootChunk, fixture.root));
+    assert(ChunkHasCubeTreeRoot(crossChunk, fixture.root));
+    int crossSectionY = SurfaceSectionYFromBlockY(fixture.crossCell.radial);
+    const ChunkSection *crossSection = ChunkGetSectionConst(
+        crossChunk, crossSectionY);
+    assert(crossSection);
+    FloraStructureOwners crossOwners;
+    FloraStructureOwnersBuild(
+        &crossOwners, crossSection->blocks,
+        crossSectionY * SURFACE_SECTION_HEIGHT, crossKey.u, crossKey.v,
+        &crossKey, crossChunk->floraStructures, crossChunk->floraStructureCount);
+    unsigned crossOwned = 0u;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++)
+        for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++)
+            for (int lz = 0; lz < CHUNK_SIZE; lz++)
+                crossOwned += crossOwners.cells[lx][y][lz] >= 0 ? 1u : 0u;
+    assert(crossOwned > 0u);
+    fprintf(stderr,
+            "cross-face tree root=%d,%d,%d,%d cross=%d,%d,%d,%d\n",
+            fixture.root.face, fixture.root.u, fixture.root.v,
+            fixture.root.radial, fixture.crossCell.face,
+            fixture.crossCell.u, fixture.crossCell.v,
+            fixture.crossCell.radial);
+    ChunkClearBlockStorage(rootChunk);
+    ChunkClearBlockStorage(crossChunk);
+    free(rootChunk);
+    free(crossChunk);
+    TerrainCubeContextRelease(context);
 }
 
 static ChunkGenJob Prepare(TerrainCubeContext *context, int slot,
@@ -1389,6 +1741,9 @@ static void TestCubeCellSelectionGeometry(void)
 
 int main(void)
 {
+    TestCubeCellOffsetMatchesTopology();
+    TestCubeHomeTreeDecision();
+    TestCrossFaceCubeTreeGeneration();
     TestCgaSurfaceCellsCrossFace();
     TestCgaSurfacePlanningDeterministic();
     TestCubeMeshIdentity();

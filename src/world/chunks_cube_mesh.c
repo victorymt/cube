@@ -98,3 +98,31 @@ void CurveCubeMeshData(Mesh *mesh, SurfaceCubeChunkKey key, int sectionY)
         }
     }
 }
+
+void CurveCubeFloraInstances(FloraVisualInstance *instances, int count,
+                             SurfaceCubeChunkKey key, int sectionY)
+{
+    if (!instances || count <= 0 || !SurfaceCubeChunkKeyIsValid(key)) return;
+    double radial = sectionY * SURFACE_SECTION_HEIGHT;
+    SurfaceVector anchor;
+    if (!SurfacePointFromCoordinates((SurfaceCoordinates){key.face,
+        key.u * CHUNK_SIZE, key.v * CHUNK_SIZE, radial}, &anchor)) return;
+    SurfaceFrame base = SurfaceFrameAt((SurfaceAddress){key.bodyId, key.face,
+        key.u * CHUNK_SIZE, key.v * CHUNK_SIZE, (int)radial});
+    SurfaceVector east = {(double)base.east.x, (double)base.east.y,
+                          (double)base.east.z};
+    SurfaceVector up = {(double)base.up.x, (double)base.up.y,
+                        (double)base.up.z};
+    SurfaceVector north = {(double)base.north.x, (double)base.north.y,
+                           (double)base.north.z};
+    for (int index = 0; index < count; index++) {
+        SurfaceVector planet = {instances[index].anchor.x,
+            instances[index].anchor.y, instances[index].anchor.z};
+        SurfaceVector offset = SurfaceVectorSubtract(planet, anchor);
+        instances[index].anchor = (Vector3){
+            (float)SurfaceVectorDot(offset, east),
+            (float)SurfaceVectorDot(offset, up),
+            (float)SurfaceVectorDot(offset, north)
+        };
+    }
+}

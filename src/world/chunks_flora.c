@@ -2,6 +2,7 @@
 
 #include "world/flora_taxa.h"
 #include "world/home_tree_shape.h"
+#include "world/surface_pose.h"
 
 #include <limits.h>
 #include <math.h>
@@ -142,17 +143,96 @@ static bool FloraStructureExpectedBlockAt(
     return false;
 }
 
+static bool FloraStructureExpectedCubeBlockAt(
+    const FloraStructureInstance *structure, int deltaU, int deltaV, int y,
+    BlockType *outBlock)
+{
+    if (!structure || !outBlock || !structure->cubeNative ||
+        deltaU < structure->minU || deltaU > structure->maxU ||
+        deltaV < structure->minV || deltaV > structure->maxV ||
+        y < structure->minY || y > structure->maxY) return false;
+    if (structure->kind != FLORA_STRUCTURE_HOME_TREE) return false;
+    int base = structure->groundY + 1;
+    return HomeTreeShapeBlockAt(
+        &(HomeTreeShapeSpec){
+            .rootX = structure->rootX,
+            .baseY = base,
+            .rootZ = structure->rootZ,
+            .taxonId = structure->taxonId,
+            .shapeHash = structure->shapeHash,
+            .primaryBlock = structure->primaryBlock,
+            .accentBlock = structure->accentBlock
+        },
+        structure->rootX + deltaU, y, structure->rootZ + deltaV, outBlock);
+}
+
 static int FloraStructureOwnerAt(
     const FloraStructureInstance *structures, int structureCount,
     int worldX, int y, int worldZ, BlockType actualBlock)
 {
     for (int index = structureCount - 1; index >= 0; index--) {
+        if (structures[index].cubeNative) continue;
         BlockType expectedBlock = BLOCK_AIR;
         if (FloraStructureExpectedBlockAt(
                 &structures[index], worldX, y, worldZ, &expectedBlock) &&
             actualBlock == expectedBlock) return index;
     }
     return -1;
+}
+
+void FloraStructureOwnersBuild(
+    FloraStructureOwners *owners,
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int layerY, int chunkX, int chunkZ,
+    const SurfaceCubeChunkKey *cubeKey,
+    const FloraStructureInstance *structures, int structureCount)
+{
+    if (!owners) return;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++)
+        for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++)
+            for (int lz = 0; lz < CHUNK_SIZE; lz++)
+                owners->cells[lx][y][lz] = -1;
+    if (!blocks || !structures || structureCount <= 0) return;
+    int startX = chunkX * CHUNK_SIZE;
+    int startZ = chunkZ * CHUNK_SIZE;
+    for (int structureIndex = 0; structureIndex < structureCount;
+         structureIndex++) {
+        const FloraStructureInstance *structure = &structures[structureIndex];
+        if (!structure->cubeNative) {
+            for (int lx = 0; lx < CHUNK_SIZE; lx++)
+                for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++)
+                    for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                        BlockType actual = (BlockType)blocks[lx][y][lz];
+                        if (FloraStructureOwnerAt(
+                                structures, structureCount,
+                                startX + lx, layerY + y, startZ + lz,
+                                actual) == structureIndex)
+                            owners->cells[lx][y][lz] = (int16_t)structureIndex;
+                    }
+            continue;
+        }
+        if (!cubeKey) continue;
+        for (int du = structure->minU; du <= structure->maxU; du++)
+            for (int dv = structure->minV; dv <= structure->maxV; dv++)
+                for (int radial = structure->minY; radial <= structure->maxY;
+                     radial++) {
+                    int y = radial - layerY;
+                    if (y < 0 || y >= SURFACE_SECTION_HEIGHT) continue;
+                    SurfaceAddress cell;
+                    if (!SurfaceCellOffset(structure->rootAddress, du, dv,
+                                           radial, &cell)) continue;
+                    SurfaceCubeChunkKey cellKey;
+                    if (!SurfaceCubeChunkAt(cell, &cellKey) ||
+                        !SurfaceCubeChunkKeyEqual(cellKey, *cubeKey)) continue;
+                    int lx = cell.u % CHUNK_SIZE;
+                    int lz = cell.v % CHUNK_SIZE;
+                    BlockType expected;
+                    if (!FloraStructureExpectedCubeBlockAt(
+                            structure, du, dv, radial, &expected) ||
+                        (BlockType)blocks[lx][y][lz] != expected) continue;
+                    owners->cells[lx][y][lz] = (int16_t)structureIndex;
+                }
+    }
 }
 
 bool ChunkFloraStructureOwnsBlock(
@@ -171,28 +251,94 @@ int ChunkFloraStructureOwnerAtBlock(
         worldX, y, worldZ, block) : -1;
 }
 
+static int FloraStructureOwnerAtCubeCell(
+    const FloraStructureInstance *structures, int structureCount,
+    SurfaceAddress address, BlockType actualBlock)
+{
+    for (int index = structureCount - 1; index >= 0; index--) {
+        const FloraStructureInstance *structure = &structures[index];
+        if (!structure->cubeNative) continue;
+        for (int du = structure->minU; du <= structure->maxU; du++)
+            for (int dv = structure->minV; dv <= structure->maxV; dv++)
+                for (int radial = structure->minY;
+                     radial <= structure->maxY; radial++) {
+                    SurfaceAddress candidate;
+                    if (!SurfaceCellOffset(structure->rootAddress, du, dv,
+                                           radial, &candidate) ||
+                        !SurfaceAddressEqual(candidate, address)) continue;
+                    BlockType expected = BLOCK_AIR;
+                    if (FloraStructureExpectedCubeBlockAt(
+                            structure, du, dv, radial, &expected) &&
+                        actualBlock == expected) return index;
+                }
+    }
+    return -1;
+}
+
+const Chunk *ChunkFloraStructureOwnerChunkAtCubeCell(
+    SurfaceAddress address, BlockType block, int *outOwner)
+{
+    if (outOwner) *outOwner = -1;
+    SurfaceCubeChunkKey key;
+    if (!SurfaceCubeChunkAt(address, &key)) return NULL;
+    Chunk *chunk = FindCubeChunk(key);
+    if (!chunk || !chunk->loaded) return NULL;
+    int owner = FloraStructureOwnerAtCubeCell(
+        chunk->floraStructures, chunk->floraStructureCount, address, block);
+    if (owner >= 0 && outOwner) *outOwner = owner;
+    return owner >= 0 ? chunk : NULL;
+}
+
 bool ChunkRemoveFloraStructure(Chunk *chunk, int structureIndex)
 {
     if (!chunk || structureIndex < 0 ||
         structureIndex >= chunk->floraStructureCount) return false;
     const FloraStructureInstance structure = chunk->floraStructures[structureIndex];
-    for (int y = structure.minY; y <= structure.maxY; y++) {
-        for (int z = structure.minZ; z <= structure.maxZ; z++) {
-            for (int x = structure.minX; x <= structure.maxX; x++) {
-                BlockType expected = BLOCK_AIR;
-                if (!FloraStructureExpectedBlockAt(&structure, x, y, z,
-                                                   &expected)) continue;
-                int lx = x - chunk->cx * CHUNK_SIZE;
-                int lz = z - chunk->cz * CHUNK_SIZE;
-                if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE ||
-                    !InHeight(y) || ChunkGetLocalBlock(chunk, lx, y, lz) !=
-                        expected) continue;
-                int owner = FloraStructureOwnerAt(
-                    chunk->floraStructures, chunk->floraStructureCount,
-                    x, y, z, expected);
-                if (owner != structureIndex) continue;
-                (void)ChunkSetLocalBlock(chunk, lx, y, lz, BLOCK_AIR);
-                MarkChunkDirtyAtBlock(x, y, z);
+    if (structure.cubeNative) {
+        bool dirtySections[256] = { false };
+        for (int du = structure.minU; du <= structure.maxU; du++)
+            for (int dv = structure.minV; dv <= structure.maxV; dv++)
+                for (int radial = structure.minY; radial <= structure.maxY;
+                     radial++) {
+                    SurfaceAddress cell;
+                    if (!SurfaceCellOffset(structure.rootAddress, du, dv,
+                                           radial, &cell)) continue;
+                    SurfaceCubeChunkKey key;
+                    if (!SurfaceCubeChunkAt(cell, &key) ||
+                        !SurfaceCubeChunkKeyEqual(key, chunk->cubeKey)) continue;
+                    BlockType expected = BLOCK_AIR;
+                    if (!FloraStructureExpectedCubeBlockAt(
+                            &structure, du, dv, radial, &expected)) continue;
+                    int lx = cell.u % CHUNK_SIZE;
+                    int lz = cell.v % CHUNK_SIZE;
+                    if (ChunkGetLocalBlock(chunk, lx, radial, lz) != expected)
+                        continue;
+                    (void)ChunkSetLocalBlock(chunk, lx, radial, lz, BLOCK_AIR);
+                    int section = SurfaceSectionYFromBlockY(radial);
+                    if (section >= 0 && section < 256) dirtySections[section] = true;
+                }
+        for (int section = 0; section < 256; section++)
+            if (dirtySections[section])
+                MarkGeneratedSectionAndNeighborsDirty(chunk, section);
+    } else {
+        for (int y = structure.minY; y <= structure.maxY; y++) {
+            for (int z = structure.minZ; z <= structure.maxZ; z++) {
+                for (int x = structure.minX; x <= structure.maxX; x++) {
+                    BlockType expected = BLOCK_AIR;
+                    if (!FloraStructureExpectedBlockAt(&structure, x, y, z,
+                                                       &expected)) continue;
+                    int lx = x - chunk->cx * CHUNK_SIZE;
+                    int lz = z - chunk->cz * CHUNK_SIZE;
+                    if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 ||
+                        lz >= CHUNK_SIZE || !InHeight(y) ||
+                        ChunkGetLocalBlock(chunk, lx, y, lz) != expected) continue;
+                    int owner = FloraStructureOwnerAt(
+                        chunk->floraStructures, chunk->floraStructureCount,
+                        x, y, z, expected);
+                    if (owner != structureIndex) continue;
+                    (void)ChunkSetLocalBlock(chunk, lx, y, lz, BLOCK_AIR);
+                    MarkChunkDirtyAtBlock(x, y, z);
+                }
             }
         }
     }
@@ -223,13 +369,26 @@ void ChunksAdvanceFloraFlood(float dtSeconds)
             FloraStructureInstance *structure =
                 &chunk->floraStructures[structureIndex];
             int rootY = structure->groundY + 1;
-            int rootLocalX = structure->rootX - chunk->cx * CHUNK_SIZE;
-            int rootLocalZ = structure->rootZ - chunk->cz * CHUNK_SIZE;
             unsigned water = 0u;
-            if (rootLocalX >= 0 && rootLocalX < CHUNK_SIZE &&
-                rootLocalZ >= 0 && rootLocalZ < CHUNK_SIZE && InHeight(rootY)) {
-                water = ChunkGetLocalWaterVolume(
-                    chunk, rootLocalX, rootY, rootLocalZ);
+            if (structure->cubeNative) {
+                SurfaceCubeChunkKey rootKey;
+                Chunk *rootChunk = SurfaceCubeChunkAt(
+                    structure->rootAddress, &rootKey)
+                    ? FindCubeChunk(rootKey) : NULL;
+                if (rootChunk && rootChunk->loaded && InHeight(rootY)) {
+                    water = ChunkGetLocalWaterVolume(
+                        rootChunk, structure->rootAddress.u % CHUNK_SIZE,
+                        rootY, structure->rootAddress.v % CHUNK_SIZE);
+                }
+            } else {
+                int rootLocalX = structure->rootX - chunk->cx * CHUNK_SIZE;
+                int rootLocalZ = structure->rootZ - chunk->cz * CHUNK_SIZE;
+                if (rootLocalX >= 0 && rootLocalX < CHUNK_SIZE &&
+                    rootLocalZ >= 0 && rootLocalZ < CHUNK_SIZE &&
+                    InHeight(rootY)) {
+                    water = ChunkGetLocalWaterVolume(
+                        chunk, rootLocalX, rootY, rootLocalZ);
+                }
             }
             FloraFloodTolerance tolerance =
                 FloraFloodToleranceForBlock(structure->primaryBlock);
@@ -255,28 +414,32 @@ void ChunksAdvanceFloraFlood(float dtSeconds)
     }
 }
 
+static void CopyBlocksWithoutFloraStructureOwners(
+    unsigned short destination[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned short source[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const FloraStructureOwners *owners)
+{
+    memcpy(destination, source,
+           sizeof(unsigned short) * CHUNK_SIZE * SURFACE_SECTION_HEIGHT * CHUNK_SIZE);
+    if (!owners) return;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++)
+        for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++)
+            for (int lz = 0; lz < CHUNK_SIZE; lz++)
+                if (owners->cells[lx][y][lz] >= 0)
+                    destination[lx][y][lz] = (unsigned short)BLOCK_AIR;
+}
+
 void CopyBlocksWithoutFloraStructures(
     unsigned short destination[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     const unsigned short source[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,
+    const SurfaceCubeChunkKey *cubeKey,
     const FloraStructureInstance *structures, int structureCount)
 {
-    memcpy(destination, source,
-           sizeof(unsigned short) * CHUNK_SIZE * SURFACE_SECTION_HEIGHT * CHUNK_SIZE);
-    int startX = chunkX * CHUNK_SIZE;
-    int startZ = chunkZ * CHUNK_SIZE;
-    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++) {
-            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-                if (FloraStructureOwnerAt(
-                        structures, structureCount,
-                        startX + lx, layerY + y, startZ + lz,
-                        (BlockType)source[lx][y][lz]) >= 0) {
-                    destination[lx][y][lz] = (unsigned short)BLOCK_AIR;
-                }
-            }
-        }
-    }
+    FloraStructureOwners owners;
+    FloraStructureOwnersBuild(&owners, source, layerY, chunkX, chunkZ,
+                              cubeKey, structures, structureCount);
+    CopyBlocksWithoutFloraStructureOwners(destination, source, &owners);
 }
 
 bool MergeMeshData(Mesh *target, Mesh *source)
@@ -586,19 +749,34 @@ static bool AppendPlantMeshInstances(
     return true;
 }
 
-static void SetLodFloraBlock(
+static bool SetLodFloraBlock(
     unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int lx, int y, int lz, BlockType type)
 {
     if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE ||
-        y < 0 || y >= SURFACE_SECTION_HEIGHT || type == BLOCK_AIR) {
-        return;
-    }
+        y < 0 || y >= SURFACE_SECTION_HEIGHT || type == BLOCK_AIR)
+        return false;
     if (blocks[lx][y][lz] == BLOCK_AIR) blocks[lx][y][lz] = type;
+    return true;
+}
+
+static bool SetCubeLodFloraBlock(
+    unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int layerY, SurfaceCubeChunkKey key, SurfaceAddress root,
+    int deltaU, int deltaV, int radial, BlockType type)
+{
+    SurfaceAddress cell;
+    SurfaceCubeChunkKey cellKey;
+    if (!SurfaceCellOffset(root, deltaU, deltaV, radial, &cell) ||
+        !SurfaceCubeChunkAt(cell, &cellKey) ||
+        !SurfaceCubeChunkKeyEqual(cellKey, key)) return false;
+    return SetLodFloraBlock(blocks, cell.u % CHUNK_SIZE,
+                            cell.radial - layerY, cell.v % CHUNK_SIZE, type);
 }
 
 bool BuildChunkLodFloraMeshData(
     int layerY, int chunkX, int chunkZ, ChunkLodLevel lod,
+    const SurfaceCubeChunkKey *cubeKey,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const SurfaceBoundarySnapshot *boundary,
     Mesh *outMesh)
@@ -623,6 +801,42 @@ bool BuildChunkLodFloraMeshData(
         int trunkHeight = lod == CHUNK_LOD_HALF ? 5 : 3;
         if (trunkHeight > height) trunkHeight = height;
         if (trunkHeight <= 0) continue;
+
+        if (structure->cubeNative) {
+            if (!cubeKey) continue;
+            for (int y = base; y < base + trunkHeight; y++)
+                hasTree |= SetCubeLodFloraBlock(
+                    proxyBlocks, layerY, *cubeKey, structure->rootAddress,
+                    0, 0, y, structure->primaryBlock);
+
+            int extentU = structure->maxU - structure->minU + 1;
+            int extentV = structure->maxV - structure->minV + 1;
+            int radiusU = lod == CHUNK_LOD_HALF ? extentU / 3 : extentU / 4;
+            int radiusV = lod == CHUNK_LOD_HALF ? extentV / 3 : extentV / 4;
+            if (radiusU < 1) radiusU = 1;
+            if (radiusV < 1) radiusV = 1;
+            int canopyBase = base + trunkHeight - 1;
+            int canopyLayers = lod == CHUNK_LOD_HALF ? 2 : 1;
+            bool conifer = structure->taxonId == FLORA_TAXON_SPRUCE ||
+                           structure->taxonId == FLORA_TAXON_PINE;
+            for (int layer = 0; layer < canopyLayers; layer++) {
+                int ru = radiusU - (conifer ? layer : 0);
+                int rv = radiusV - (conifer ? layer : 0);
+                if (ru < 1) ru = 1;
+                if (rv < 1) rv = 1;
+                for (int du = -ru; du <= ru; du++)
+                    for (int dv = -rv; dv <= rv; dv++) {
+                        if (du * du * rv * rv + dv * dv * ru * ru >
+                            ru * ru * rv * rv) continue;
+                        hasTree |= SetCubeLodFloraBlock(
+                            proxyBlocks, layerY, *cubeKey,
+                            structure->rootAddress, du, dv,
+                            canopyBase + layer, structure->accentBlock);
+                    }
+            }
+            continue;
+        }
+
         hasTree = true;
 
         for (int y = base; y < base + trunkHeight; y++) {
@@ -696,6 +910,7 @@ bool BuildChunkLodFloraMeshData(
 bool BuildChunkSurfaceSolidMeshData(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,
+    const SurfaceCubeChunkKey *cubeKey,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
     int nearbyTorchCount, int greedyMaxSpan,
@@ -703,8 +918,10 @@ bool BuildChunkSurfaceSolidMeshData(
     Mesh *outMesh)
 {
     unsigned short solidBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
-    CopyBlocksWithoutFloraStructures(
-        solidBlocks, blocks, layerY, chunkX, chunkZ, structures, structureCount);
+    FloraStructureOwners owners;
+    FloraStructureOwnersBuild(&owners, blocks, layerY, chunkX, chunkZ,
+                              cubeKey, structures, structureCount);
+    CopyBlocksWithoutFloraStructureOwners(solidBlocks, blocks, &owners);
     ChunkMeshBuildRequest request = {
         .blocks = (const unsigned short (*)[CHUNK_SIZE])solidBlocks,
         .height = SURFACE_SECTION_HEIGHT,
@@ -723,14 +940,17 @@ bool BuildChunkSurfaceSolidMeshData(
 bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     const unsigned char *waterVolumes, int layerY, int chunkX, int chunkZ,
+    const SurfaceCubeChunkKey *cubeKey,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
     int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
     Mesh *outMesh)
 {
     unsigned short waterBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
-    CopyBlocksWithoutFloraStructures(
-        waterBlocks, blocks, layerY, chunkX, chunkZ, structures, structureCount);
+    FloraStructureOwners owners;
+    FloraStructureOwnersBuild(&owners, blocks, layerY, chunkX, chunkZ,
+                              cubeKey, structures, structureCount);
+    CopyBlocksWithoutFloraStructureOwners(waterBlocks, blocks, &owners);
     return BuildSurfaceWaterMeshDataWithSnapshot(
         (const unsigned short (*)[CHUNK_SIZE])waterBlocks,
         waterVolumes, SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ,
@@ -740,6 +960,7 @@ bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
 bool BuildChunkFloraMeshDataFromSnapshot(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,
+    const SurfaceCubeChunkKey *cubeKey,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
     int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
@@ -750,9 +971,11 @@ bool BuildChunkFloraMeshDataFromSnapshot(
     *outInstances = NULL;
     *outInstanceCount = 0;
 
+    FloraStructureOwners owners;
+    FloraStructureOwnersBuild(&owners, blocks, layerY, chunkX, chunkZ,
+                              cubeKey, structures, structureCount);
     unsigned short floraBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
-    CopyBlocksWithoutFloraStructures(
-        floraBlocks, blocks, layerY, chunkX, chunkZ, structures, structureCount);
+    CopyBlocksWithoutFloraStructureOwners(floraBlocks, blocks, &owners);
 
     FloraMeshBuilder combined = { 0 };
     FloraInstanceBuilder instances = { 0 };
@@ -781,10 +1004,7 @@ bool BuildChunkFloraMeshDataFromSnapshot(
             for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++) {
                 for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                     unsigned short block = blocks[lx][y][lz];
-                    if (FloraStructureOwnerAt(
-                            structures, structureCount,
-                            startX + lx, layerY + y, startZ + lz,
-                            (BlockType)block) != structureIndex) continue;
+                    if (owners.cells[lx][y][lz] != structureIndex) continue;
                     if (block == (unsigned short)BLOCK_AIR) continue;
                     instanceBlocks[lx][y][lz] = block;
                     hasBlocks = true;
@@ -848,19 +1068,25 @@ bool BuildChunkFloraMeshDataFromSnapshot(
         const FloraStructureInstance *structure = &structures[structureIndex];
         Mesh completedInstanceMesh = { 0 };
         FloraMeshBuilderTake(&instanceMesh, &completedInstanceMesh);
+        SurfaceVector rootCenter = {0};
+        bool cubeAnchor = structure->cubeNative &&
+            SurfaceCellCenter(structure->rootAddress, &rootCenter);
         if (!FloraMeshBuilderAppend(&combined, &completedInstanceMesh) ||
             !AppendFloraVisualInstance(
                 &instances, (FloraVisualInstance){
                     .firstVertex = firstVertex,
                     .vertexCount = vertexCount,
                     .taxonId = structure->taxonId,
-                    .anchor = {
-                        (float)structure->rootX + 0.5f,
-                        (float)(structure->groundY - layerY) + 1.0f,
-                        (float)structure->rootZ + 0.5f
-                    },
+                    .anchor = cubeAnchor
+                        ? (Vector3){ (float)rootCenter.x, (float)rootCenter.y,
+                                     (float)rootCenter.z }
+                        : (Vector3){ (float)structure->rootX + 0.5f,
+                                     (float)(structure->groundY - layerY) + 1.0f,
+                                     (float)structure->rootZ + 0.5f },
                     .height = (float)(structure->maxY - structure->groundY),
-                    .windResponse = structure->windResponse
+                    .windResponse = structure->windResponse,
+                    .cubeNative = structure->cubeNative,
+                    .rootAddress = structure->rootAddress
                 })) {
             FreeMeshData(&completedInstanceMesh);
             FloraMeshBuilderRelease(&instanceMesh);
@@ -903,7 +1129,9 @@ bool BuildChunkFloraMeshData(
         int partCount = 0;
         if (!BuildChunkFloraMeshDataFromSnapshot(
                 section->blocks, sectionY * SURFACE_SECTION_HEIGHT,
-                chunk->cx, chunk->cz, chunk->floraStructures,
+                chunk->cx, chunk->cz,
+                chunk->cubeGrid ? &chunk->cubeKey : NULL,
+                chunk->floraStructures,
                 chunk->floraStructureCount, faces, nearbyTorchIndices,
                 nearbyTorchCount, NULL, &part, &partInstances,
                 &partCount)) continue;
