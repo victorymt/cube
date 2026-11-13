@@ -5,6 +5,8 @@
 - 当前状态：见 [STATUS.md](../../STATUS.md)
 - 前置记录：[Player/world topology decoupling](26-player-world-topology-decoupling-analysis-2026-11-12.md)、[Player camera coupling](27-player-camera-coupling-analysis-2026-11-13.md)、[Camera refactor implementation](28-camera-refactor-implementation-2026-11-13.md)
 
+> P3 的实施证据见 [Player World Motion P3 实施记录](30-player-world-motion-p3-2026-11-13.md)。
+
 ## 1. 结论
 
 目标不是把 `Player` 搬进 `core`，也不以引入完整 ECS 为目标。目标是建立四条稳定边界：玩家控制器表达意图，世界几何求解器处理运动与碰撞，环境接口按位置和时间提供场，模拟调度器按确定顺序提交状态。

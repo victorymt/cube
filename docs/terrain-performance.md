@@ -22,6 +22,10 @@ On 2026-11-13 the same recipe reported `median_total_ms=53.545`,
 `p95_total_ms=61.116`, `solid_vertices_per_chunk=2187.8`, and
 `sync_rebuilds=0` on the then-current host.
 
+After the P3 actor-motion move, the same recipe reported
+`median_total_ms=53.287`, `p95_total_ms=53.845`,
+`solid_vertices_per_chunk=2187.8`, and `sync_rebuilds=0`.
+
 ## Semantic invariants
 
 These are behaviour, not performance, and must hold after any hot-path change:

@@ -127,6 +127,18 @@ if grep -q 'CameraManagerUpdate' src/app/game_interaction.c; then
     fail "camera updates must remain outside the interaction phase"
 fi
 
+[ -f src/world/actor_motion.h ] || fail "missing neutral world/actor_motion.h"
+
+if grep -nE '\b(GetBlockAt|BlockCollisionHeightAt|SurfaceContract|SurfaceAddress|WorldBlockBox|SurfacePoseDisplace)\b' \
+    src/gameplay/player_motion.c; then
+    fail "player motion facade must delegate geometry to world/actor_motion"
+fi
+
+if grep -nE '#include "gameplay/|gameplay/player|\bPlayer\b' \
+    src/world/actor_motion.c src/world/actor_motion.h; then
+    fail "world actor motion must remain independent of gameplay Player types"
+fi
+
 [ -f src/world/actor_body.h ] || fail "missing neutral world/actor_body.h"
 
 if grep -R -n 'gameplay/player_types.h' \

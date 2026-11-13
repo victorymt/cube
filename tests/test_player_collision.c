@@ -502,6 +502,36 @@ static void TestCameraIsPushedOutOfSolidBlocks(void)
     assert(!PlayerCameraPositionInsideSolid((Vector3){ 0.5f, 2.5f, 0.5f }));
 }
 
+static void TestNeutralActorMotionSolver(void)
+{
+    ResetCollisionWorld();
+    ActorBody body = {
+        .position = { 0.5f, 2.0f, 0.5f },
+        .velocity = { 2.0f, 0.0f, 0.0f },
+        .yaw = 0.75f,
+        .pitch = -0.2f,
+        .onGround = true,
+        .floating = false
+    };
+    const ActorBody before = body;
+    const ActorMotionRequest request = {
+        .delta = { 1.0f, 0.0f, 0.0f },
+        .allowUnready = false,
+        .canStepUp = true
+    };
+    const ActorCollider collider = {
+        .radius = PLAYER_RADIUS,
+        .height = PLAYER_HEIGHT,
+        .stepHeight = 0.5f
+    };
+    ActorMotionResult result;
+    assert(WorldActorResolveMotion(&body, &collider, &request, &result));
+    assert(result.moved);
+    assert(fabsf(result.body.position.x - 1.5f) < 1e-5f);
+    assert(result.body.yaw == before.yaw && result.body.pitch == before.pitch);
+    assert(Vector3Distance(body.position, before.position) == 0.0f);
+}
+
 static void TestRuntimeStateIsPerPlayer(void)
 {
     Player first = { 0 };
@@ -579,22 +609,14 @@ static void TestRightVectorMatchesCameraFrame(void)
     }
 }
 
-static bool TestPlayerWorldMove(void *user, PlayerBodyState *body,
-                                const PlayerMoveRequest *request)
+static bool TestPlayerWorldMove(void *user, ActorBody *body,
+                                const ActorMotionRequest *request)
 {
     (void)user;
-    Player player = {
-        .position = body->position,
-        .velocity = body->velocity,
-        .onGround = body->onGround,
-        .floating = body->floating
-    };
-    PlayerMoveWithOptions(&player, request->delta, request->allowUnready,
-                          request->canStepUp);
-    body->position = player.position;
-    body->velocity = player.velocity;
-    body->onGround = player.onGround;
-    body->floating = player.floating;
+    ActorMotionResult result;
+    if (!WorldActorResolveMotion(body, PlayerMotionCollider(), request,
+                                 &result)) return false;
+    *body = result.body;
     return true;
 }
 
@@ -880,6 +902,7 @@ int main(void)
     TestEcologyPlantsDoNotBlockMovement();
     TestInvalidCollisionPositionsAreBlocked();
     TestCameraIsPushedOutOfSolidBlocks();
+    TestNeutralActorMotionSolver();
     TestRuntimeStateIsPerPlayer();
     TestRuntimeStateReset();
     TestWaterStateUsesActualColumnSurface();

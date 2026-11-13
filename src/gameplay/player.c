@@ -120,19 +120,23 @@ void UpdatePlayerWithWorld(Player *player, float dt, const PlayerInput *input,
         if (player->velocity.y < -35.0f) player->velocity.y = -35.0f;
     }
 
-    PlayerBodyState body = {
+    ActorBody body = {
         .position = player->position,
         .velocity = player->velocity,
+        .yaw = player->yaw,
+        .pitch = player->pitch,
         .onGround = player->onGround,
         .floating = player->floating
     };
-    PlayerMoveRequest move = {
+    ActorMotionRequest move = {
         .delta = Vector3Scale(player->velocity, dt),
         .canStepUp = body.onGround && !body.floating
     };
     (void)world->move(world->user, &body, &move);
     player->position = body.position;
     player->velocity = body.velocity;
+    player->yaw = body.yaw;
+    player->pitch = body.pitch;
     player->onGround = body.onGround;
     player->floating = body.floating;
 

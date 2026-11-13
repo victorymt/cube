@@ -2,23 +2,11 @@
 #define VOXELCRAFT_PLAYER_WORLD_H
 
 #include "gameplay/player_sensors.h"
+#include "world/actor_motion.h"
 
 #include "raylib.h"
 
 #include <stdbool.h>
-
-typedef struct PlayerBodyState {
-    Vector3 position;
-    Vector3 velocity;
-    bool onGround;
-    bool floating;
-} PlayerBodyState;
-
-typedef struct PlayerMoveRequest {
-    Vector3 delta;
-    bool allowUnready;
-    bool canStepUp;
-} PlayerMoveRequest;
 
 typedef struct PlayerGravitySample {
     bool inSpace;
@@ -34,8 +22,8 @@ typedef struct PlayerGravitySample {
  * nor chunk identity to player policy. */
 typedef struct PlayerWorldOps {
     void *user;
-    bool (*move)(void *user, PlayerBodyState *body,
-                 const PlayerMoveRequest *request);
+    bool (*move)(void *user, ActorBody *body,
+                 const ActorMotionRequest *request);
     bool (*overlaps)(void *user, Vector3 position, bool allowUnready);
     PlayerWaterState (*sampleWater)(void *user, Vector3 position);
     bool (*sampleGravity)(void *user, Vector3 position,

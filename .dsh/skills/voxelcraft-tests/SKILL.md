@@ -16,6 +16,8 @@ metadata:
 
 相机和 world-query 边界应优先用 fake backend 测：`test_camera` 不链接 Player、ship、terrain 或 interaction 实现，避免测试通过只是因为同一条耦合链仍被链接。
 
+迁移 geometry/collision 时同时测试 neutral API 和兼容 facade；例如 `test_player_collision` 直接调用 `WorldActorResolveMotion`，再验证 Player 包装入口。
+
 审计结果（2026-10-25）：126 个 C 测试中只有 6 个写了说明；979 个 `Test*` 函数只有 17 个带注释；`docs/documentation-rules.md` 从未提到测试注释。这个 skill 就是从"没有约定"到"有约定"的那一步。
 
 **存量债务怎么处理**：规则只向前收紧，不追溯全罚。规则生效前就存在的无说明测试登记在 `tests/test_declarations_allowlist.txt` 里，每行是可偿还的债；给某个文件补了说明就把那行删掉，否则 `test_declarations.sh` 会报 stale 并失败。`make test-declarations-backlog` 打印剩余清单和字段缺失情况，用来数欠账，不阻断开发。

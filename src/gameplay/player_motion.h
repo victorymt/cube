@@ -2,13 +2,15 @@
 #define VOXELCRAFT_PLAYER_MOTION_H
 
 #include "gameplay/player_types.h"
-#include "world/surface_pose.h"
+#include "world/actor_motion.h"
 
-bool IsSolidBlockAt(int x, int y, int z);
+#include <stdbool.h>
+
+/* Player-specific compatibility facade over the topology-neutral world motion
+ * solver. New geometry implementations live in world/actor_motion.c. */
+const ActorCollider *PlayerMotionCollider(void);
 bool PlayerOverlapsWorld(Vector3 position);
 bool PlayerOverlapsWorldWithOptions(Vector3 position, bool allowUnready);
-/* Converts a body-centred surface pose into the active surface's local player
- * coordinates. Used by debug pose placement and the movement path. */
 bool PlayerLocalFromSurfacePose(const SurfacePose *pose, Vector3 *outPosition);
 bool PlayerSurfacePoseFromLocal(Vector3 position, SurfacePose *outPose);
 int PlayerMissingSurfaceChunkCount(Vector3 position);

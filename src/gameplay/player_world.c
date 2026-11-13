@@ -5,40 +5,21 @@
 #include "space/space_query.h"
 #include "world/world_environment.h"
 
-static Player PlayerFromBody(const PlayerBodyState *body)
-{
-    return (Player){
-        .position = body->position,
-        .velocity = body->velocity,
-        .onGround = body->onGround,
-        .floating = body->floating
-    };
-}
-
-static void BodyFromPlayer(PlayerBodyState *body, const Player *player)
-{
-    body->position = player->position;
-    body->velocity = player->velocity;
-    body->onGround = player->onGround;
-    body->floating = player->floating;
-}
-
-static bool WorldMove(void *user, PlayerBodyState *body,
-                      const PlayerMoveRequest *request)
+static bool WorldMove(void *user, ActorBody *body,
+                      const ActorMotionRequest *request)
 {
     (void)user;
-    if (!body || !request) return false;
-    Player player = PlayerFromBody(body);
-    PlayerMoveWithOptions(&player, request->delta, request->allowUnready,
-                          request->canStepUp);
-    BodyFromPlayer(body, &player);
+    ActorMotionResult result;
+    if (!WorldActorResolveMotion(body, PlayerMotionCollider(), request,
+                                 &result)) return false;
+    *body = result.body;
     return true;
 }
 
 static bool WorldOverlaps(void *user, Vector3 position, bool allowUnready)
 {
     (void)user;
-    return PlayerOverlapsWorldWithOptions(position, allowUnready);
+    return WorldActorOverlaps(PlayerMotionCollider(), position, allowUnready);
 }
 
 static PlayerWaterState WorldSampleWater(void *user, Vector3 position)
