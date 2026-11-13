@@ -1074,6 +1074,28 @@
         "make test-architecture"
       ]
     },
+    "docs/architecture/27-player-camera-coupling-analysis-2026-11-13.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/gameplay/player.c",
+        "src/gameplay/player_camera.h",
+        "src/gameplay/interaction.c",
+        "src/app/game.c",
+        "src/app/game_interaction.c",
+        "src/app/game_streaming.c",
+        "src/app/game_environment.c",
+        "src/app/game_capture.c",
+        "src/app/game_debug_status.c",
+        "src/gameplay/ship.h",
+        "tests/test_player_collision.c",
+        "tests/test_interaction_raycast.c"
+      ],
+      "recipes": [
+        "make check-docs",
+        "make test-architecture"
+      ]
+    },
     ".dsh/skills/voxelcraft-tests/SKILL.md": {
       "tier": "skill",
       "trackCode": true,
