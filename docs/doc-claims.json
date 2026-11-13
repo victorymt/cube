@@ -1320,6 +1320,33 @@
         "make check-docs",
         "make test-architecture"
       ]
+    },
+    "docs/architecture/37-player-entity-ecs-evaluation-p7-2026-11-13.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/gameplay/player_types.h",
+        "src/gameplay/player.c",
+        "src/gameplay/player_world.c",
+        "src/gameplay/player_state.c",
+        "src/world/actor_body.h",
+        "src/world/actor_motion.c",
+        "src/world/environment_query.c",
+        "src/ecology/entity.h",
+        "src/ecology/entity.c",
+        "src/ecology/entity_simulation.c",
+        "src/ecology/entity_interpolation.c",
+        "src/app/game.c",
+        "src/app/game_camera.c",
+        "src/app/game_save.c",
+        "tests/test_entity_replay.c",
+        "tests/test_entity_ecology.c",
+        "tests/test_simulation_integration.c",
+        "tests/test_camera.c"
+      ],
+      "recipes": [
+        "make check-docs"
+      ]
     }
   }
 }

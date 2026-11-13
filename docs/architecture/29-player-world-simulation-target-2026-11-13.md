@@ -12,6 +12,7 @@
 > P6 的规则与 frame 基础边界见 [World Rules and Frame Foundation P6](34-world-rules-frame-p6-2026-11-13.md)。
 > P6b 的 gravity rule 环境消费见 [World Rule Environment Consumption P6b](35-world-rule-environment-p6b-2026-11-13.md)。
 > P6c 的 surface/body/system/render/save frame API 见 [World Frame Cross-Reference P6c](36-world-frame-cross-p6c-2026-11-13.md)。
+> P7 的 ECS 采用评估与决策见 [Player/Entity ECS Evaluation P7](37-player-entity-ecs-evaluation-p7-2026-11-13.md)。
 
 ## 1. 结论
 
@@ -104,7 +105,7 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 ## 7. 参考系与精度
 
-目标位置类型必须显式携带 frame identity。P6a 已提供 `WorldFrameId`、`WorldFramePoint`、`WorldFrameCanTransform()` 和 `WorldFrameTransformPoint()`；当前支持 identity 与 active surface local ↔ body-centered，system/render/camera 转换尚未实现（见记录 34）。
+目标位置类型必须显式携带 frame identity。P6a 已提供 `WorldFrameId`、`WorldFramePoint`、`WorldFrameCanTransform()` 和 `WorldFrameTransformPoint()`；P6c 又补充 system、render-camera 和 save-local 入口（见记录 34、36）。完整惯性、速度与旋转转换仍待后续。
 
 在进行跨星球、高速度或远距离计算时，内部模拟应使用足够的精度，渲染再转换为相机附近的相对坐标。当前存档和 DSL 不要求立即切换到 double 或新帧格式；任何持久化格式变化必须独立设计迁移和版本升级。
 
@@ -112,9 +113,9 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 ## 8. ECS 的位置
 
-不把完整 ECS 作为近期里程碑。P3-P5 已建立 world-side motion、状态写入所有权、固定步和环境查询；P6b 仍需完成规则消费与跨 frame 转换。在这些边界稳定前引入 ECS，只会把跨模块写入隐藏在组件访问后面。
+不把完整 ECS 作为近期里程碑。P3-P6 已建立 world-side motion、状态写入所有权、固定步、环境查询、规则和 frame 边界；P7 评估没有发现足以支持组件化存储的共享查询或调度热点。此时引入 ECS，只会把仍有领域差异的运动、生态和存档写入隐藏在组件访问后面。
 
-当动态实体类型和共享系统达到以下条件时才重新评估 ECS：多个实体类别确实共享同一组运动/规则系统；组件查询比现有固定结构更清晰；系统顺序和状态提交可以保持确定性；迁移不会迫使方块、区块和地形存储一起 ECS 化。
+只有多个 actor 类别确实共享同一组运动/规则系统、组件查询比现有固定结构更清晰、系统顺序与状态提交仍可确定性重放，并且迁移不会迫使方块、区块和地形存储一起 ECS 化时，才重新评估 ECS。
 
 即使评估通过，方块、chunk、地形生成、`SurfaceAddress` 和流式覆盖也不必进入 ECS。可以采用轻量组件存储和系统表，而不是引入第三方 ECS 框架。
 
@@ -172,12 +173,13 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 验收：各 frame pair 均有具名入口；位置 round trip 和不支持输入有回归测试。渲染器/save caller 的全面采用仍待后续集成。
 
-### P7：ECS 评估（P6c 完成后）
+### P7：ECS 评估（实施记录 37）
 
-- 在 P6c 完成后，根据真实组件查询和系统调度需求决定是否采用 ECS。
-- 评估必须包含确定性、调试可读性、存档映射、测试成本和迁移回滚路径。
+- 已根据真实组件查询和系统调度需求完成评估；结论是暂不采用完整 ECS，也不引入第三方框架。
+- 保留显式 `Player` 和固定 `Entity` store，共享行为继续通过 `ActorBody`、`CameraTargetView`、world motion/environment query 等窄接口表达。
+- ECS 重新评估条件和未来轻量组件方案的确定性、存档与回滚要求记录在实施文档中。
 
-验收：只有在现有架构无法清晰表达共享系统时才引入 ECS；ECS 不成为方块或地形存储的前置条件。
+验收：评估包含确定性、调试可读性、存档映射、测试成本和迁移回滚路径；ECS 不成为方块或地形存储的前置条件。
 
 ## 10. 非目标与约束
 
@@ -224,6 +226,6 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 当 Player Controller 不再包含具体几何 backend、所有 locomotion 状态写入都经过单一提交入口、环境与规则可通过接口替换，并且 surface/space/render/save 的参考系转换显式且可测试时，本目标架构才算完成。
 
-P3、P4a、P4b、P5、P6a、P6b 和 P6c API 已实现对应边界；渲染器/save caller 的全面 frame 采用和 P7 ECS 评估仍待后续。
+P3、P4a、P4b、P5、P6a、P6b、P6c API 和 P7 ECS 评估已实现对应边界；渲染器/save caller 的全面 frame 采用仍待后续。
 
 完成 ECS 评估并不等于必须采用 ECS。最终验收标准是职责边界和可验证行为，而不是某个框架、坐标类型或文件数量。

@@ -44,6 +44,7 @@ new physical-simulation stages.
 | 34 | [world rules and frame foundation P6 (2026-11-13)](34-world-rules-frame-p6-2026-11-13.md) | deterministic scope/priority rule registry, add/modify/replace semantics, explicit frame identity, and supported surface-local/body transforms |
 | 35 | [world rule environment consumption P6b (2026-11-13)](35-world-rule-environment-p6b-2026-11-13.md) | gravity acceleration samples, body/region rule matching, rule counts, and environment-query integration |
 | 36 | [world frame cross-reference P6c (2026-11-13)](36-world-frame-cross-p6c-2026-11-13.md) | system points, system/surface/body conversion, camera-relative positions, and save-local frame marking |
+| 37 | [player/entity ECS evaluation P7 (2026-11-13)](37-player-entity-ecs-evaluation-p7-2026-11-13.md) | player/entity storage and system audit, ECS decision gates, deterministic migration constraints, and the decision to defer component storage |
 
 Programmatic-generation review: [2026-11-12 procedural generation analysis](../procedural-generation-analysis-2026-11-12.md) records the current generation pipeline, determinism model, content gaps and suggested order.
 
