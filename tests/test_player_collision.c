@@ -643,15 +643,25 @@ static void TestEnvironmentQueryMatchesPlayerAdapters(void)
         .operation = WORLD_RULE_ADD,
         .value = { 0.0f, 0.0f, 0.25f }
     }) > 0);
+    assert(WorldRuleSetAdd(&rules, &(WorldRule){
+        .stage = WORLD_RULE_STAGE_WATER,
+        .priority = 0,
+        .scope = { WORLD_RULE_SCOPE_BODY, 7u, 0u },
+        .operation = WORLD_RULE_ADD,
+        .value = { 0.5f, 0.0f, 0.0f }
+    }) > 0);
     environment = WorldEnvironmentSampleAtWithRules(
         (Vector3){ 0.5f, 1.01f, 0.5f }, EYE_HEIGHT, PLAYER_HEIGHT, 12.5,
         7u, 0u, &rules);
     assert(environment.gravity.ruleCount == 1u);
     assert(fabsf(environment.gravity.acceleration.z - 0.25f) < 1e-6f);
+    assert(environment.waterRuleCount == 1u);
+    assert(fabsf(environment.water.flowVelocity.x - 0.5f) < 1e-6f);
     environment = WorldEnvironmentSampleAtWithRules(
         (Vector3){ 0.5f, 1.01f, 0.5f }, EYE_HEIGHT, PLAYER_HEIGHT, 12.5,
         8u, 0u, &rules);
     assert(environment.gravity.ruleCount == 0u);
+    assert(environment.waterRuleCount == 0u);
 }
 
 static void TestWorldFrameSurfaceRoundTrip(void)

@@ -98,7 +98,7 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 `PlayerGravitySample` 与 `PlayerWaterState` 现在是 world sample 的 gameplay aliases，`PlayerWorldOps` 默认 adapter 直接调用 world environment query。Player Controller 不再直接调用 `PlanetSurfaceAt()`、`WorldGravityScale()`、`FluidSampleAt()` 或 `WorldIsSpaceActive()`。
 
-规则系统必须声明执行阶段、作用范围、作用对象和组合方式。P6a 的 `WorldRuleSet` 已固定 global/body/region specificity、priority、registration id 顺序，并提供 `ADD`、`MODIFY`、`REPLACE` 向量语义；P6b 已让 gravity 规则通过 `WorldEnvironmentSampleAtWithRules()` 影响 `WorldGravitySample.acceleration`（见记录 34、35）。
+规则系统必须声明执行阶段、作用范围、作用对象和组合方式。P6a 的 `WorldRuleSet` 已固定 global/body/region specificity、priority、registration id 顺序，并提供 `ADD`、`MODIFY`、`REPLACE` 向量语义；P6b 已让 gravity/water 规则通过 `WorldEnvironmentSampleAtWithRules()` 分别影响 `WorldGravitySample.acceleration` 与 `WorldWaterSample.flowVelocity`（见记录 34、35）。
 
 新增特殊星球最终应通过规则或 backend 扩展完成，不要求在通用 Player Controller 中增加 `if (planetType)`。动态实体是否共享这些规则由能力/组件决定，而不是由 `entity.type == PLAYER` 决定。
 
@@ -158,12 +158,12 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 验收：规则顺序可重放；未支持的 frame pair 显式失败。
 
-### P6b：规则消费（实施记录 35）
+### P6b：gravity/water 规则消费（实施记录 35）
 
-- 将 gravity `WorldRuleSet` 接入 `WorldEnvironmentSampleAtWithRules()`。
-- 验证 body/region scope、rule count 和 acceleration 结果。
+- 将 gravity/water `WorldRuleSet` 接入 `WorldEnvironmentSampleAtWithRules()`。
+- 验证 body/region scope、rule count、acceleration 和 flow 结果。
 
-验收：特殊星球 gravity 规则可注册并实际影响环境样本。
+验收：特殊星球 gravity/water 规则可注册并实际影响环境样本。
 
 ### P6c：跨参考系 API（实施记录 36）
 

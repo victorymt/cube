@@ -32,6 +32,7 @@ typedef struct WorldEnvironmentSample {
     double simulationTime;
     WorldWaterSample water;
     WorldGravitySample gravity;
+    unsigned waterRuleCount;
 } WorldEnvironmentSample;
 
 /* Queries use the active local frame until the explicit FrameId migration.

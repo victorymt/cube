@@ -158,6 +158,15 @@ WorldEnvironmentSample WorldEnvironmentSampleAtWithRules(
                 sample.gravity.acceleration, &sample.gravity.acceleration);
             sample.gravity.ruleCount = count;
         }
+        count = 0u;
+        if (WorldRuleSetResolve(rules, WORLD_RULE_STAGE_WATER, bodyId,
+                                regionId, indices, WORLD_RULE_MAX_RULES,
+                                &count) && count > 0u) {
+            (void)WorldRuleSetApplyVector(
+                rules, WORLD_RULE_STAGE_WATER, bodyId, regionId,
+                sample.water.flowVelocity, &sample.water.flowVelocity);
+            sample.waterRuleCount = count;
+        }
     }
     return sample;
 }
