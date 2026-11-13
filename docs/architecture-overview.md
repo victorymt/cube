@@ -16,7 +16,7 @@
 | `ecology` | 生态：养分与种群、演化目录、实体行为与姿态、区域历史 | 实体渲染，区块存储 |
 | `gameplay` | 玩家与操作：移动、相机 rig、交互、背包、飞船飞行、相册数据、地图标记、角色与结构物理 | UI 绘制 |
 | `presentation` | 表现层：渲染、云与天空、粒子与音频、环境表现合成、各类 HUD 与面板 | 模拟状态的所有权 |
-| `app` | 组合根：`GameRun`、帧循环、世界切换、存档编排、调试 DSL 与截图、性能路线 | 领域策略 |
+| `app` | 组合根：`GameRun`、帧循环、fixed-step 调度与输入 staging、世界切换、存档编排、调试 DSL 与截图、性能路线 | 领域策略 |
 
 Cube column content follows `base terrain -> cube-native Home trees -> CGA`.
 Tree roots and local crown bounds are `SurfaceAddress` data; each intersecting

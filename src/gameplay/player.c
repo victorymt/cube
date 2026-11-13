@@ -1,6 +1,7 @@
 #include "gameplay/player.h"
 
 #include "core/game_effects.h"
+#include "gameplay/player_actor.h"
 #include "gameplay/player_motion.h"
 #include "gameplay/player_world.h"
 
@@ -133,12 +134,7 @@ void UpdatePlayerWithWorld(Player *player, float dt, const PlayerInput *input,
         .canStepUp = body.onGround && !body.floating
     };
     (void)world->move(world->user, &body, &move);
-    player->position = body.position;
-    player->velocity = body.velocity;
-    player->yaw = body.yaw;
-    player->pitch = body.pitch;
-    player->onGround = body.onGround;
-    player->floating = body.floating;
+    PlayerApplyActorBody(player, &body);
 
     float horizontalSpeed = sqrtf(player->velocity.x * player->velocity.x +
                                   player->velocity.z * player->velocity.z);

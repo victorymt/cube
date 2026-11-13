@@ -2,6 +2,8 @@
 
 #include "app/game_runtime.h"
 
+#include <math.h>
+
 PlayerInput GamePlayerInputFromFrame(const InputFrame *frame)
 {
     if (!frame) return (PlayerInput){ 0 };
@@ -45,4 +47,39 @@ PlayerInput GameReadPlayerInput(GameRuntime *game)
     if (game->debugControlEnabled && !game->manualInputEnabled)
         return (PlayerInput){0};
     return GamePlayerInputFromFrame(InputSourceFrame(&game->inputSource));
+}
+
+void GamePlayerInputStageFixed(PlayerInput *staged, bool *edgesPending,
+                               const PlayerInput *frameInput)
+{
+    if (!staged || !edgesPending || !frameInput) return;
+    staged->forward = frameInput->forward;
+    staged->strafe = frameInput->strafe;
+    staged->vertical = frameInput->vertical;
+    staged->sprint = frameInput->sprint;
+    staged->lookDelta.x += frameInput->lookDelta.x;
+    staged->lookDelta.y += frameInput->lookDelta.y;
+    staged->jumpPressed |= frameInput->jumpPressed;
+    staged->toggleFloating |= frameInput->toggleFloating;
+    *edgesPending = *edgesPending || frameInput->jumpPressed ||
+        frameInput->toggleFloating || fabsf(frameInput->lookDelta.x) > 0.0f ||
+        fabsf(frameInput->lookDelta.y) > 0.0f;
+}
+
+PlayerInput GamePlayerInputConsumeFixed(PlayerInput *staged,
+                                        bool *edgesPending)
+{
+    if (!staged || !edgesPending) return (PlayerInput){ 0 };
+    PlayerInput input = *staged;
+    if (!*edgesPending) {
+        input.lookDelta = (Vector2){ 0 };
+        input.jumpPressed = false;
+        input.toggleFloating = false;
+    } else {
+        staged->lookDelta = (Vector2){ 0 };
+        staged->jumpPressed = false;
+        staged->toggleFloating = false;
+        *edgesPending = false;
+    }
+    return input;
 }

@@ -13,4 +13,12 @@ PlayerInput GamePlayerInputFromFrame(const InputFrame *frame);
 /* Script windows take precedence; debug sessions otherwise require explicit
    manual handoff before reading desktop keyboard/mouse state. */
 PlayerInput GameReadPlayerInput(struct GameRuntime *game);
+
+/* Accumulate render-frame commands until the next fixed simulation tick.
+ * Held axes track the latest frame; look and edge-triggered actions accumulate
+ * until one tick consumes them. */
+void GamePlayerInputStageFixed(PlayerInput *staged, bool *edgesPending,
+                               const PlayerInput *frameInput);
+PlayerInput GamePlayerInputConsumeFixed(PlayerInput *staged,
+                                        bool *edgesPending);
 #endif

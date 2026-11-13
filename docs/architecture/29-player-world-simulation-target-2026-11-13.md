@@ -6,6 +6,7 @@
 - 前置记录：[Player/world topology decoupling](26-player-world-topology-decoupling-analysis-2026-11-12.md)、[Player camera coupling](27-player-camera-coupling-analysis-2026-11-13.md)、[Camera refactor implementation](28-camera-refactor-implementation-2026-11-13.md)
 
 > P3 的实施证据见 [Player World Motion P3 实施记录](30-player-world-motion-p3-2026-11-13.md)。
+> P4 的固定步输入与 locomotion 部分见 [Player Fixed-Step Locomotion P4a](31-player-fixed-step-locomotion-p4a-2026-11-13.md)。
 
 ## 1. 结论
 

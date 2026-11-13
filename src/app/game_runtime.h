@@ -88,6 +88,7 @@ typedef struct GameRuntime {
   PauseMenuUiState pauseMenuUi;
   PlayerInput scriptedPlayerInput;
   PlayerInput appliedPlayerInput;
+  PlayerInput stagedPlayerInput;
   PlayerWorldOps playerWorldOps;
   ShipControlInput scriptedShipInput;
   BlockType hotbar[HOTBAR_SIZE];
@@ -213,6 +214,8 @@ typedef struct GameRuntime {
   uint32_t entitiesWorldDimension;
   bool thirdPerson;
   bool cameraTargetLossNotified;
+  bool playerInputEdgesPending;
+  bool playerSimulationInputBlocked;
   bool scriptedInputFirstFrame;
   bool debugMouseLeftPressed;
   bool debugMouseRightPressed;

@@ -28,8 +28,38 @@ static void SetPhysicalFrame(GameRuntime *game)
     SetKeyDown(frame, INPUT_KEY_F);
 }
 
+static void TestFixedStepInputStaging(void)
+{
+    PlayerInput staged = { 0 };
+    bool edgesPending = false;
+    GamePlayerInputStageFixed(&staged, &edgesPending, &(PlayerInput){
+        .forward = 1.0f,
+        .lookDelta = { 2.0f, -1.0f },
+        .jumpPressed = true,
+        .toggleFloating = true
+    });
+    GamePlayerInputStageFixed(&staged, &edgesPending, &(PlayerInput){
+        .forward = 0.5f,
+        .strafe = -1.0f,
+        .sprint = true,
+        .lookDelta = { 1.0f, 3.0f }
+    });
+
+    PlayerInput firstTick = GamePlayerInputConsumeFixed(&staged, &edgesPending);
+    assert(firstTick.forward == 0.5f && firstTick.strafe == -1.0f);
+    assert(firstTick.sprint && firstTick.jumpPressed && firstTick.toggleFloating);
+    assert(firstTick.lookDelta.x == 3.0f && firstTick.lookDelta.y == 2.0f);
+    assert(!edgesPending);
+
+    PlayerInput secondTick = GamePlayerInputConsumeFixed(&staged, &edgesPending);
+    assert(secondTick.forward == 0.5f && secondTick.strafe == -1.0f);
+    assert(!secondTick.jumpPressed && !secondTick.toggleFloating);
+    assert(secondTick.lookDelta.x == 0.0f && secondTick.lookDelta.y == 0.0f);
+}
+
 int main(void)
 {
+    TestFixedStepInputStaging();
     static GameRuntime game;
     SetPhysicalFrame(&game);
 

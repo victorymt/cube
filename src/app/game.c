@@ -663,8 +663,21 @@ static void GameApplyTornadoPlayerForce(GameRuntime *game, float dt)
     game->player.velocity.y = Clamp(game->player.velocity.y, -35.0f, 18.0f);
 }
 
-static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
-                                   bool inputBlocked)
+static void GameStagePlayerInput(GameRuntime *game, bool inputBlocked)
+{
+    game->playerSimulationInputBlocked = inputBlocked;
+    if (inputBlocked) {
+        game->stagedPlayerInput = (PlayerInput){ 0 };
+        game->playerInputEdgesPending = false;
+        return;
+    }
+
+    PlayerInput frameInput = GameReadPlayerInput(game);
+    GamePlayerInputStageFixed(&game->stagedPlayerInput,
+                              &game->playerInputEdgesPending, &frameInput);
+}
+
+void GameUpdatePlayerMotion(GameRuntime *game, float dt, bool inputBlocked)
 {
     if (!game->perfMode && !GameWorldSimulationUserPaused(game) &&
         !game->landingTransition.active &&
@@ -695,7 +708,9 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
             game->wasInSpace = true;
         }
     } else if (!game->perfMode && !inputBlocked) {
-        game->appliedPlayerInput = GameReadPlayerInput(game);
+        PlayerInput tickInput = GamePlayerInputConsumeFixed(
+            &game->stagedPlayerInput, &game->playerInputEdgesPending);
+        game->appliedPlayerInput = tickInput;
         UpdatePlayerWithWorld(&game->player, dt, &game->appliedPlayerInput,
                               &game->playerWorldOps);
         if (PlanetWorldIsActive()) {
@@ -729,6 +744,7 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
             &game->player.yaw)) {
         ParticlesClear();
     }
+    GameApplyTornadoPlayerForce(game, dt);
 }
 
 static void GameUpdateWorldJobs(GameRuntime *game, float dt)
@@ -1158,8 +1174,8 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     GameNoticeTick(dt);
 
     GameUpdateAutoSave(game, dt);
-    GameUpdatePlayerMotion(game, dt, GameNavigationInputBlocked(game));
-    GameApplyTornadoPlayerForce(game, dt);
+    GameStagePlayerInput(game, inputBlocked);
+    GameAdvanceSimulationFrame(game, (double)dt);
     GameUpdateCamera(game, dt);
     double debugSimulationMainCpuMs = 0.0;
     if (game->debugTraceEnabled) {
@@ -1175,17 +1191,6 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     if (game->debugTraceEnabled) {
         double now = GameDebugTraceMainCpuNowMs();
         debugStreamingMainCpuMs = now - debugStageCpuStarted;
-        debugStageCpuStarted = now;
-    }
-
-    /* World preparation precedes fixed simulation. The player sample is held
-     * constant for this frame's ticks; full player-input replay is separate. */
-    double fixedSimulationStarted = game->debugTraceEnabled
-        ? GameDebugTraceMainCpuNowMs() : 0.0;
-    GameAdvanceSimulationFrame(game, (double)dt);
-    if (game->debugTraceEnabled) {
-        double now = GameDebugTraceMainCpuNowMs();
-        debugSimulationMainCpuMs += now - fixedSimulationStarted;
         debugStageCpuStarted = now;
     }
 
