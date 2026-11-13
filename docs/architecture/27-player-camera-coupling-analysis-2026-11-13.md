@@ -7,6 +7,7 @@
 
 > 本文第 2 节至第 6 节记录重构前的基线。C0-C4 的实施边界、验证结果和仍留给后续的
 > 多视口渲染工作见 [相机重构实施记录](28-camera-refactor-implementation-2026-11-13.md)。
+> 玩家、运动、环境与参考系的后续目标是 [Player、World Simulation 与参考系目标架构](29-player-world-simulation-target-2026-11-13.md)。
 
 ## 1. 结论摘要
 

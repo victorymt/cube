@@ -4,6 +4,8 @@
 - 性质：阶段记录；实现 [相机耦合分析](27-player-camera-coupling-analysis-2026-11-13.md) 的 C0-C4 边界
 - 范围：相机目标输入、独立更新阶段、world query 端口、相机距离策略、实体绑定与非回归测试
 
+> 相机之后的玩家运动、环境查询和参考系目标见 [Player、World Simulation 与参考系目标架构](29-player-world-simulation-target-2026-11-13.md)。
+
 ## 1. 实施结果
 
 相机姿态不再由 `Player` 的完整结构生成。`gameplay/camera.[ch]` 只消费 `CameraTargetView`，位置、速度、yaw 和 pitch 由 app 组合根从 `ActorBody` 或实体快照投影得到。`player.c` 不再包含任何相机代码，也不再调用方块点查询或遮挡射线。

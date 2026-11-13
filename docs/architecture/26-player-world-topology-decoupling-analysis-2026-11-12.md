@@ -5,6 +5,8 @@
 - 范围说明：本文把“信息类别”按当前讨论上下文解释为“世界表示/拓扑类别”，包括 `cube-grid`、`legacy-map`、`space`、`nether`，同时分析和 Player 混在同一个类型/文件中的输入、传感器、相机和交互信息类型。
 - 当前运行状态不在本文重复，见 [STATUS.md](../../STATUS.md)。
 
+> 后续的整合目标边界和迁移路线见 [Player、World Simulation 与参考系目标架构](29-player-world-simulation-target-2026-11-13.md)。
+
 ## 1. 结论摘要
 
 结论是：**可以实现，而且值得做，但不应理解成“让 Player 完全不认识世界”**。Player 必须依赖碰撞、地面、水体和重力这些世界语义；真正应该去掉的是 Player 对“由哪个 backend 表示世界”以及“哪一套 CPU 碰撞算法”的具体知识。

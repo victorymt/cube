@@ -1147,6 +1147,33 @@
         "make check-docs",
         "make test-architecture"
       ]
+    },
+    "docs/architecture/29-player-world-simulation-target-2026-11-13.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "src/gameplay/player_types.h",
+        "src/gameplay/player.h",
+        "src/gameplay/player.c",
+        "src/gameplay/player_input.h",
+        "src/gameplay/player_world.h",
+        "src/gameplay/player_world.c",
+        "src/gameplay/player_motion.c",
+        "src/gameplay/player_sensors.c",
+        "src/world/actor_body.h",
+        "src/world/surface_pose.h",
+        "src/world/world_location.h",
+        "src/core/simulation_clock.h",
+        "src/space/space_query.h",
+        "src/app/game.c",
+        "tests/test_player_collision.c",
+        "tests/test_game_player_input.c",
+        "tests/test_simulation_replay.c"
+      ],
+      "recipes": [
+        "make check-docs",
+        "make test-architecture"
+      ]
     }
   }
 }

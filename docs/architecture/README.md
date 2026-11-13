@@ -36,6 +36,7 @@ new physical-simulation stages.
 | 26 | [player/world-topology decoupling analysis (2026-11-12)](26-player-world-topology-decoupling-analysis-2026-11-12.md) | static dependency audit of Player movement/input/sensors/camera, cube-versus-legacy semantic differences, feasibility options and a staged migration plan; its P0 type/input split, P1 `PlayerWorldOps` motion/sensor split and P2 neutral `ActorBody` boundary are implemented in follow-ups |
 | 27 | [player camera coupling analysis (2026-11-13)](27-player-camera-coupling-analysis-2026-11-13.md) | camera data flow, interaction/render/environment ordering, legacy map-cell collision and occlusion paths, FOV/render-distance coupling, and a staged camera boundary proposal |
 | 28 | [camera refactor implementation (2026-11-13)](28-camera-refactor-implementation-2026-11-13.md) | neutral target views, independent camera phase, legacy/cube world-query adapter, render/streaming distance split, multi-rig routing, and entity bindings with spawn-safe handles |
+| 29 | [player/world simulation target architecture (2026-11-13)](29-player-world-simulation-target-2026-11-13.md) | target boundaries for player intent, world-side motion, state ownership, fixed-step simulation, environmental fields, planet rules, reference frames, and deferred ECS evaluation |
 
 Programmatic-generation review: [2026-11-12 procedural generation analysis](../procedural-generation-analysis-2026-11-12.md) records the current generation pipeline, determinism model, content gaps and suggested order.
 
