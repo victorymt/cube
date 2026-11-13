@@ -5,6 +5,27 @@
 #include "raymath.h"
 
 #include <math.h>
+#include <stdint.h>
+#include <string.h>
+
+#define PLAYER_HASH_OFFSET UINT64_C(1469598103934665603)
+#define PLAYER_HASH_PRIME UINT64_C(1099511628211)
+
+static uint64_t PlayerHashU64(uint64_t hash, uint64_t value)
+{
+    for (unsigned index = 0; index < 8u; index++) {
+        hash = (hash ^ (value & UINT64_C(0xff))) * PLAYER_HASH_PRIME;
+        value >>= 8;
+    }
+    return hash;
+}
+
+static uint64_t PlayerHashFloat(uint64_t hash, float value)
+{
+    uint32_t bits = 0u;
+    memcpy(&bits, &value, sizeof(bits));
+    return PlayerHashU64(hash, bits);
+}
 
 static bool PlayerStateVectorIsFinite(Vector3 value)
 {
@@ -58,4 +79,22 @@ void PlayerApplyMotionResult(Player *player, const ActorMotionResult *result)
 void PlayerRestoreState(Player *player, const Player *restored)
 {
     if (player && restored) *player = *restored;
+}
+
+uint64_t PlayerStateHash(const Player *player)
+{
+    uint64_t hash = PLAYER_HASH_OFFSET;
+    if (!player) return hash;
+    hash = PlayerHashFloat(hash, player->position.x);
+    hash = PlayerHashFloat(hash, player->position.y);
+    hash = PlayerHashFloat(hash, player->position.z);
+    hash = PlayerHashFloat(hash, player->velocity.x);
+    hash = PlayerHashFloat(hash, player->velocity.y);
+    hash = PlayerHashFloat(hash, player->velocity.z);
+    hash = PlayerHashFloat(hash, player->yaw);
+    hash = PlayerHashFloat(hash, player->pitch);
+    hash = PlayerHashU64(hash, player->onGround);
+    hash = PlayerHashU64(hash, player->floating);
+    hash = PlayerHashU64(hash, player->wasInWater);
+    return PlayerHashFloat(hash, player->stepTimer);
 }

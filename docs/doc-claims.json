@@ -45,7 +45,7 @@
         "make plugins"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -63,7 +63,7 @@
         "make docs-probe"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -97,7 +97,7 @@
         "make test-plugins"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -134,7 +134,7 @@
         "python3 scripts/coupling-report.py"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -161,7 +161,7 @@
         "make test-clean-root"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -180,7 +180,7 @@
         "make test-architecture"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -199,7 +199,7 @@
         "make build/normal/tests/test_save_io && ./build/normal/tests/test_save_io"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -219,7 +219,7 @@
         "make docs-probe"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -239,7 +239,7 @@
         "make test-surface-topology-e2e"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -259,7 +259,7 @@
         "make -s benchmark-chunks"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -314,7 +314,7 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -331,7 +331,7 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -351,7 +351,7 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -390,7 +390,7 @@
         ]
       },
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -435,7 +435,7 @@
         }
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -453,7 +453,7 @@
         "make test-cube-save-reload"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -468,7 +468,7 @@
         "make build/normal/tests/test_atmosphere_model && ./build/normal/tests/test_atmosphere_model"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -483,7 +483,7 @@
         "make build/normal/tests/test_weather_model && ./build/normal/tests/test_weather_model"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -498,7 +498,7 @@
         "make test-landform-quality"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -513,7 +513,7 @@
         "make test-landform-quality"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -539,7 +539,7 @@
         "make build/normal/tests/test_volcano && ./build/normal/tests/test_volcano"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -565,7 +565,7 @@
         "make -s benchmark-chunks"
       ],
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -1120,7 +1120,7 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "dad1537cc99f7d58e1e2f6b0a97474db60e962ac",
+        "commit": "d6441edf698a4ae4b7b08bda28c1949fc5fdab0d",
         "date": "2026-11-13"
       }
     },
@@ -1228,6 +1228,8 @@
         "src/app/game_debug_topology.c",
         "src/app/game_save.c",
         "tests/test_player_state.c",
+        "tests/test_simulation_integration.c",
+        "mk/tests.mk",
         "tests/test_architecture.sh"
       ],
       "recipes": [

@@ -4,6 +4,7 @@
 #include "core/simulation_clock.h"
 #include "core/simulation_replay.h"
 #include "ecology/ecology.h"
+#include "gameplay/player_state.h"
 #include "world/block_catalog.h"
 #include "world/block_edits.h"
 #include "world/block_types.h"
@@ -25,6 +26,7 @@ enum { ACTION_MOVE = 1, ACTION_HARVEST, ACTION_RAIN, ACTION_WATER, ACTION_IGNITE
 
 typedef struct TickState {
     uint64_t clock;
+    uint64_t player;
     uint64_t weather;
     uint64_t ecology;
     uint64_t world;
@@ -36,6 +38,7 @@ typedef struct ReplayRun {
     SimulationReplay input;
     unsigned tick;
     int playerX;
+    Player player;
     bool rain;
     bool longitudeAlias;
     TickState states[REPLAY_TICKS];
@@ -280,7 +283,8 @@ static void RecordInput(SimulationReplay *input, unsigned alteredAction)
     assert(SimulationReplayRecord(input, 24, ACTION_MOVE, 72));
     assert(SimulationReplayRecord(input, 28, ACTION_HARVEST,
                                    alteredAction == ACTION_HARVEST ? 2 : 1));
-    assert(SimulationReplayRecord(input, 40, ACTION_MOVE, 8));
+    assert(SimulationReplayRecord(input, 40, ACTION_MOVE,
+                                   alteredAction == ACTION_MOVE ? 16 : 8));
     assert(SimulationReplayRecord(input, 48, ACTION_WATER,
                                    alteredAction == ACTION_WATER ? 31 : 63));
     assert(SimulationReplayRecord(input, 56, ACTION_RAIN, 1));
@@ -301,6 +305,9 @@ static void ApplyInputs(ReplayRun *run)
             break;
         case ACTION_MOVE:
             run->playerX = event.value;
+            PlayerPlaceAt(&run->player, (Vector3){ (float)event.value, 8.0f, 8.0f },
+                          (Vector3){ 0 }, (float)event.value * 0.01f, -0.1f,
+                          true, false);
             break;
         case ACTION_HARVEST:
             for (int count = 0; count < event.value; count++) {
@@ -352,6 +359,7 @@ static void StepReplay(double simulationSeconds, double stepSeconds, void *opaqu
     state->clock = ReplayHashDouble(state->clock, stepSeconds);
     state->clock = ReplayHashU64(state->clock, run->tick);
     state->clock = ReplayHashU64(state->clock, (uint64_t)run->playerX);
+    state->player = PlayerStateHash(&run->player);
     state->weather = HashWeather(sampled);
     state->ecology = ReplayHashBegin();
     for (unsigned index = 0; index < 4; index++) {
@@ -431,6 +439,8 @@ static void InitializeRun(ReplayRun *run, FILE *initialSpace, uint32_t seed,
                           bool alias, unsigned alteredAction)
 {
     *run = (ReplayRun){ .playerX = 8, .longitudeAlias = alias };
+    PlayerPlaceAt(&run->player, (Vector3){ 8.0f, 8.0f, 8.0f }, (Vector3){ 0 },
+                  0.08f, -0.1f, true, false);
     FluidReset();
     WeatherImpactInit(true);
     ChunksTestResetScheduler();
@@ -545,15 +555,23 @@ static void AssertFirstDifference(const ReplayRun *expected,
     for (unsigned tick = 0; tick < firstTick; tick++) {
         const TickState *a = &expected->states[tick];
         const TickState *b = &actual->states[tick];
-        assert(a->clock == b->clock && a->weather == b->weather);
         if (tick + 1 < firstTick) {
-            assert(a->ecology == b->ecology && a->world == b->world &&
-                   a->hazards == b->hazards);
+            assert(a->clock == b->clock && a->player == b->player &&
+                   a->weather == b->weather && a->ecology == b->ecology &&
+                   a->world == b->world && a->hazards == b->hazards);
+        } else if (action == ACTION_MOVE) {
+            assert(a->clock != b->clock && a->player != b->player);
         } else if (action == ACTION_HARVEST) {
+            assert(a->clock == b->clock && a->player == b->player &&
+                   a->weather == b->weather);
             assert(a->ecology != b->ecology);
         } else if (action == ACTION_WATER) {
+            assert(a->clock == b->clock && a->player == b->player &&
+                   a->weather == b->weather);
             assert(a->world != b->world);
         } else {
+            assert(a->clock == b->clock && a->player == b->player &&
+                   a->weather == b->weather);
             assert(action == ACTION_IGNITE && a->hazards != b->hazards);
         }
     }
@@ -562,13 +580,13 @@ static void AssertFirstDifference(const ReplayRun *expected,
 static void AssertReplayEqual(const ReplayRun *expected, const ReplayRun *actual,
                               unsigned firstTick)
 {
-    static const char *names[] = { "clock", "weather", "ecology", "world", "hazards" };
+    static const char *names[] = { "clock", "player", "weather", "ecology", "world", "hazards" };
     assert(expected->tick == actual->tick);
     for (unsigned tick = firstTick; tick < expected->tick; tick++) {
         const TickState *a = &expected->states[tick];
         const TickState *b = &actual->states[tick];
-        uint64_t left[] = { a->clock, a->weather, a->ecology, a->world, a->hazards };
-        uint64_t right[] = { b->clock, b->weather, b->ecology, b->world, b->hazards };
+        uint64_t left[] = { a->clock, a->player, a->weather, a->ecology, a->world, a->hazards };
+        uint64_t right[] = { b->clock, b->player, b->weather, b->ecology, b->world, b->hazards };
         for (unsigned lane = 0; lane < sizeof(left) / sizeof(left[0]); lane++) {
             if (left[lane] != right[lane]) {
                 fprintf(stderr, "replay diverged tick=%u lane=%s expected=%016" PRIx64
@@ -629,9 +647,10 @@ int main(void)
     AssertReplayEqual(&baseline, &aliased, 0);
 
     static const unsigned alterations[][2] = {
-        { ACTION_IGNITE, 4 }, { ACTION_HARVEST, 28 }, { ACTION_WATER, 48 }
+        { ACTION_IGNITE, 4 }, { ACTION_HARVEST, 28 }, { ACTION_MOVE, 40 },
+        { ACTION_WATER, 48 }
     };
-    for (unsigned index = 0; index < 3; index++) {
+    for (unsigned index = 0; index < 4; index++) {
         ReplayRun altered;
         InitializeRun(&altered, initialSpace, seed, false, alterations[index][0]);
         AdvanceTo(&altered, REPLAY_TICKS, false);

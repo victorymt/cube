@@ -73,10 +73,29 @@ static void TestMotionAndRestoreCommit(void)
     assert(player.wasInWater);
 }
 
+static void TestStateHashChanges(void)
+{
+    Player player = {
+        .position = { 1.0f, 2.0f, 3.0f },
+        .velocity = { 0.25f, 0.0f, 0.0f },
+        .yaw = 0.5f,
+        .pitch = -0.25f,
+        .onGround = true
+    };
+    uint64_t baseline = PlayerStateHash(&player);
+    assert(baseline == PlayerStateHash(&player));
+    player.position.x += 0.5f;
+    assert(PlayerStateHash(&player) != baseline);
+    player.position.x -= 0.5f;
+    player.stepTimer = 0.125f;
+    assert(PlayerStateHash(&player) != baseline);
+}
+
 int main(void)
 {
     TestHaltAndLook();
     TestFloatingAndPlacement();
     TestMotionAndRestoreCommit();
+    TestStateHashChanges();
     return 0;
 }

@@ -152,6 +152,7 @@ SIMULATION_INTEGRATION_SOURCES := \
 	$(ECOLOGY_SYSTEM_SOURCES) \
 	src/core/simulation_clock.c \
 	src/core/simulation_replay.c \
+	src/gameplay/player_state.c \
 	src/world/fluid.c \
 	src/world/weather_impact.c \
 	src/world/wildfire_model.c

@@ -30,6 +30,10 @@ After the P4 Player state/fixed-step work, the same recipe reported
 `median_total_ms=52.787`, `p95_total_ms=53.726`,
 `solid_vertices_per_chunk=2187.8`, and `sync_rebuilds=0`.
 
+After adding Player state to the integration replay checkpoint, the same
+recipe reported `median_total_ms=53.143`, `p95_total_ms=53.567`,
+`solid_vertices_per_chunk=2187.8`, and `sync_rebuilds=0`.
+
 ## Semantic invariants
 
 These are behaviour, not performance, and must hold after any hot-path change:
