@@ -2,6 +2,7 @@
 
 - 日期：2026-11-13
 - 性质：目标架构与渐进迁移记录；本文不表示代码已经全部实现
+- 编写基线：`a11de53`（2026-11-13，P3 开始时）
 - 当前状态：见 [STATUS.md](../../STATUS.md)
 - 前置记录：[Player/world topology decoupling](26-player-world-topology-decoupling-analysis-2026-11-12.md)、[Player camera coupling](27-player-camera-coupling-analysis-2026-11-13.md)、[Camera refactor implementation](28-camera-refactor-implementation-2026-11-13.md)
 
@@ -18,32 +19,24 @@
 
 近期不重写存档、相机或实体系统。第一优先级是让 `Player` 不再拥有 legacy/cube 几何实现，并让所有 locomotion 状态写入经过同一个运动提交入口。
 
-## 2. 当前基线与真实差距
+## 2. 编写时基线与差距（历史）
 
-当前 `Player` 只保存 `position`、`velocity`、`yaw`、`pitch`、`onGround`、`floating`、`wasInWater` 和 `stepTimer`。输入采集已位于 app，`PlayerInput` 是 gameplay 可消费的命令值，相机已由 `CameraManager` 独立管理。
+本节记录目标文档编写时的基线，不是今天的实现状态；当前状态只以 [STATUS.md](../../STATUS.md) 和实施记录为准。编写基线中，`Player` 仅保存 `position`、`velocity`、`yaw`、`pitch`、`onGround`、`floating`、`wasInWater` 和 `stepTimer`，输入采集已经位于 app，`PlayerInput` 是 gameplay 可消费的命令值，相机已经由 `CameraManager` 独立管理。
 
-`UpdatePlayerWithWorld()` 负责视角、速度、游泳、重力、跳跃和音效策略，并通过 `PlayerWorldOps` 调用移动、重叠、水和重力查询。默认 adapter 位于 `player_world.c`。因此 Player 政策已经不再直接调用方块或 cube chunk API。
+编写基线时，`UpdatePlayerWithWorld()` 已通过 `PlayerWorldOps` 使用移动、重叠、水和重力查询，但真正的 legacy/cube 几何仍位于 gameplay 的 `player_motion.c`；`ActorBody` 已存在，但 app 仍可能直接修改 Player 字段；普通玩家运动仍按渲染帧 `dt` 推进；环境查询仍是按需函数调用，没有统一的 `(position, time, frame)` 语义、规则层或 frame identity。
 
-真正的几何实现仍位于 gameplay 的 `player_motion.c`：它包含 legacy 逐轴移动、cube `SurfacePose` 位移、身体盒枚举、碰撞、落地和坐标转换，并直接引用 `SurfaceContract` 与 `GetBlockAt`。这违反“世界几何归 world”的目标边界。
-
-`ActorBody` 已提供中性的位置、速度、朝向、接地和 floating 状态，并被 ship、space、ecology 与相机消费。ship 运行时仍把 `GameRuntime.player` 当作可变 actor 存储槽，其他 app 子系统也仍可直接修改 Player 字段。
-
-固定步长时钟已经存在，当前由 `GameAdvanceSimulationFrame()` 驱动生态和实体等模拟；普通玩家运动和输入仍在渲染帧的 `GameUpdatePlayerMotion()` 中按帧 `dt` 推进。因此玩家运动尚未进入确定性固定步。
-
-环境查询已有 `PlayerGravitySample`、水体和空间重力等局部抽象，但入口仍是按当前位置调用具体函数，没有统一的 `(position, time, frame)` 查询语义，也没有可组合的星球规则层。
-
-| 能力 | 当前状态 | 目标状态 |
+| 能力 | 编写时基线 | 目标落点与实施记录 |
 | --- | --- | --- |
-| 原始输入采集 | app 的 `InputSource` 已完成 | 保持，app 只产生不可变输入快照 |
-| 玩家命令语义 | `PlayerInput` 已完成基础拆分 | Controller 输出稳定的动作意图 |
+| 原始输入采集 | app 的 `InputSource` 已完成 | 保持输入快照边界；P4a |
+| 玩家命令语义 | `PlayerInput` 已完成基础拆分 | 目标引入 ActorIntent；当前先保留 PlayerInput |
 | 相机边界 | `CameraManager` 已完成 | Presentation 只读取身体/相机快照 |
-| 运动端口 | `PlayerWorldOps` 已存在 | world solver 成为默认实现，gameplay 不持有几何 |
-| cube/legacy 几何 | 仍在 `player_motion.c` | 封装在 world 内部 backend |
-| 状态写入所有权 | 分散在多个 app/gameplay 模块 | 每类状态只有一个提交入口 |
-| 固定步运动 | 尚未完成 | locomotion 由固定模拟步推进 |
-| 环境场 | 按需函数查询 | 显式位置、时间、参考系 |
-| 规则组合 | 代码分支 | 有序、明确作用域的规则集合 |
-| ECS | 未引入 | 完成前四项后再评估，不作为近期目标 |
+| 运动端口 | `PlayerWorldOps` 已存在 | world solver 成为默认实现；P3 |
+| cube/legacy 几何 | 编写基线时仍在 gameplay | world `actor_motion`；P3 |
+| 状态写入所有权 | 编写基线时分散 | `player_state` commit API；P4b |
+| 固定步运动 | 编写基线时尚未完成 | fixed-step input/locomotion；P4a |
+| 环境场 | 编写基线时为按需函数 | world environment query；P5 |
+| 规则与 frame | 编写基线时未建立 | rule registry/frame foundation；P6a |
+| ECS | 未引入 | P6b 完成后再评估，不作为近期目标 |
 
 ## 3. 目标职责边界
 
@@ -69,47 +62,47 @@
 InputSourceCaptureFrame
   -> ActorIntent
   -> PlayerController
-  -> MotionRequest
-  -> WorldResolveMotion
-  -> MotionResult
+  -> ActorMotionRequest
+  -> WorldActorResolveMotion
+  -> ActorMotionResult
   -> ApplyActorMotion
   -> ActorBody / PlayerState
   -> Camera, presentation, persistence, diagnostics
 ```
 
-`ActorIntent` 描述本 tick 期望的前后、左右、垂直、跳跃、冲刺和视角增量。边沿动作必须在一 tick 内消费一次；输入层不得直接写 velocity 或 position。
+`ActorIntent` 是目标命令值；现有 P4a 实现使用 `PlayerInput` 承载前后、左右、垂直、跳跃、冲刺和视角增量。边沿动作必须在一 tick 内消费一次；输入层不得直接写 velocity 或 position。
 
-`MotionRequest` 至少携带期望位移、身体尺寸、是否允许未加载区域、是否可 step-up 和当前参考系。`MotionResult` 至少返回实际位移、速度修正、接地、碰撞/卡住原因和实际经过的模拟时间。只返回 `bool` 无法表达部分位移，目标接口必须保留可诊断结果。
+现有 `ActorMotionRequest` 携带期望位移、`allowUnready` 和 `canStepUp`，身体尺寸由独立的 `ActorCollider` 提供。`ActorMotionResult` 返回最终 `ActorBody` 和是否发生位移；碰撞原因、接触面、实际经过时间和 frame identity 仍是后续增强项。
 
-`WorldResolveMotion` 是无状态于具体玩家的几何接口。它接收中性 body/pose 和 request，返回结果而不拥有玩家游戏状态。这样 legacy、cube 或未来第三种 topology 都能作为 backend 实现。
+`WorldActorResolveMotion` 是无状态于具体玩家的 world-side 几何接口。它接收中性 `ActorBody`、`ActorCollider` 和 request，返回结果而不拥有玩家游戏状态。这样 legacy、cube 或未来第三种 topology 都能作为 backend 实现；P3 已把默认实现放到 `world/actor_motion.c`（见记录 30）。
 
-`PlayerWorldOps` 可以作为 gameplay 的组合端口保留，但其默认实现必须绑定 world motion solver，不能再次调用 gameplay 侧的 `PlayerMoveWithOptions()`。
+`PlayerWorldOps` 保留为 gameplay 的组合端口；默认实现已经直接绑定 `WorldActorResolveMotion()`，不再由 gameplay 实现几何 backend。
 
-长期 actor 权威状态统一使用一个中性语义；`SurfaceAddress` 只能由连续位姿和世界快照派生，不能成为连续运动的规范存储。玩家在表面附近可以使用 `SurfacePose` 作为高保真物理解算状态，在太空中使用系统模拟帧，但两者都必须带显式帧身份。
+长期 actor 权威状态统一使用一个中性语义；`SurfaceAddress` 只能由连续位姿和世界快照派生，不能成为连续运动的规范存储。玩家在表面附近使用 `SurfacePose` 作为高保真物理解算状态；P6a 已提供 `WorldFrameId`/`WorldFramePoint` 和 local ↔ body-centered 转换（见记录 34），但 system/render/camera frame 仍在后续阶段。
 
 ## 5. 状态所有权与固定步
 
 每个固定模拟 tick 必须按确定顺序执行：读取本 tick 不可变输入，更新控制意图，查询环境，求解运动，提交一次 actor 状态，再发布接触/落地/入水事件。Presentation 在 tick 完成后读取插值快照。
 
-普通 locomotion、ship、传送、landing、出生、读档和 debug teleport 都必须使用明确的状态提交 API。特殊入口可以绕过运动求解，但不能绕过状态验证、事件发布和单一写入所有权。
+P4b 已提供 `PlayerHaltMotion()`、`PlayerSetLook()`、`PlayerSetFloating()`、`PlayerPlaceAt()`、`PlayerApplyMotionResult()` 和 `PlayerRestoreState()`（见记录 32）。普通 locomotion、ship 回写、传送、landing、出生、读档和 debug placement 的 app 入口已经迁移到这些 commit API；ship controller 内部仍直接操作它取得的 `ActorBody` 工作区，最终通过 commit 返回 Player。
 
-`GameRuntime` 可以继续拥有当前玩家状态，但 app 的其他模块不得在任意位置散写 `position`、`velocity`、`onGround` 或 `floating`。迁移期允许保留旧 API，新 API 必须逐步成为唯一入口。
+`GameRuntime` 继续拥有当前玩家状态，但 app C 源码不得直接散写 `position`、`velocity`、`yaw`、`pitch`、`onGround` 或 `floating`；架构检查已经执行这一约束。新的特殊入口必须使用显式 transition/commit API。
 
-固定步输入应可重放。渲染帧可以重复使用最近一次输入快照，但 jump、切换 floating 等边沿事件只能由一个 tick 消费；生成/流式加载的等待时间不得改变已经采样的模拟 tick 序列。
+P4a 已实现 render-frame input staging：持续轴使用最新值，look/jump/toggle-floating 边沿由一个 fixed tick 消费一次。P4b 的 `PlayerStateHash()` 已进入 `test_simulation_integration` 的 Player lane，完整 replay、checkpoint continuation 和改变输入的 divergence 都覆盖该状态（见记录 31、32）。
 
 ## 6. 环境查询与星球规则
 
-Environment 查询必须显式接收位置、模拟时间和参考系。返回值中的方向和速度也必须标明所属参考系。重力、风、温度和水流不得通过查询隐式触发生成或修改世界。
+Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 已实现 `WorldEnvironmentSampleAt()` 的 position/time、water、gravity 组合样本；当前 frame 是 active local frame，显式 frame 参数尚未接入该接口（见记录 33）。
 
-近期可以保留现有 `PlayerGravitySample`、`PlayerWaterState` 和空间重力函数作为 adapter；目标接口应逐渐统一为世界环境样本，而不是让 Player 增加更多星球类型分支。
+`PlayerGravitySample` 与 `PlayerWaterState` 现在是 world sample 的 gameplay aliases，`PlayerWorldOps` 默认 adapter 直接调用 world environment query。Player Controller 不再直接调用 `PlanetSurfaceAt()`、`WorldGravityScale()`、`FluidSampleAt()` 或 `WorldIsSpaceActive()`。
 
-规则系统必须声明执行阶段、作用范围、作用对象和组合方式。最小组合语义为 `add`、`modify`、`replace`；同一阶段、同一作用域的冲突必须通过显式优先级或确定性顺序解决，不能依赖注册顺序的偶然结果。
+规则系统必须声明执行阶段、作用范围、作用对象和组合方式。P6a 的 `WorldRuleSet` 已固定 global/body/region specificity、priority、registration id 顺序，并提供 `ADD`、`MODIFY`、`REPLACE` 向量语义；规则尚未接入 `WorldEnvironmentSampleAt()`（见记录 34）。
 
-新增特殊星球应通过规则或 backend 扩展完成，不要求在通用 Player Controller 中增加 `if (planetType)`。动态实体是否共享这些规则由能力/组件决定，而不是由 `entity.type == PLAYER` 决定。
+新增特殊星球最终应通过规则或 backend 扩展完成，不要求在通用 Player Controller 中增加 `if (planetType)`。动态实体是否共享这些规则由能力/组件决定，而不是由 `entity.type == PLAYER` 决定。
 
 ## 7. 参考系与精度
 
-目标位置类型必须显式携带 frame identity。局部 map 坐标、surface pose、系统坐标和相机相对坐标是不同表示；转换只能通过具名 API 完成，并必须注明时间与来源快照。
+目标位置类型必须显式携带 frame identity。P6a 已提供 `WorldFrameId`、`WorldFramePoint`、`WorldFrameCanTransform()` 和 `WorldFrameTransformPoint()`；当前支持 identity 与 active surface local ↔ body-centered，system/render/camera 转换尚未实现（见记录 34）。
 
 在进行跨星球、高速度或远距离计算时，内部模拟应使用足够的精度，渲染再转换为相机附近的相对坐标。当前存档和 DSL 不要求立即切换到 double 或新帧格式；任何持久化格式变化必须独立设计迁移和版本升级。
 
@@ -117,7 +110,7 @@ Environment 查询必须显式接收位置、模拟时间和参考系。返回�
 
 ## 8. ECS 的位置
 
-不把完整 ECS 作为近期里程碑。当前更紧迫的是 world-side motion、状态写入所有权、固定步和环境查询；在这些边界稳定前引入 ECS，只会把跨模块写入隐藏在组件访问后面。
+不把完整 ECS 作为近期里程碑。P3-P5 已建立 world-side motion、状态写入所有权、固定步和环境查询；P6b 仍需完成规则消费与跨 frame 转换。在这些边界稳定前引入 ECS，只会把跨模块写入隐藏在组件访问后面。
 
 当动态实体类型和共享系统达到以下条件时才重新评估 ECS：多个实体类别确实共享同一组运动/规则系统；组件查询比现有固定结构更清晰；系统顺序和状态提交可以保持确定性；迁移不会迫使方块、区块和地形存储一起 ECS 化。
 
@@ -125,7 +118,7 @@ Environment 查询必须显式接收位置、模拟时间和参考系。返回�
 
 ## 9. 渐进迁移路线
 
-### P3：迁移几何运动实现
+### P3：迁移几何运动实现（实施记录 30）
 
 - 将 `player_motion.c` 的 legacy/cube 位移、碰撞、step-up 和 body-box 查询迁入 world-side neutral motion solver。
 - `PlayerWorldOps` 继续作为 gameplay 端口，默认 adapter 绑定 world solver。
@@ -133,31 +126,47 @@ Environment 查询必须显式接收位置、模拟时间和参考系。返回�
 
 验收：新增一种几何 backend 不需要修改 Player Controller；gameplay 控制器和端口头不暴露 `SurfaceAddress`、cube chunk 或方块存储 API。
 
-### P4：统一状态提交与固定步
+### P4a：固定步输入与 locomotion（实施记录 31）
+
+- render-frame 输入 staging，首个 fixed tick 消费 look/jump/floating 边沿。
+- 普通 locomotion、ship motion 和 tornado 外力进入固定步。
+- 相机和流式更新顺序移动到 fixed-step 之后。
+
+验收：输入在 catch-up tick 中不重复执行，E2E 行为不回归。
+
+### P4b：统一状态提交与 replay checkpoint（实施记录 32）
 
 - 清点所有 Player 字段写入入口，引入运动结果提交 API。
-- 将普通 locomotion 放入现有 fixed-step clock；输入按 tick 快照消费。
 - 将 ship、landing、teleport、load 和 debug placement 接入统一状态验证/事件路径。
+- 将 Player state hash 纳入 integration replay checkpoint。
 
 验收：相同输入序列和初始状态产生相同结果；除显式 transition API 外，不存在散落的 locomotion 状态写入；`test_simulation_replay` 覆盖玩家 checkpoint。
 
-### P5：统一环境查询
+### P5：统一环境查询（实施记录 33）
 
 - 将水、重力、流场和后续气候作用整理为环境样本查询。
 - 先增加 adapter，保留旧函数调用者，逐步删除 Player Controller 中的具体环境分支。
 
 验收：替换重力或新增一个环境规则不需要修改 Player Controller；未加载区域和查询时间语义有确定性测试。
 
-### P6：规则与参考系
+### P6a：规则与 frame 基础（实施记录 34）
 
 - 定义规则阶段、作用域、优先级与 add/modify/replace 语义。
-- 引入显式 frame identity 和转换 API，先覆盖 surface/space 边界，再覆盖跨星球场景。
+- 引入显式 frame identity，并实现 surface local ↔ body-centered 转换。
 
-验收：特殊星球规则可由配置或注册扩展；surface、space、render 和 save 之间的位置转换均有具名入口和回归测试。
+验收：规则顺序可重放；未支持的 frame pair 显式失败。
 
-### P7：ECS 评估
+### P6b：规则消费与跨参考系
 
-- 在 P3-P6 完成后，根据真实组件查询和系统调度需求决定是否采用 ECS。
+- 将 `WorldRuleSet` 接入 `WorldEnvironmentSampleAt()` 或对应 environment resolver。
+- 覆盖 system ↔ surface/body、render camera-relative 和 save-frame 转换。
+- 为 body/region gravity rule 增加真实环境样本测试。
+
+验收：特殊星球规则可注册并实际影响环境样本；surface、space、render 和 save 之间的位置转换均有具名入口和回归测试。
+
+### P7：ECS 评估（P6b 完成后）
+
+- 在 P6b 完成后，根据真实组件查询和系统调度需求决定是否采用 ECS。
 - 评估必须包含确定性、调试可读性、存档映射、测试成本和迁移回滚路径。
 
 验收：只有在现有架构无法清晰表达共享系统时才引入 ECS；ECS 不成为方块或地形存储的前置条件。
@@ -178,27 +187,35 @@ Environment 查询必须显式接收位置、模拟时间和参考系。返回�
 | --- | --- |
 | legacy motion | 平地行走、墙、台阶、悬崖、未加载 frontier |
 | cube motion | 平地、跨面、极区、游泳、碰撞滑动、body-box 边界 |
-| 输入与重放 | 手动输入、scripted input、按下沿、暂停与 catch-up |
-| 状态所有权 | ship 进出、landing、load、teleport、spawn、debug placement |
-| 环境 | 重力替换、水流、不同高度、未加载查询、时间推进 |
-| 参考系 | surface/space 转换、跨面、镜头相对渲染、长期运行精度 |
-| 回归 | `test_player_collision`、`test_game_player_input`、`test_simulation_replay` 及对应 Hyprland E2E |
+| 输入与重放 | `test_game_player_input`、`test_simulation_integration`、scripted input、catch-up |
+| 状态所有权 | `test_player_state`、ship、landing、load、teleport、spawn、debug placement |
+| 环境 | `test_player_collision` 的 world sample/adapter 一致性；后续增加规则消费测试 |
+| 参考系 | `test_player_collision` 的 local/body round trip；后续增加 system/render/save |
+| 规则 | `test_world_rules` 的 scope/priority/order 与 ADD/MODIFY/REPLACE |
+| 回归 | 对应 Hyprland 平地、跨面、极区和固定步 E2E |
 
 ## 12. 代码索引
 
 - `src/gameplay/player_types.h`：当前 Player 长期状态。
 - `src/gameplay/player.c`：当前玩家控制与运动策略。
 - `src/gameplay/player_world.h`：当前 gameplay 到 world 的窄端口。
-- `src/gameplay/player_motion.c`：当前 legacy/cube 几何与碰撞实现，也是 P3 的主要迁移源。
+- `src/gameplay/player_state.[ch]`：显式 Player transition/commit 和 state hash。
+- `src/gameplay/player_motion.c`：Player-specific motion compatibility facade。
+- `src/world/actor_motion.[ch]`：legacy/cube 几何、碰撞和 neutral motion solver。
 - `src/world/actor_body.h`：跨系统中性身体状态。
+- `src/world/environment_query.[ch]`：water/gravity/environment 样本查询。
+- `src/world/world_rules.[ch]`：确定性规则注册与向量求值。
+- `src/world/world_frame.[ch]`：frame identity 和已支持的 point 转换。
 - `src/core/simulation_clock.*`：固定步与插值时序。
 - `src/world/surface_pose.*`：表面连续位姿与局部/球面转换。
 - `src/world/world_location.*`：身体盒和方块地址查询。
-- `src/space/space_query.*`：空间重力与环境查询基础。
-- `src/app/game.c`：当前帧调度和输入/模式控制。
+- `src/space/space_query.*`：空间重力查询与后续 system-frame 数据源。
+- `src/app/game.c`：帧调度、输入 staging 和固定模拟顺序。
 
 ## 13. 验收定义
 
-当 Player Controller 不再包含具体几何 backend、所有 locomotion 状态写入都经过单一提交入口、环境与规则可通过接口替换、参考系转换显式且可测试时，本目标架构才算完成。
+当 Player Controller 不再包含具体几何 backend、所有 locomotion 状态写入都经过单一提交入口、环境与规则可通过接口替换，并且 surface/space/render/save 的参考系转换显式且可测试时，本目标架构才算完成。
+
+P3、P4a、P4b、P5 和 P6a 已实现对应基础边界；P6b 尚需把规则接入环境样本并补齐跨 frame 转换，之后才进入 P7 的 ECS 评估。
 
 完成 ECS 评估并不等于必须采用 ECS。最终验收标准是职责边界和可验证行为，而不是某个框架、坐标类型或文件数量。
