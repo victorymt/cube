@@ -41,6 +41,7 @@ new physical-simulation stages.
 | 31 | [player fixed-step locomotion P4a (2026-11-13)](31-player-fixed-step-locomotion-p4a-2026-11-13.md) | render-frame input staging, one-shot edge consumption, fixed-step player/ship motion, camera/streaming ordering, and tornado integration |
 | 32 | [player state commit P4b (2026-11-13)](32-player-state-commit-p4b-2026-11-13.md) | explicit halt/look/floating/place/restore commits, removal of app Player field writes, transition migration, and architecture enforcement |
 | 33 | [world environment query P5 (2026-11-13)](33-environment-query-p5-2026-11-13.md) | world-side water/gravity samples, explicit simulation time, Player adapter aliases, and environment boundary enforcement |
+| 34 | [world rules and frame foundation P6 (2026-11-13)](34-world-rules-frame-p6-2026-11-13.md) | deterministic scope/priority rule registry, add/modify/replace semantics, explicit frame identity, and supported surface-local/body transforms |
 
 Programmatic-generation review: [2026-11-12 procedural generation analysis](../procedural-generation-analysis-2026-11-12.md) records the current generation pipeline, determinism model, content gaps and suggested order.
 

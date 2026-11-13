@@ -8,6 +8,7 @@
 > P3 的实施证据见 [Player World Motion P3 实施记录](30-player-world-motion-p3-2026-11-13.md)。
 > P4 的固定步输入与 locomotion 部分见 [Player Fixed-Step Locomotion P4a](31-player-fixed-step-locomotion-p4a-2026-11-13.md)；特殊状态提交和 replay checkpoint 见 [Player State Commit P4b](32-player-state-commit-p4b-2026-11-13.md)。
 > P5 的 world environment query 实现见 [World Environment Query P5](33-environment-query-p5-2026-11-13.md)。
+> P6 的规则与 frame 基础边界见 [World Rules and Frame Foundation P6](34-world-rules-frame-p6-2026-11-13.md)。
 
 ## 1. 结论
 

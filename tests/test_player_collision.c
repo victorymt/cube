@@ -12,6 +12,7 @@
 #include "world/block_edits.h"
 #include "world/environment_query.h"
 #include "world/world_environment.h"
+#include "world/world_frame.h"
 #include "world/surface_contract_internal.h"
 #include "world/surface_cube.h"
 #include "world/world_surface_snapshot.h"
@@ -618,6 +619,37 @@ static void TestEnvironmentQueryMatchesPlayerAdapters(void)
     assert(!environment.gravity.inSpace);
 }
 
+static void TestWorldFrameSurfaceRoundTrip(void)
+{
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    WorldFramePoint local = {
+        .frame = { WORLD_FRAME_LOCAL, context.bodyId },
+        .x = 0.5,
+        .y = 12.5,
+        .z = 0.5
+    };
+    WorldFramePoint body;
+    assert(WorldFrameTransformPoint(&local, local.frame, 8.0, &body));
+    assert(body.frame.kind == WORLD_FRAME_LOCAL &&
+           body.x == local.x && body.y == local.y && body.z == local.z);
+    assert(WorldFrameTransformPoint(
+        &local, (WorldFrameId){ WORLD_FRAME_BODY_CENTERED, context.bodyId },
+        8.0, &body));
+    assert(body.frame.kind == WORLD_FRAME_BODY_CENTERED);
+    assert(body.frame.bodyId == context.bodyId);
+    WorldFramePoint roundTrip;
+    assert(WorldFrameTransformPoint(&body, local.frame, 8.1, &roundTrip));
+    assert(fabs(roundTrip.x - local.x) < 1e-3);
+    assert(fabs(roundTrip.y - local.y) < 1e-3);
+    assert(fabs(roundTrip.z - local.z) < 1e-3);
+    assert(!WorldFrameCanTransform(
+        local.frame, (WorldFrameId){ WORLD_FRAME_SYSTEM, context.bodyId }));
+    local.x = NAN;
+    assert(!WorldFrameTransformPoint(
+        &local, (WorldFrameId){ WORLD_FRAME_BODY_CENTERED, context.bodyId },
+        8.0, &body));
+}
+
 static void TestRightVectorMatchesCameraFrame(void)
 {
     const float yaws[] = {0.0f, PI * 0.25f, PI * 0.5f, PI,
@@ -934,6 +966,7 @@ int main(void)
     TestRuntimeStateReset();
     TestWaterStateUsesActualColumnSurface();
     TestEnvironmentQueryMatchesPlayerAdapters();
+    TestWorldFrameSurfaceRoundTrip();
     InstallPlayerCubeContract();
     TestCubeOverlapBranch();
     TestCubeDecorationBlocksArePassable();
