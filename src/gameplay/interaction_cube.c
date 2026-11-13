@@ -68,6 +68,7 @@ HitResult InteractionCubeRaycast(Vector3 origin, Vector3 direction,
      * presentation/debug view because some cube cells have no integer map
      * representative. */
     result.hit = true;
+    result.distance = (float)hit.geometry.distance;
     result.hasAddress = true;
     result.address = hit.address;
     result.enteringSide = hit.enteringSide;

@@ -5,6 +5,9 @@
 - 范围：第一/第三人称相机、相机碰撞与遮挡、FOV、渲染距离、相机对环境和交互的消费链路
 - 当前运行状态不在本文重复，见 [STATUS.md](../../STATUS.md)。
 
+> 本文第 2 节至第 6 节记录重构前的基线。C0-C4 的实施边界、验证结果和仍留给后续的
+> 多视口渲染工作见 [相机重构实施记录](28-camera-refactor-implementation-2026-11-13.md)。
+
 ## 1. 结论摘要
 
 当前相机不是独立系统，而是 `Player`、`ship`、`interaction`、`world`、`presentation` 和 `app` 共同影响的派生视图。相机位置和朝向表面上由 `UpdatePlayerCamera()` 生成，但它的输入、碰撞、FOV 和渲染距离分别来自多个层次。

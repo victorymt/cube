@@ -545,6 +545,7 @@ static void EntityReadDiskStateV1(Entity *entity,
     memset(entity, 0, sizeof(*entity));
     if (disk->active == 0u) return;
     entity->active = true;
+    entity->spawnSerial = EntityAllocateSpawnSerial();
     entity->type = (EntityType)disk->type;
     entity->position = (Vector3){
         disk->position[0], disk->position[1], disk->position[2]

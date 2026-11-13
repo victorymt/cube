@@ -483,12 +483,13 @@ static void TestCubeHookInjection(void)
     InteractionSetCubeRaycastHook(NULL);
     HitResult plain = RaycastBlocks((Vector3){0.5f, 0.5f, 0.5f},
                                     (Vector3){1.0f, 0.0f, 0.0f}, 10.0f);
-    assert(plain.hit && plain.x == 3);
+    assert(plain.hit && plain.x == 3 && fabsf(plain.distance - 2.5f) < 1e-5f);
 
     /* With a hook installed, selection comes from the hook. */
     CubeHookResult = (HitResult){ .hit = true, .x = 42, .y = 7, .z = -3,
                                   .nx = -1, .hasAddress = true,
-                                  .enteringSide = WORLD_BLOCK_U_PLUS };
+                                  .enteringSide = WORLD_BLOCK_U_PLUS,
+                                  .distance = 4.25f };
     CubeHookResult.address.dimension = WORLD_DIMENSION_HOME;
     CubeHookResult.address.at.surface = (SurfaceAddress){
         0, SURFACE_FACE_POS_X, 42, 7, 3 };
@@ -498,6 +499,7 @@ static void TestCubeHookInjection(void)
                                      (Vector3){1.0f, 0.0f, 0.0f}, 10.0f);
     assert(cubeHookCalls == 1u);
     assert(hooked.hit && hooked.x == 42 && hooked.z == -3 && hooked.nx == -1);
+    assert(fabsf(hooked.distance - 4.25f) < 1e-5f);
     assert(hooked.hasAddress && hooked.enteringSide == WORLD_BLOCK_U_PLUS);
     assert(hooked.address.dimension == CubeHookResult.address.dimension);
     assert(hooked.address.at.surface.bodyId == 0 &&

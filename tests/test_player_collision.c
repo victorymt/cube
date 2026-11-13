@@ -1,5 +1,6 @@
 #include "gameplay/player.h"
-#include "gameplay/player_camera.h"
+#include "gameplay/camera.h"
+#include "gameplay/camera_world.h"
 #include "gameplay/player_input.h"
 #include "gameplay/player_motion.h"
 #include "gameplay/player_sensors.h"
@@ -93,6 +94,13 @@ float BlockCollisionHeightAt(int x, int y, int z)
         ? 0.0f : 1.0f;
 }
 
+float BlockCollisionHeight(BlockType type)
+{
+    return type == BLOCK_AIR || type == BLOCK_WATER ||
+           type == BLOCK_TALL_GRASS || type == BLOCK_MOSS_CARPET
+        ? 0.0f : 1.0f;
+}
+
 WorldBlockRegion WorldBlockRegionAt(int y)
 {
     (void)y;
@@ -112,6 +120,7 @@ static bool cubeTerrainKnown = true;
 static bool cubeOverrideEnabled = false;
 static SurfaceAddress cubeOverrideAddress;
 static BlockType cubeOverrideBlock = BLOCK_AIR;
+static unsigned cubePointQueries = 0;
 
 WorldSurfaceContext WorldCurrentSurfaceContext(void)
 {
@@ -142,6 +151,19 @@ bool WorldCubeBlockAt(WorldBlockAddress address, BlockType *outType)
     *outType = address.at.surface.radial <= cubeGroundRadial
         ? BLOCK_STONE : BLOCK_AIR;
     return true;
+}
+
+bool WorldCubeBlockAtPoint(uint32_t bodyId, SurfaceVector point,
+                           BlockType *outType)
+{
+    cubePointQueries++;
+    SurfaceAddress address;
+    if (!outType || !SurfaceCellFromPoint(bodyId, point, &address)) return false;
+    return WorldCubeBlockAt((WorldBlockAddress){
+        .dimension = bodyId == 0 ? WORLD_DIMENSION_HOME
+                                 : WORLD_DIMENSION_PLANET,
+        .at.surface = address
+    }, outType);
 }
 
 static bool TestPlayerContractCellRead(const SurfaceContract *contract,
@@ -454,6 +476,12 @@ static void TestInvalidCollisionPositionsAreBlocked(void)
     }));
 }
 
+static bool TestCameraPointInsideSolid(void *user, Vector3 position)
+{
+    (void)user;
+    return PlayerCameraPositionInsideSolid(position);
+}
+
 static void TestCameraIsPushedOutOfSolidBlocks(void)
 {
     ResetCollisionWorld();
@@ -461,12 +489,13 @@ static void TestCameraIsPushedOutOfSolidBlocks(void)
     Vector3 inside = { 2.5f, 1.5f, 0.5f };
     Vector3 pivot = { 1.5f, 1.5f, 0.5f };
     assert(PlayerCameraPositionInsideSolid(inside));
+    const CameraWorldOps ops = { .pointInsideSolid = TestCameraPointInsideSolid };
 
-    Vector3 resolved = PlayerResolveCameraPosition(pivot, inside);
+    Vector3 resolved = CameraResolvePosition(&ops, pivot, inside);
     assert(!PlayerCameraPositionInsideSolid(resolved));
     assert(resolved.x < 2.0f);
 
-    resolved = PlayerResolveCameraPosition(inside, inside);
+    resolved = CameraResolvePosition(&ops, inside, inside);
     assert(!PlayerCameraPositionInsideSolid(resolved));
 
     waterEnabled = true;
@@ -808,6 +837,26 @@ static void TestCubeMoveIsPhysical(void)
     cubeSurface = false;
 }
 
+static void TestCameraCubePointUsesPhysicalCell(void)
+{
+    cubeSurface = true;
+    cubeTerrainKnown = true;
+    cubeGroundRadial = 40;
+    cubePointQueries = 0;
+
+    assert(PlayerCameraPositionInsideSolid((Vector3){ 0.5f, 40.5f, 0.5f }));
+    assert(!PlayerCameraPositionInsideSolid((Vector3){ 0.5f, 41.5f, 0.5f }));
+    assert(cubePointQueries >= 2u);
+
+    /* The pole is a topology seam: the point query must canonicalize through
+     * the physical cube cell instead of relying on the legacy map grid. */
+    float poleZ = (float)SURFACE_POLE_TO_POLE_BLOCKS * 0.5f - 0.25f;
+    assert(PlayerCameraPositionInsideSolid(
+        (Vector3){ 0.5f, 40.5f, poleZ }));
+    assert(cubePointQueries >= 3u);
+    cubeSurface = false;
+}
+
 int main(void)
 {
     ResetCollisionWorld();
@@ -841,6 +890,7 @@ int main(void)
     TestCubeGroundedPlayerWalks();
     TestCubeHeightSurvivesMovement();
     TestCubeMoveIsPhysical();
+    TestCameraCubePointUsesPhysicalCell();
     assert(WorldInstallSurfaceSnapshot(NULL));
     WorldSetCubeRuntimeEnabled(false);
     WorldResetTopologyPolicy();

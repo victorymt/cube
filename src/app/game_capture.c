@@ -8,7 +8,7 @@
 #include "ecology/entity.h"
 #include "ecology/evolution.h"
 #include "ecology/evolution_catalog.h"
-#include "gameplay/player_camera.h"
+#include "gameplay/camera_world.h"
 #include "gameplay/player_motion.h"
 #include "gameplay/ship.h"
 #include "presentation/starmap.h"
@@ -104,6 +104,7 @@ void GameCaptureScreenshot(GameRuntime *game,
         GameCoverageEvidence screenshotCoverage = { 0 };
         bool haveScreenshotCoverage = GameCoverageEvidenceCapture(
             game, &screenshotCoverage);
+        const CameraRig *renderRig = CameraManagerRenderRig(&game->cameras);
         ScreenshotDebugInfo debugInfo = {
             .identity = identity,
             .chunks = chunkDiagnostics,
@@ -129,7 +130,8 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .position = ScreenshotVector(game->camera.position),
                 .target = ScreenshotVector(game->camera.target),
                 .fovY = game->camera.fovy,
-                .thirdPerson = game->thirdPerson,
+                .thirdPerson = renderRig
+                    ? renderRig->config.thirdPerson : game->thirdPerson,
                 .insideSolid =
                     PlayerCameraPositionInsideSolid(game->camera.position)
             },

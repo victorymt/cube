@@ -188,7 +188,8 @@ $(eval $(call define_test,TORNADO_MODEL_TEST_TARGET,test_tornado_model,src/world
 $(eval $(call define_test,TORNADO_TEST_TARGET,test_tornado,src/world/tornado.c src/world/tornado_model.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,HOMEWORLD_MAP_MODEL_TEST_TARGET,test_homeworld_map_model,src/presentation/homeworld_map_model.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,MAP_MARKERS_TEST_TARGET,test_map_markers,src/gameplay/map_markers.c src/world/surface_topology.c,-DMAP_MARKERS_TESTING,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,PLAYER_COLLISION_TEST_TARGET,test_player_collision,src/gameplay/player.c src/gameplay/player_motion.c src/gameplay/player_sensors.c src/world/world_location.c src/world/surface_pose.c src/world/surface_cube.c src/world/surface_topology.c $(WORLD_SURFACE_SNAPSHOT_SRC) $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,CAMERA_TEST_TARGET,test_camera,src/gameplay/camera.c src/gameplay/camera_distance.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,PLAYER_COLLISION_TEST_TARGET,test_player_collision,src/gameplay/player.c src/gameplay/player_motion.c src/gameplay/player_sensors.c src/gameplay/camera.c src/gameplay/camera_distance.c src/gameplay/camera_world.c src/world/world_collision.c src/world/world_location.c src/world/surface_pose.c src/world/surface_cube.c src/world/surface_topology.c $(WORLD_SURFACE_SNAPSHOT_SRC) $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,CHARACTER_STRUCTURE_PHYSICS_TEST_TARGET,test_character_structure_physics,src/gameplay/character_structure_physics.c,,,, -lm,,))
 # This test replaces the raylib calls it makes (IsKeyDown, GetMouseDelta,
 # TextFormat) with its own stubs and supplies raymath inline, so it must not

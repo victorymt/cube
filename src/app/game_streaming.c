@@ -1,6 +1,6 @@
 #include "app/game_runtime.h"
 #include "ecology/entity.h"
-#include "gameplay/player_camera.h"
+#include "gameplay/camera_distance.h"
 #include "gameplay/ship.h"
 #include "space/space_chunks.h"
 #include "space/space_runtime.h"
@@ -43,7 +43,7 @@ void GameRequestWorldStreaming(Vector3 position, Vector3 velocity,
 
 int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive)
 {
-    int effectiveRenderDistance = EffectiveRenderDistanceForHeight(
+    int effectiveRenderDistance = CameraStreamingDistanceForHeight(
         game->player.position.y + EYE_HEIGHT);
     *localWorldActive = WorldIsSurfaceActive();
     uint32_t currentEntityDimension = WorldCurrentSurfaceId();

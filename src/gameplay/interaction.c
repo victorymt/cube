@@ -567,6 +567,7 @@ HitResult RaycastBlocksFiltered(Vector3 origin, Vector3 direction,
     int lastNy = 0;
     int lastNz = 0;
     float travelled = 0.0f;
+    float overlayHit = -1.0f;
 
     for (unsigned step = 0;
          step < RAYCAST_MAX_STEPS && travelled <= maxDistance; step++) {
@@ -595,6 +596,7 @@ HitResult RaycastBlocksFiltered(Vector3 origin, Vector3 direction,
                     (Vector3){ (float)x, (float)y + bottom, (float)z },
                     (Vector3){ (float)x + 1.0f, (float)y + top, (float)z + 1.0f }, &normal);
                 accepted = hitT >= 0.0f && hitT <= maxDistance;
+                if (accepted) overlayHit = hitT;
             }
         }
         if (accepted) {
@@ -605,6 +607,16 @@ HitResult RaycastBlocksFiltered(Vector3 origin, Vector3 direction,
             result.nx = (int)normal.x;
             result.ny = (int)normal.y;
             result.nz = (int)normal.z;
+            if (overlayHit >= 0.0f) {
+                result.distance = overlayHit;
+            } else {
+                float top = (float)y + BlockCollisionHeightAt(x, y, z);
+                float hitT = RayAABBEnter(
+                    origin, direction,
+                    (Vector3){ (float)x, (float)y, (float)z },
+                    (Vector3){ (float)x + 1.0f, top, (float)z + 1.0f }, NULL);
+                result.distance = hitT >= 0.0f ? hitT : travelled;
+            }
             return result;
         }
 

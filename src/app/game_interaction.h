@@ -31,8 +31,7 @@ typedef struct GameInteractionContext {
     int meshPriorityZ;
 } GameInteractionContext;
 
-int GameUpdateInteractions(struct GameRuntime *game, float dt,
-                           bool inputBlocked,
+int GameUpdateInteractions(struct GameRuntime *game, bool inputBlocked,
                            GameInteractionContext *context);
 void GameInteractionQueueDebugMouse(struct GameRuntime *game, bool right);
 

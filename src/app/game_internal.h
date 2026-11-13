@@ -5,7 +5,8 @@
 #include "app/game_ecology.h"
 #include "app/game_plugins.h"
 #include "gameplay/interaction_types.h"
-#include "gameplay/player_camera.h"
+#include "gameplay/camera.h"
+#include "gameplay/camera_world.h"
 #include "gameplay/player_actor.h"
 #include "gameplay/player_input.h"
 #include "gameplay/player_motion.h"
@@ -120,6 +121,7 @@ typedef struct GameFrameView {
 bool GameEnvironmentSheltered(Vector3 position);
 void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed);
 void GameInstallWeatherSurfaceLightProvider(void);
+void GameUpdateCamera(GameRuntime *game, float dt);
 int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive);
 void GameRequestWorldStreaming(Vector3 position, Vector3 velocity,
                                int effectiveRenderDistance,

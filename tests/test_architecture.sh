@@ -86,7 +86,9 @@ for player_header in \
     src/gameplay/player_input.h \
     src/gameplay/player_sensors.h \
     src/gameplay/player_motion.h \
-    src/gameplay/player_camera.h \
+    src/gameplay/camera.h \
+    src/gameplay/camera_distance.h \
+    src/gameplay/camera_world.h \
     src/gameplay/player_world.h
 do
     [ -f "$player_header" ] || fail "missing focused player header: $player_header"
@@ -114,6 +116,15 @@ fi
 if grep -nE '\b(MovePlayer|PlayerOverlapsWorld|PlayerWaterStateAt|WorldGravityScale|PlanetSurfaceAt|SurfaceBlockReadyAt|SpaceBlockReadyAt|WorldToChunkLocal)\b' \
     src/gameplay/player.c; then
     fail "player policy must use PlayerWorldOps for motion and environment queries"
+fi
+
+if grep -nE '#include "(gameplay/player|gameplay/ship|gameplay/player_motion|world/world_environment)' \
+    src/gameplay/camera.c; then
+    fail "camera pose policy must consume neutral target views and world ports"
+fi
+
+if grep -q 'CameraManagerUpdate' src/app/game_interaction.c; then
+    fail "camera updates must remain outside the interaction phase"
 fi
 
 [ -f src/world/actor_body.h ] || fail "missing neutral world/actor_body.h"

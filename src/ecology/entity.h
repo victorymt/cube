@@ -55,6 +55,7 @@ typedef struct EntityMapMarker {
 
 typedef struct Entity {
     bool active;
+    uint32_t spawnSerial;
     EntityType type;
     Vector3 position;
     Vector3 velocity;

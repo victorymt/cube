@@ -1,24 +1,12 @@
 #include "gameplay/player.h"
 
 #include "core/game_effects.h"
-#include "gameplay/interaction.h"
-#include "gameplay/player_camera.h"
-#include "gameplay/player_collision_internal.h"
 #include "gameplay/player_motion.h"
-#include "gameplay/player_sensors.h"
 #include "gameplay/player_world.h"
-#include "gameplay/ship.h"
-#include "world/block_edits.h"
-#include "world/block_types.h"
-#include "world/chunks.h"
-#include "world/world_environment.h"
 
 #include "raymath.h"
 
-#include <limits.h>
 #include <math.h>
-#include <stdbool.h>
-#include <stdint.h>
 #include <stdlib.h>
 
 #define WATER_WALK_SPEED 3.0f
@@ -27,135 +15,12 @@
 #define WATER_MAX_VERTICAL_SPEED 3.5f
 #define WATER_HORIZONTAL_RESPONSE 6.0f
 #define WATER_VERTICAL_RESPONSE 5.0f
-#define CAMERA_COLLISION_MARGIN 0.025f
-#define CAMERA_COLLISION_STEPS 24
 
 void PlayerResetRuntimeState(Player *player)
 {
     if (!player) return;
     player->wasInWater = false;
     player->stepTimer = 0.0f;
-}
-
-float CameraHeightFactor(float eyeHeight)
-{
-    float heightFactor = Clamp((eyeHeight - CAMERA_FOV_MIN_HEIGHT) /
-                               (CAMERA_FOV_MAX_HEIGHT - CAMERA_FOV_MIN_HEIGHT),
-                               0.0f, 1.0f);
-    // Smoothstep keeps camera changes stable near the height thresholds.
-    return heightFactor * heightFactor * (3.0f - 2.0f * heightFactor);
-}
-
-float CameraFovForHeight(float eyeHeight)
-{
-    return Lerp(CAMERA_MIN_FOV, CAMERA_MAX_FOV, CameraHeightFactor(eyeHeight));
-}
-
-int EffectiveRenderDistanceForHeight(float eyeHeight)
-{
-    int extraDistance = (int)floorf(CameraHeightFactor(eyeHeight) *
-                                    (float)CAMERA_MAX_EXTRA_DISTANCE_CHUNKS);
-    int effectiveDistance = ChunksRenderDistance() + extraDistance;
-    if (effectiveDistance > MAX_RENDER_DISTANCE_CHUNKS) effectiveDistance = MAX_RENDER_DISTANCE_CHUNKS;
-    return effectiveDistance;
-}
-
-bool PlayerCameraPositionInsideSolid(Vector3 position)
-{
-    if (!PlayerInternalVectorIsFinite(position) ||
-        position.x < (float)INT_MIN || position.x > (float)INT_MAX ||
-        position.y < (float)INT_MIN || position.y > (float)INT_MAX ||
-        position.z < (float)INT_MIN || position.z > (float)INT_MAX) {
-        return true;
-    }
-
-    int x = (int)floorf(position.x);
-    int y = (int)floorf(position.y);
-    int z = (int)floorf(position.z);
-    BlockType type = GetBlockAt(x, y, z);
-    float top;
-    if (PlayerInternalIsStairs(type)) {
-        top = PlayerInternalStairsTop(x, y, z, position.z);
-    } else {
-        float height = BlockCollisionHeightAt(x, y, z);
-        if (height <= 0.0f) return false;
-        top = (float)y + height;
-    }
-    return position.y > (float)y + CAMERA_COLLISION_MARGIN &&
-           position.y < top - CAMERA_COLLISION_MARGIN;
-}
-
-Vector3 PlayerResolveCameraPosition(Vector3 pivot, Vector3 desired)
-{
-    if (!PlayerInternalVectorIsFinite(desired)) return pivot;
-    if (!PlayerCameraPositionInsideSolid(desired)) return desired;
-
-    if (PlayerInternalVectorIsFinite(pivot)) {
-        Vector3 towardPivot = Vector3Subtract(pivot, desired);
-        for (int step = 1; step <= CAMERA_COLLISION_STEPS; step++) {
-            float amount = (float)step / (float)CAMERA_COLLISION_STEPS;
-            Vector3 candidate = Vector3Add(
-                desired, Vector3Scale(towardPivot, amount));
-            if (!PlayerCameraPositionInsideSolid(candidate)) return candidate;
-        }
-    }
-
-    int x = (int)floorf(desired.x);
-    int y = (int)floorf(desired.y);
-    int z = (int)floorf(desired.z);
-    BlockType type = GetBlockAt(x, y, z);
-    float top = PlayerInternalIsStairs(type)
-        ? PlayerInternalStairsTop(x, y, z, desired.z)
-        : (float)y + BlockCollisionHeightAt(x, y, z);
-    Vector3 candidates[6] = {
-        { (float)x - CAMERA_COLLISION_MARGIN, desired.y, desired.z },
-        { (float)x + 1.0f + CAMERA_COLLISION_MARGIN, desired.y, desired.z },
-        { desired.x, (float)y - CAMERA_COLLISION_MARGIN, desired.z },
-        { desired.x, top + CAMERA_COLLISION_MARGIN, desired.z },
-        { desired.x, desired.y, (float)z - CAMERA_COLLISION_MARGIN },
-        { desired.x, desired.y, (float)z + 1.0f + CAMERA_COLLISION_MARGIN }
-    };
-    float bestDistance = INFINITY;
-    Vector3 best = desired;
-    for (int index = 0; index < 6; index++) {
-        if (PlayerCameraPositionInsideSolid(candidates[index])) continue;
-        float distance = Vector3DistanceSqr(desired, candidates[index]);
-        if (distance < bestDistance) {
-            bestDistance = distance;
-            best = candidates[index];
-        }
-    }
-    return best;
-}
-
-void UpdatePlayerCamera(Camera3D *camera, const Player *player, float dt, bool thirdPerson)
-{
-    float eyeHeight = WorldIsSpaceActive() ? 0.0f : EYE_HEIGHT;
-    Vector3 eye = Vector3Add(player->position,
-                             (Vector3){ 0.0f, eyeHeight, 0.0f });
-    Vector3 look = ForwardFromAngles(player->yaw, player->pitch);
-    float targetFov = CameraFovForHeight(eye.y);
-    if (ShipIsDriving() && ShipIsHighSpeedTransit()) targetFov += 24.0f;
-    else if (ShipIsDriving() && ShipIsCruising()) targetFov += 12.0f;
-    float smoothing = Clamp(dt * CAMERA_FOV_SMOOTHING, 0.0f, 1.0f);
-
-    Vector3 pivot = eye;
-    if (thirdPerson && ShipIsDriving()) {
-        pivot.y = player->position.y + 0.62f;
-    }
-    camera->target = Vector3Add(pivot, look);
-    if (thirdPerson) {
-        float distance = ShipIsDriving() ? 5.6f : 3.5f;
-        float occlusion = RaycastCameraOcclusion(pivot, Vector3Negate(look), distance);
-        if (occlusion > 0.3f) distance = occlusion - 0.25f;
-        else if (occlusion >= 0.0f) distance = 0.3f;
-        Vector3 desired = Vector3Add(
-            pivot, Vector3Scale(Vector3Negate(look), distance));
-        camera->position = PlayerResolveCameraPosition(pivot, desired);
-    } else {
-        camera->position = PlayerResolveCameraPosition(eye, eye);
-    }
-    camera->fovy = Lerp(camera->fovy, targetFov, smoothing);
 }
 
 static float PlayerApproach(float current, float target, float dt,

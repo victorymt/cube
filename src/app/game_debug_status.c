@@ -3,7 +3,8 @@
 #include "app/game_runtime.h"
 #include "core/debug_control.h"
 #include "gameplay/interaction.h"
-#include "gameplay/player_camera.h"
+#include "gameplay/camera_distance.h"
+#include "gameplay/camera_world.h"
 #include "gameplay/player_motion.h"
 #include "gameplay/player_sensors.h"
 #include "gameplay/ship.h"
@@ -179,6 +180,11 @@ void GameDebugReplyStatus(GameRuntime *game)
         PlayerMissingSurfaceChunkCount(game->player.position);
     FluidSample fluid = FluidSampleAt(game->player.position);
     FluidStats fluidStats = FluidGetStats();
+    int cameraRenderDistance = CameraManagerRenderDistance(&game->cameras);
+    int streamingDistance = CameraStreamingDistanceForHeight(
+        game->player.position.y +
+        (WorldIsSpaceActive() ? 0.0f : EYE_HEIGHT));
+    const CameraRig *renderRig = CameraManagerRenderRig(&game->cameras);
     uint64_t loadedVolume = FluidLoadedVolume();
     ChunkWaterRenderDebugInfo waterRender = { 0 };
     ChunksGetWaterRenderDebugInfo(game->player.position, &waterRender);
@@ -210,6 +216,7 @@ void GameDebugReplyStatus(GameRuntime *game)
         "water_draw_triangles=%d water_nearest=%d,%d,%d,%d "
         "ship_driving=%d ship_mode=%s ship_exhaust=%.3f "
         "ship_input_frames=%u third_person=%d "
+        "camera_render_distance=%d streaming_distance=%d "
         "target=%d,%d,%d target_hit=%d target_block=%s "
         "target_normal=%d,%d,%d target_neighbor=%s "
         "target_stored=%d target_stored_block=%s target_section=%d "
@@ -253,7 +260,8 @@ void GameDebugReplyStatus(GameRuntime *game)
         waterPass.nearestChunkZ, waterPass.nearestSectionY,
         ShipIsDriving() ? 1 : 0, ShipDriveModeName(),
         ShipVisualExhaustIntensity(), game->scriptedShipInputFrames,
-        game->thirdPerson ? 1 : 0,
+        renderRig ? renderRig->config.thirdPerson : game->thirdPerson ? 1 : 0,
+        cameraRenderDistance, streamingDistance,
         targeted.x, targeted.y, targeted.z, targeted.hit ? 1 : 0,
         BlockName(targetedBlock),
         targeted.nx, targeted.ny, targeted.nz, BlockName(targetNeighbor),

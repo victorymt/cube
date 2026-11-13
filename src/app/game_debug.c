@@ -1137,8 +1137,9 @@ static HitResult GameDebugDslTarget(const GameRuntime *game)
         game->player.position.y + EYE_HEIGHT,
         game->player.position.z
     };
+    const Camera3D *camera = CameraManagerInteractionCamera(&game->cameras);
     Vector3 direction = Vector3Normalize(
-        Vector3Subtract(game->camera.target, game->camera.position));
+        Vector3Subtract(camera->target, camera->position));
     return RaycastBlocksFiltered(
         eye, direction, REACH_DISTANCE, RAYCAST_BLOCK_SOLID);
 }

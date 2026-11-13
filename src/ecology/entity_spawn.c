@@ -239,6 +239,7 @@ static void EntityInitializePassiveSpawn(EntityPassiveSpawn *spawn,
     Entity *entity = &entities[spawn->slot];
     memset(entity, 0, sizeof(*entity));
     entity->active = true;
+    entity->spawnSerial = EntityAllocateSpawnSerial();
     entity->type = spawn->type;
     float spawnY = spawn->archetype == EVOLUTION_ARCHETYPE_AQUATIC
         ? (float)spawn->waterY + 0.35f
@@ -370,6 +371,7 @@ void EntitySpawnHostile(const ActorBody *player, float daylight)
     Entity *entity = &entities[slot];
     memset(entity, 0, sizeof(*entity));
     entity->active = true;
+    entity->spawnSerial = EntityAllocateSpawnSerial();
     entity->type = type;
     entity->position = (Vector3){
         (float)x + 0.5f, (float)groundY + 1.0f, (float)z + 0.5f

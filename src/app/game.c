@@ -38,7 +38,8 @@
 #include "world/chunks.h"
 #include "gameplay/player.h"
 #include "gameplay/player_actor.h"
-#include "gameplay/player_camera.h"
+#include "gameplay/camera.h"
+#include "gameplay/camera_distance.h"
 #include "gameplay/player_sensors.h"
 #include "gameplay/interaction.h"
 #include "gameplay/album.h"
@@ -222,7 +223,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     GameEcologyRestoreClock(game);
     GameRequestWorldStreaming(
         game->player.position, game->player.velocity,
-        EffectiveRenderDistanceForHeight(
+        CameraStreamingDistanceForHeight(
             game->player.position.y + EYE_HEIGHT), 8u);
 }
 
@@ -1159,6 +1160,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     GameUpdateAutoSave(game, dt);
     GameUpdatePlayerMotion(game, dt, GameNavigationInputBlocked(game));
     GameApplyTornadoPlayerForce(game, dt);
+    GameUpdateCamera(game, dt);
     double debugSimulationMainCpuMs = 0.0;
     if (game->debugTraceEnabled) {
         double now = GameDebugTraceMainCpuNowMs();
@@ -1166,8 +1168,8 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
         debugStageCpuStarted = now;
     }
     bool localWorldActive = false;
-    int effectiveRenderDistance =
-        GameUpdateWorldStreaming(game, &localWorldActive);
+    (void)GameUpdateWorldStreaming(game, &localWorldActive);
+    int effectiveRenderDistance = CameraManagerRenderDistance(&game->cameras);
     GameUpdateWorldJobs(game, dt);
     double debugStreamingMainCpuMs = 0.0;
     if (game->debugTraceEnabled) {
@@ -1190,7 +1192,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     GameInteractionContext interaction = { 0 };
     if (!game->ecologyCatchupPending) {
         effectiveRenderDistance = GameUpdateInteractions(
-            game, dt, inputBlocked, &interaction);
+            game, inputBlocked, &interaction);
     }
     if (interaction.meshPriority) {
         if (interaction.meshPriorityHasAddress) {
@@ -1361,7 +1363,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
         game->showHelp = false;
         DisableCursor();
         PerfSetMetadata(
-            WorldGetSeed(), EffectiveRenderDistanceForHeight(
+            WorldGetSeed(), CameraRenderDistanceForHeight(
                 game->player.position.y + EYE_HEIGHT));
     }
 

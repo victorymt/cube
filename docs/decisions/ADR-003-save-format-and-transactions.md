@@ -24,6 +24,8 @@
 
 `SaveIoWriteAtomic` 在目标路径旁 `mkstemp` 出 `<path>.tmp.XXXXXX`，写完后 `fflush`、`fsync`、`fclose`，再用同样方式把旧文件复制成备份，最后 `rename` 临时文件到目标并 `fsync` 父目录。`SaveIoWriteAtomic(path, backupPath, writer, context)` 的 writer 回调是 `GameSaveWriteFile`，`SaveIoReadTransactional(source, checkpointWriter, reader, context)` 的 checkpoint 就是同一个 writer。
 
+相机渲染距离和相机 rig 都是运行时派生状态，不写入 V30；读档后的首次流式请求仍由玩家眼高决定。
+
 `SaveIoReadTransactional` 先用 checkpointWriter 把当前世界写进 `tmpfile()`，再让 reader 读源文件。reader 失败时清掉错误标志、`rewind` checkpoint，再用同一个 reader 把快照读回去，于是“读失败”和“回滚失败”是两种不同的结果码。
 
 ## 备选方案

@@ -2,7 +2,8 @@
 
 #include "core/game_notice.h"
 #include "gameplay/player.h"
-#include "gameplay/player_camera.h"
+#include "gameplay/camera.h"
+#include "gameplay/camera_world.h"
 #include "world/chunks.h"
 #include "world/world_surface_snapshot.h"
 
@@ -431,7 +432,10 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
     runtime->chunkWorkerCount = runtime->settings.chunkWorkerCount;
   }
   PlayerResetRuntimeState(&runtime->player);
+  CameraManagerInit(&runtime->cameras);
+  runtime->cameraWorldOps = CameraWorldOpsDefault();
   runtime->playerWorldOps = PlayerWorldOpsDefault();
+  runtime->camera = runtime->cameras.rigs[0].camera;
   runtime->camera.up = (Vector3){0.0f, 1.0f, 0.0f};
   runtime->camera.fovy =
       CameraFovForHeight(runtime->player.position.y + EYE_HEIGHT);

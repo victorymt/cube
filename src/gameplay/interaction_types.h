@@ -13,6 +13,7 @@ typedef struct HitResult {
     int nx;
     int ny;
     int nz;
+    float distance;
     bool hasAddress;
     WorldBlockAddress address;
     WorldBlockSide enteringSide;

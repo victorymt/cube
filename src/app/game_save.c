@@ -13,7 +13,7 @@
 #include "gameplay/inventory.h"
 #include "gameplay/map_markers.h"
 #include "gameplay/player.h"
-#include "gameplay/player_camera.h"
+#include "gameplay/camera_distance.h"
 #include "gameplay/ship.h"
 #include "gameplay/ship_locator.h"
 #include "space/space_chunks.h"
@@ -756,7 +756,7 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
     if (WorldIsSurfaceActive()) {
         GameRequestWorldStreaming(
             player->position, player->velocity,
-            EffectiveRenderDistanceForHeight(
+            CameraStreamingDistanceForHeight(
                 player->position.y + EYE_HEIGHT), 8u);
     }
     transaction->loadedEditCount = loadedEditCount;

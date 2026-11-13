@@ -21,6 +21,16 @@
 
 #define entities entityStore
 
+static uint32_t nextEntitySpawnSerial = 1u;
+
+uint32_t EntityAllocateSpawnSerial(void)
+{
+    uint32_t serial = nextEntitySpawnSerial++;
+    if (nextEntitySpawnSerial == 0u) nextEntitySpawnSerial = 1u;
+    if (serial == 0u) serial = nextEntitySpawnSerial++;
+    return serial;
+}
+
 int EntityNextFreeSlot(void)
 {
     for (int i = 0; i < MAX_ENTITIES; i++) {
@@ -693,6 +703,7 @@ static bool EntityBirthOffspring(Entity *mother, float daylight)
     Entity *child = &entities[slot];
     memset(child, 0, sizeof(*child));
     child->active = true;
+    child->spawnSerial = EntityAllocateSpawnSerial();
     child->type = EntityEvolutionTypeForArchetype(
         phenotype.locomotion == CREATURE_LOCOMOTION_FLIGHT ?
             EVOLUTION_ARCHETYPE_FLIGHT :

@@ -18,6 +18,10 @@ The benchmark prints its own `seed`, `rounds`, and `chunks_per_round`, so read
 those instead of trusting the numbers below. As of 2026-10-24 it reports
 `seed=1448040515`, `rounds=20`, `chunks_per_round=8`.
 
+On 2026-11-13 the same recipe reported `median_total_ms=53.545`,
+`p95_total_ms=61.116`, `solid_vertices_per_chunk=2187.8`, and
+`sync_rebuilds=0` on the then-current host.
+
 ## Semantic invariants
 
 These are behaviour, not performance, and must hold after any hot-path change:

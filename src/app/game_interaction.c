@@ -14,7 +14,6 @@
 #include "app/game_runtime.h"
 #include "gameplay/interaction.h"
 #include "gameplay/player_actor.h"
-#include "gameplay/player_camera.h"
 #include "gameplay/player_motion.h"
 #include "gameplay/inventory.h"
 #include "presentation/particles.h"
@@ -93,15 +92,15 @@ static void GamePrioritizeInteractionMeshAddress(
     context->meshPriorityAddress = address;
 }
 
-static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
-                                        bool inputBlocked,
+static int GameUpdateInteractionTargets(GameRuntime *game, bool inputBlocked,
                                         GameInteractionContext *context)
 {
     *context = (GameInteractionContext){ 0 };
-    UpdatePlayerCamera(&game->camera, &game->player, dt, game->thirdPerson);
-    int effectiveRenderDistance = EffectiveRenderDistanceForHeight(
-        game->camera.position.y);
-    Vector3 aimEye = game->camera.position;
+    int effectiveRenderDistance = CameraManagerRenderDistance(&game->cameras);
+    const Camera3D *interactionCamera =
+        CameraManagerInteractionCamera(&game->cameras);
+    if (!interactionCamera) interactionCamera = &game->camera;
+    Vector3 aimEye = interactionCamera->position;
     if (!WorldIsSpaceActive()) {
         aimEye = (Vector3){
             game->player.position.x,
@@ -110,7 +109,7 @@ static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
         };
     }
     Vector3 aimDir = Vector3Normalize(
-        Vector3Subtract(game->camera.target, game->camera.position));
+        Vector3Subtract(interactionCamera->target, interactionCamera->position));
     context->hit = RaycastBlocksFiltered(aimEye, aimDir, REACH_DISTANCE,
                                           RAYCAST_BLOCK_SOLID);
     context->interactionHit = RaycastBlocksFiltered(
@@ -639,11 +638,11 @@ static void GameHandleMiddlePick(GameRuntime *game, bool inputBlocked,
     }
 }
 
-int GameUpdateInteractions(GameRuntime *game, float dt, bool inputBlocked,
+int GameUpdateInteractions(GameRuntime *game, bool inputBlocked,
                            GameInteractionContext *context)
 {
     int effectiveRenderDistance = GameUpdateInteractionTargets(
-        game, dt, inputBlocked, context);
+        game, inputBlocked, context);
     GameHandleLeftInteraction(game, inputBlocked, context);
     GamePreparePlacement(game, inputBlocked, context);
     GameHandleRightInteraction(game, inputBlocked, context);

@@ -7,6 +7,8 @@
 #include "core/debug_dsl_stdin.h"
 #include "core/plugin.h"
 #include "core/simulation_clock.h"
+#include "gameplay/camera.h"
+#include "gameplay/camera_world.h"
 #include "presentation/environment_runtime.h"
 #include "app/game_settings.h"
 #include "app/game_stream_audit.h"
@@ -67,6 +69,8 @@ typedef struct GameRuntime {
   GameSettings settings;
   Player player;
   Camera3D camera;
+  CameraManager cameras;
+  CameraWorldOps cameraWorldOps;
   EnvironmentPresentationRuntime environment;
   DebugControl debugControl;
   VoxelcraftPluginHost plugins;
@@ -208,6 +212,7 @@ typedef struct GameRuntime {
   bool entitiesWorldActive;
   uint32_t entitiesWorldDimension;
   bool thirdPerson;
+  bool cameraTargetLossNotified;
   bool scriptedInputFirstFrame;
   bool debugMouseLeftPressed;
   bool debugMouseRightPressed;

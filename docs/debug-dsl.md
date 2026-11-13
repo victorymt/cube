@@ -738,6 +738,7 @@ Runtime values are sampled when an expression is evaluated:
 | `render.pick.flora` | bool | Whether the picked block belongs to a generated flora structure |
 | `render.pick.flora_kind` | string | Flora structure kind at the pick, or `none` |
 | `render.pick.flora_taxon` | string | Flora taxon common name at the pick, or `none` |
+
 | `render.pick.flora_root` | vec3 | Root position of the picked flora structure |
 | `render.water_debug` | bool | Water section bounds are enabled |
 | `render.water_debug_through` | bool | Water bounds draw through terrain |
@@ -765,6 +766,8 @@ Runtime values are sampled when an expression is evaluated:
 | `render.coverage.shadow_solid_draws`, `render.coverage.shadow_water_draws`, `render.coverage.shadow_flora_draws` | number | Shadow-pass solid, water and flora submissions; water is currently always zero |
 | `render.coverage.shadow_solid_triangles`, `render.coverage.shadow_water_triangles`, `render.coverage.shadow_flora_triangles` | number | Triangles submitted by each shadow-pass model class |
 | `settings.autosave` | bool | Autosave state (false in debug mode) |
+
+`target.*` follows the interaction rig's forward direction; assigning a different entity rig to the render slot does not redirect player selection.
 
 ### Note on the `stream.cube.*` rows above
 
