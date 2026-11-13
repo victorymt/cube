@@ -1,7 +1,6 @@
 #ifndef VOXELCRAFT_PLAYER_WORLD_H
 #define VOXELCRAFT_PLAYER_WORLD_H
 
-#include "gameplay/player_sensors.h"
 #include "world/actor_motion.h"
 #include "world/environment_query.h"
 
@@ -15,16 +14,19 @@ typedef WorldGravitySample PlayerGravitySample;
  * cube or legacy surface backend, but this contract exposes neither topology
  * nor chunk identity to player policy. */
 typedef struct PlayerWorldOps {
-    void *user;
-    bool (*move)(void *user, ActorBody *body,
+    const void *user;
+    bool (*move)(const void *user, ActorBody *body,
                  const ActorMotionRequest *request);
-    bool (*overlaps)(void *user, Vector3 position, bool allowUnready);
-    PlayerWaterState (*sampleWater)(void *user, Vector3 position,
-                                    double simulationTime);
-    bool (*sampleGravity)(void *user, Vector3 position, double simulationTime,
-                          PlayerGravitySample *out);
+    bool (*overlaps)(const void *user, Vector3 position, bool allowUnready);
+    /* One combined sample keeps water and gravity in the same rule/world
+     * context. The default adapter binds the active body id and optional
+     * runtime rule set; Player policy only consumes the resulting values. */
+    bool (*sampleEnvironment)(const void *user, Vector3 position,
+                              double simulationTime,
+                              WorldEnvironmentSample *out);
 } PlayerWorldOps;
 
 PlayerWorldOps PlayerWorldOpsDefault(void);
+PlayerWorldOps PlayerWorldOpsWithRules(const WorldRuleSet *rules);
 
 #endif

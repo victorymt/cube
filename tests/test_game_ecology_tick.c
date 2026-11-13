@@ -45,6 +45,15 @@ void GameGeologyUpdate(GameRuntime *game, double seconds)
     (void)game;
     assert(seconds > 0.0);
 }
+
+void GameUpdatePlayerMotion(GameRuntime *game, float dt, double simulationTime,
+                            bool inputBlocked)
+{
+    (void)game;
+    (void)dt;
+    (void)simulationTime;
+    (void)inputBlocked;
+}
 static unsigned recordCount;
 static double spaceTime;
 static float sampledDaylight;

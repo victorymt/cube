@@ -36,8 +36,12 @@ void UpdatePlayerWithWorld(Player *player, float dt, double simulationTime,
                            const PlayerInput *input, const PlayerWorldOps *world)
 {
     if (!player || !input || !world || !world->move ||
-        !world->sampleWater || !world->sampleGravity ||
-        !isfinite(dt) || dt <= 0.0f) return;
+        !world->sampleEnvironment || !isfinite(dt) || dt <= 0.0f) return;
+    WorldEnvironmentSample environment = {
+        .gravity = { .gravityScale = 1.0f }
+    };
+    if (!world->sampleEnvironment(world->user, player->position,
+                                  simulationTime, &environment)) return;
     if (input->toggleFloating) {
         player->floating = !player->floating;
         player->velocity.y = 0.0f;
@@ -57,8 +61,7 @@ void UpdatePlayerWithWorld(Player *player, float dt, double simulationTime,
                               Vector3Scale(right, strafeInput));
     if (Vector3LengthSqr(wish) > 0.0f) wish = Vector3Normalize(wish);
 
-    PlayerWaterState water = world->sampleWater(
-        world->user, player->position, simulationTime);
+    WorldWaterSample water = environment.water;
     bool swimming = water.bodySubmerged || water.eyesSubmerged;
     float speed = input->sprint ? SPRINT_SPEED : WALK_SPEED;
     if (swimming) speed = input->sprint ? WATER_SPRINT_SPEED : WATER_WALK_SPEED;
@@ -78,20 +81,13 @@ void UpdatePlayerWithWorld(Player *player, float dt, double simulationTime,
         player->velocity.z = targetVelocityZ;
     }
 
-    PlayerGravitySample gravity = { .gravityScale = 1.0f };
-    (void)world->sampleGravity(world->user, player->position, simulationTime,
-                               &gravity);
+    PlayerGravitySample gravity = environment.gravity;
     bool inSpace = gravity.inSpace;
     float gravityScale = Clamp(gravity.gravityScale, 0.45f, 1.75f);
     float jumpSpeed = JUMP_SPEED * sqrtf(gravityScale);
     if (inSpace) {
-        if (gravity.hasPlanetGravity) {
-            float strength = 10.0f * gravity.surfaceGravityScale *
-                (1.0f - Clamp(gravity.surfaceDistance / 24.0f, 0.0f, 1.0f));
-            if (gravity.surfaceDistance < 3.0f) strength *= 0.25f;
-            player->velocity = Vector3Add(
-                player->velocity, Vector3Scale(gravity.direction, strength * dt));
-        }
+        player->velocity = Vector3Add(
+            player->velocity, Vector3Scale(gravity.acceleration, dt));
         player->velocity.y -= player->velocity.y * 2.0f * dt;
         player->velocity.y += Clamp(input->vertical, -1.0f, 1.0f) *
                               12.0f * dt;
@@ -119,7 +115,8 @@ void UpdatePlayerWithWorld(Player *player, float dt, double simulationTime,
             player->velocity.y = jumpSpeed;
             player->onGround = false;
         }
-        player->velocity.y -= GRAVITY * gravityScale * dt;
+        player->velocity = Vector3Add(
+            player->velocity, Vector3Scale(gravity.acceleration, dt));
         if (player->velocity.y < -35.0f) player->velocity.y = -35.0f;
     }
 
@@ -140,8 +137,10 @@ void UpdatePlayerWithWorld(Player *player, float dt, double simulationTime,
 
     float horizontalSpeed = sqrtf(player->velocity.x * player->velocity.x +
                                   player->velocity.z * player->velocity.z);
-    PlayerWaterState movedWater = world->sampleWater(
-        world->user, player->position, simulationTime);
+    WorldEnvironmentSample movedEnvironment = environment;
+    (void)world->sampleEnvironment(world->user, player->position,
+                                   simulationTime, &movedEnvironment);
+    WorldWaterSample movedWater = movedEnvironment.water;
     bool feetInWater = movedWater.feetSubmerged;
     if (feetInWater && !player->wasInWater) {
         GameEffectsPlayAudio(GAME_AUDIO_SPLASH);

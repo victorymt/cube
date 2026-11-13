@@ -45,6 +45,7 @@ new physical-simulation stages.
 | 35 | [world rule environment consumption P6b (2026-11-13)](35-world-rule-environment-p6b-2026-11-13.md) | gravity acceleration samples, body/region rule matching, rule counts, and environment-query integration |
 | 36 | [world frame cross-reference P6c (2026-11-13)](36-world-frame-cross-p6c-2026-11-13.md) | system points, system/surface/body conversion, camera-relative positions, and save-local frame marking |
 | 37 | [player/entity ECS evaluation P7 (2026-11-13)](37-player-entity-ecs-evaluation-p7-2026-11-13.md) | player/entity storage and system audit, ECS decision gates, deterministic migration constraints, and the decision to defer component storage |
+| 38 | [player runtime rule integration P8a (2026-11-13)](38-player-runtime-rule-integration-p8a-2026-11-14.md) | runtime WorldRuleSet ownership, combined environment samples, active-body scope, and gravity/water rules driving real Player motion |
 
 Programmatic-generation review: [2026-11-12 procedural generation analysis](../procedural-generation-analysis-2026-11-12.md) records the current generation pipeline, determinism model, content gaps and suggested order.
 

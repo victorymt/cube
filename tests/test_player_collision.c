@@ -630,7 +630,7 @@ static void TestEnvironmentQueryMatchesPlayerAdapters(void)
     assert(environment.simulationTime == 12.5);
     assert(environment.water.surfaceY == neutral.surfaceY);
     assert(environment.gravity.gravityScale == 1.0f);
-    assert(environment.gravity.acceleration.y == -1.0f);
+    assert(environment.gravity.acceleration.y == -GRAVITY);
     assert(environment.gravity.ruleCount == 0u);
     assert(!environment.gravity.inSpace);
 
@@ -662,6 +662,60 @@ static void TestEnvironmentQueryMatchesPlayerAdapters(void)
         8u, 0u, &rules);
     assert(environment.gravity.ruleCount == 0u);
     assert(environment.waterRuleCount == 0u);
+}
+
+static void TestPlayerWorldOpsConsumeRuntimeRules(void)
+{
+    ResetCollisionWorld();
+    WorldRuleSet rules;
+    WorldRuleSetInit(&rules);
+    uint32_t bodyId = WorldCurrentSurfaceContext().bodyId;
+    assert(WorldRuleSetAdd(&rules, &(WorldRule){
+        .stage = WORLD_RULE_STAGE_WATER,
+        .priority = 0,
+        .scope = { WORLD_RULE_SCOPE_BODY, bodyId, 0u },
+        .operation = WORLD_RULE_ADD,
+        .value = { 2.0f, 0.0f, 0.0f }
+    }) > 0);
+    assert(WorldRuleSetAdd(&rules, &(WorldRule){
+        .stage = WORLD_RULE_STAGE_GRAVITY,
+        .priority = 0,
+        .scope = { WORLD_RULE_SCOPE_BODY, bodyId, 0u },
+        .operation = WORLD_RULE_ADD,
+        .value = { 1.5f, 0.0f, 0.0f }
+    }) > 0);
+
+    PlayerWorldOps rulesOps = PlayerWorldOpsWithRules(&rules);
+    PlayerInput idle = { 0 };
+
+    waterEnabled = true;
+    Player swimming = { .position = { 0.5f, 1.01f, 0.5f } };
+    UpdatePlayerWithWorld(&swimming, 1.0f / 60.0f, 20.0,
+                          &idle, &rulesOps);
+    assert(swimming.velocity.x > 0.0f);
+
+    waterEnabled = false;
+    Player falling = { .position = { 0.5f, 10.0f, 0.5f } };
+    UpdatePlayerWithWorld(&falling, 1.0f / 60.0f, 20.0,
+                          &idle, &rulesOps);
+    assert(falling.velocity.x > 0.0f);
+    assert(falling.velocity.y < 0.0f);
+
+    WorldRuleSet otherBodyRules;
+    WorldRuleSetInit(&otherBodyRules);
+    assert(WorldRuleSetAdd(&otherBodyRules, &(WorldRule){
+        .stage = WORLD_RULE_STAGE_GRAVITY,
+        .priority = 0,
+        .scope = { WORLD_RULE_SCOPE_BODY, bodyId + 1u, 0u },
+        .operation = WORLD_RULE_ADD,
+        .value = { 1.5f, 0.0f, 0.0f }
+    }) > 0);
+    PlayerWorldOps otherBodyOps = PlayerWorldOpsWithRules(&otherBodyRules);
+    Player unaffected = { .position = { 0.5f, 10.0f, 0.5f } };
+    UpdatePlayerWithWorld(&unaffected, 1.0f / 60.0f, 20.0,
+                          &idle, &otherBodyOps);
+    assert(unaffected.velocity.x == 0.0f);
+    ResetCollisionWorld();
 }
 
 static void TestWorldFrameSurfaceRoundTrip(void)
@@ -750,7 +804,7 @@ static void TestRightVectorMatchesCameraFrame(void)
     }
 }
 
-static bool TestPlayerWorldMove(void *user, ActorBody *body,
+static bool TestPlayerWorldMove(const void *user, ActorBody *body,
                                 const ActorMotionRequest *request)
 {
     (void)user;
@@ -761,37 +815,34 @@ static bool TestPlayerWorldMove(void *user, ActorBody *body,
     return true;
 }
 
-static bool TestPlayerWorldOverlaps(void *user, Vector3 position,
+static bool TestPlayerWorldOverlaps(const void *user, Vector3 position,
                                     bool allowUnready)
 {
     (void)user;
     return PlayerOverlapsWorldWithOptions(position, allowUnready);
 }
 
-static PlayerWaterState TestPlayerWorldWater(void *user, Vector3 position,
-                                             double simulationTime)
+static bool TestPlayerWorldEnvironment(const void *user, Vector3 position,
+                                       double simulationTime,
+                                       WorldEnvironmentSample *out)
 {
     (void)user;
     (void)simulationTime;
-    return PlayerWaterStateAt(position);
-}
-
-static bool TestPlayerWorldGravity(void *user, Vector3 position,
-                                   double simulationTime,
-                                   PlayerGravitySample *out)
-{
-    (void)user;
-    (void)position;
-    (void)simulationTime;
-    *out = (PlayerGravitySample){ .gravityScale = 1.0f };
+    if (!out) return false;
+    *out = (WorldEnvironmentSample){
+        .water = PlayerWaterStateAt(position),
+        .gravity = {
+            .gravityScale = 1.0f,
+            .acceleration = { 0.0f, -GRAVITY, 0.0f }
+        }
+    };
     return true;
 }
 
 static const PlayerWorldOps testPlayerWorldOps = {
     .move = TestPlayerWorldMove,
     .overlaps = TestPlayerWorldOverlaps,
-    .sampleWater = TestPlayerWorldWater,
-    .sampleGravity = TestPlayerWorldGravity
+    .sampleEnvironment = TestPlayerWorldEnvironment
 };
 
 static void TestSwimmingSpeedAndAscent(void)
@@ -1052,6 +1103,7 @@ int main(void)
     TestRuntimeStateReset();
     TestWaterStateUsesActualColumnSurface();
     TestEnvironmentQueryMatchesPlayerAdapters();
+    TestPlayerWorldOpsConsumeRuntimeRules();
     TestWorldFrameSurfaceRoundTrip();
     InstallPlayerCubeContract();
     TestCubeOverlapBranch();

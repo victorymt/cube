@@ -434,7 +434,8 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   PlayerResetRuntimeState(&runtime->player);
   CameraManagerInit(&runtime->cameras);
   runtime->cameraWorldOps = CameraWorldOpsDefault();
-  runtime->playerWorldOps = PlayerWorldOpsDefault();
+  WorldRuleSetInit(&runtime->worldRules);
+  runtime->playerWorldOps = PlayerWorldOpsWithRules(&runtime->worldRules);
   runtime->camera = runtime->cameras.rigs[0].camera;
   runtime->camera.up = (Vector3){0.0f, 1.0f, 0.0f};
   runtime->camera.fovy =

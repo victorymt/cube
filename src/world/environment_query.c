@@ -1,5 +1,6 @@
 #include "world/environment_query.h"
 
+#include "core/config.h"
 #include "space/space_query.h"
 #include "world/block_edits.h"
 #include "world/block_types.h"
@@ -118,11 +119,19 @@ WorldGravitySample WorldGravitySampleAt(Vector3 position,
             position, &sample.direction, &sample.surfaceDistance,
             &sample.surfaceGravityScale);
         if (sample.hasPlanetGravity) {
-            sample.acceleration = Vector3Scale(
-                sample.direction, sample.surfaceGravityScale);
+            /* Keep the Player's historical atmospheric falloff while exposing
+             * the resulting acceleration as the environment field. Rules and
+             * other consumers now observe the same value the controller uses. */
+            float strength = 10.0f * sample.surfaceGravityScale *
+                (1.0f - Clamp(sample.surfaceDistance / 24.0f, 0.0f, 1.0f));
+            if (sample.surfaceDistance < 3.0f) strength *= 0.25f;
+            sample.acceleration = Vector3Scale(sample.direction, strength);
         }
     } else {
-        sample.acceleration = (Vector3){ 0.0f, -sample.gravityScale, 0.0f };
+        /* Match the Player's historical 0.45..1.75 relative-gravity clamp so
+         * the exposed acceleration remains the baseline the controller had. */
+        float scale = Clamp(sample.gravityScale, 0.45f, 1.75f);
+        sample.acceleration = (Vector3){ 0.0f, -GRAVITY * scale, 0.0f };
     }
     return sample;
 }

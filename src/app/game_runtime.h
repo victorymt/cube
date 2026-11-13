@@ -90,6 +90,9 @@ typedef struct GameRuntime {
   PlayerInput appliedPlayerInput;
   PlayerInput stagedPlayerInput;
   PlayerWorldOps playerWorldOps;
+  /* Runtime-only authoritative rule set; world definitions may populate it,
+   * but V30 does not persist it. PlayerWorldOps stores a stable pointer. */
+  WorldRuleSet worldRules;
   ShipControlInput scriptedShipInput;
   BlockType hotbar[HOTBAR_SIZE];
   InventoryBrowser inventory;

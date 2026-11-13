@@ -1,9 +1,12 @@
 #include "gameplay/player_world.h"
 
+#include "core/config.h"
 #include "gameplay/player_motion.h"
-#include "gameplay/player_sensors.h"
+#include "world/world_environment.h"
 
-static bool WorldMove(void *user, ActorBody *body,
+#include <stddef.h>
+
+static bool WorldMove(const void *user, ActorBody *body,
                       const ActorMotionRequest *request)
 {
     (void)user;
@@ -14,36 +17,38 @@ static bool WorldMove(void *user, ActorBody *body,
     return true;
 }
 
-static bool WorldOverlaps(void *user, Vector3 position, bool allowUnready)
+static bool WorldOverlaps(const void *user, Vector3 position, bool allowUnready)
 {
     (void)user;
     return WorldActorOverlaps(PlayerMotionCollider(), position, allowUnready);
 }
 
-static PlayerWaterState WorldSampleWater(void *user, Vector3 position,
-                                         double simulationTime)
+static bool WorldSampleEnvironment(const void *user, Vector3 position,
+                                   double simulationTime,
+                                   WorldEnvironmentSample *out)
 {
-    (void)user;
-    (void)simulationTime;
-    return WorldWaterSampleAt(position, EYE_HEIGHT, PLAYER_HEIGHT);
+    if (!out) return false;
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    /* The current world has no independent sub-region identity. Zero keeps
+     * global/body rules active while reserving region rules for a later
+     * world-definition input rather than inventing a coordinate convention. */
+    *out = WorldEnvironmentSampleAtWithRules(
+        position, EYE_HEIGHT, PLAYER_HEIGHT, simulationTime,
+        context.bodyId, 0u, (const WorldRuleSet *)user);
+    return true;
 }
 
-static bool WorldSampleGravity(void *user, Vector3 position,
-                               double simulationTime,
-                               PlayerGravitySample *out)
+PlayerWorldOps PlayerWorldOpsWithRules(const WorldRuleSet *rules)
 {
-    (void)user;
-    if (!out) return false;
-    *out = WorldGravitySampleAt(position, simulationTime);
-    return true;
+    return (PlayerWorldOps){
+        .user = rules,
+        .move = WorldMove,
+        .overlaps = WorldOverlaps,
+        .sampleEnvironment = WorldSampleEnvironment
+    };
 }
 
 PlayerWorldOps PlayerWorldOpsDefault(void)
 {
-    return (PlayerWorldOps){
-        .move = WorldMove,
-        .overlaps = WorldOverlaps,
-        .sampleWater = WorldSampleWater,
-        .sampleGravity = WorldSampleGravity
-    };
+    return PlayerWorldOpsWithRules(NULL);
 }

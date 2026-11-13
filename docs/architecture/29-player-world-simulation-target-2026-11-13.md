@@ -13,6 +13,7 @@
 > P6b 的 gravity rule 环境消费见 [World Rule Environment Consumption P6b](35-world-rule-environment-p6b-2026-11-13.md)。
 > P6c 的 surface/body/system/render/save frame API 见 [World Frame Cross-Reference P6c](36-world-frame-cross-p6c-2026-11-13.md)。
 > P7 的 ECS 采用评估与决策见 [Player/Entity ECS Evaluation P7](37-player-entity-ecs-evaluation-p7-2026-11-13.md)。
+> P8a 的运行时规则消费见 [Player Runtime Rule Integration P8a](38-player-runtime-rule-integration-p8a-2026-11-14.md)。
 
 ## 1. 结论
 
@@ -81,7 +82,7 @@ InputSourceCaptureFrame
 
 `PlayerWorldOps` 保留为 gameplay 的组合端口；默认实现已经直接绑定 `WorldActorResolveMotion()`，不再由 gameplay 实现几何 backend。
 
-长期 actor 权威状态统一使用一个中性语义；`SurfaceAddress` 只能由连续位姿和世界快照派生，不能成为连续运动的规范存储。玩家在表面附近使用 `SurfacePose` 作为高保真物理解算状态；P6a 已提供 `WorldFrameId`/`WorldFramePoint` 和 local ↔ body-centered 转换（见记录 34），但 system/render/camera frame 仍在后续阶段。
+长期 actor 权威状态统一使用一个中性语义；`SurfaceAddress` 只能由连续位姿和世界快照派生，不能成为连续运动的规范存储。玩家在表面附近使用 `SurfacePose` 作为高保真物理解算状态；P6a/P6c 已提供 `WorldFrameId`/`WorldFramePoint`、local ↔ body-centered、system 和 render-camera 位置转换（见记录 34、36）。渲染器和 save caller 的全面采用仍待后续集成。
 
 ## 5. 状态所有权与固定步
 
@@ -99,7 +100,7 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 `PlayerGravitySample` 与 `PlayerWaterState` 现在是 world sample 的 gameplay aliases，`PlayerWorldOps` 默认 adapter 直接调用 world environment query。Player Controller 不再直接调用 `PlanetSurfaceAt()`、`WorldGravityScale()`、`FluidSampleAt()` 或 `WorldIsSpaceActive()`。
 
-规则系统必须声明执行阶段、作用范围、作用对象和组合方式。P6a 的 `WorldRuleSet` 已固定 global/body/region specificity、priority、registration id 顺序，并提供 `ADD`、`MODIFY`、`REPLACE` 向量语义；P6b 已让 gravity/water 规则通过 `WorldEnvironmentSampleAtWithRules()` 分别影响 `WorldGravitySample.acceleration` 与 `WorldWaterSample.flowVelocity`（见记录 34、35）。
+规则系统必须声明执行阶段、作用范围、作用对象和组合方式。P6a 的 `WorldRuleSet` 已固定 global/body/region specificity、priority、registration id 顺序，并提供 `ADD`、`MODIFY`、`REPLACE` 向量语义；P6b 已让 gravity/water 规则通过 `WorldEnvironmentSampleAtWithRules()` 分别影响 `WorldGravitySample.acceleration` 与 `WorldWaterSample.flowVelocity`（见记录 34、35）。P8a 已把运行时规则集绑定到 `PlayerWorldOps`，Player 通过组合环境样本实际消费最终重力和水流（见记录 38）。
 
 新增特殊星球最终应通过规则或 backend 扩展完成，不要求在通用 Player Controller 中增加 `if (planetType)`。动态实体是否共享这些规则由能力/组件决定，而不是由 `entity.type == PLAYER` 决定。
 
@@ -226,6 +227,14 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 当 Player Controller 不再包含具体几何 backend、所有 locomotion 状态写入都经过单一提交入口、环境与规则可通过接口替换，并且 surface/space/render/save 的参考系转换显式且可测试时，本目标架构才算完成。
 
-P3、P4a、P4b、P5、P6a、P6b、P6c API 和 P7 ECS 评估已实现对应边界；渲染器/save caller 的全面 frame 采用仍待后续。
+P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估和 P8a 运行时规则消费已实现对应边界；渲染器/save caller 的全面 frame 采用仍待后续。
 
 完成 ECS 评估并不等于必须采用 ECS。最终验收标准是职责边界和可验证行为，而不是某个框架、坐标类型或文件数量。
+
+### P8a：运行时规则消费（实施记录 38）
+
+- `GameRuntime` 持有运行时 `WorldRuleSet`，`PlayerWorldOps` 绑定该集合并通过组合环境样本查询当前 body 的水和重力。
+- gravity 规则修改实际加速度，water 规则修改最终 flow；Player 的速度积分直接消费结果。
+- 当前通用 region identity 尚未建立，Player 查询使用 `0`，global/body 规则已生效，region scope 留给后续 world definition。
+
+验收：无规则行为不回归；body-scoped gravity/water 规则通过真实 PlayerWorldOps 改变运动；不匹配 body 不生效。

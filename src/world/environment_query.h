@@ -18,6 +18,9 @@ typedef struct WorldWaterSample {
 
 typedef struct WorldGravitySample {
     bool inSpace;
+    /* gravityScale is the relative field strength used by jump response;
+     * acceleration is the resulting game-space acceleration after Earth-scale
+     * or planetary atmospheric falloff and rule evaluation. */
     float gravityScale;
     bool hasPlanetGravity;
     Vector3 direction;
@@ -45,6 +48,8 @@ WorldEnvironmentSample WorldEnvironmentSampleAt(Vector3 position,
                                                 float eyeHeight,
                                                 float bodyHeight,
                                                 double simulationTime);
+/* bodyId/regionId identify the consumer for scoped rules. A missing rule set
+ * is equivalent to an empty one; water and gravity remain one coherent sample. */
 WorldEnvironmentSample WorldEnvironmentSampleAtWithRules(
     Vector3 position, float eyeHeight, float bodyHeight,
     double simulationTime, uint32_t bodyId, uint64_t regionId,
