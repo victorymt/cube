@@ -2,8 +2,6 @@
 
 #include "gameplay/player_motion.h"
 #include "gameplay/player_sensors.h"
-#include "space/space_query.h"
-#include "world/world_environment.h"
 
 static bool WorldMove(void *user, ActorBody *body,
                       const ActorMotionRequest *request)
@@ -22,26 +20,21 @@ static bool WorldOverlaps(void *user, Vector3 position, bool allowUnready)
     return WorldActorOverlaps(PlayerMotionCollider(), position, allowUnready);
 }
 
-static PlayerWaterState WorldSampleWater(void *user, Vector3 position)
+static PlayerWaterState WorldSampleWater(void *user, Vector3 position,
+                                         double simulationTime)
 {
     (void)user;
-    return PlayerWaterStateAt(position);
+    (void)simulationTime;
+    return WorldWaterSampleAt(position, EYE_HEIGHT, PLAYER_HEIGHT);
 }
 
 static bool WorldSampleGravity(void *user, Vector3 position,
+                               double simulationTime,
                                PlayerGravitySample *out)
 {
     (void)user;
     if (!out) return false;
-    *out = (PlayerGravitySample){
-        .inSpace = WorldIsSpaceActive(),
-        .gravityScale = WorldGravityScale()
-    };
-    if (!out->inSpace) return true;
-
-    out->hasPlanetGravity = PlanetSurfaceAt(
-        position, &out->direction, &out->surfaceDistance,
-        &out->surfaceGravityScale);
+    *out = WorldGravitySampleAt(position, simulationTime);
     return true;
 }
 

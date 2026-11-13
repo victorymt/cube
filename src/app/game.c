@@ -674,7 +674,8 @@ static void GameStagePlayerInput(GameRuntime *game, bool inputBlocked)
                               &game->playerInputEdgesPending, &frameInput);
 }
 
-void GameUpdatePlayerMotion(GameRuntime *game, float dt, bool inputBlocked)
+void GameUpdatePlayerMotion(GameRuntime *game, float dt, double simulationTime,
+                            bool inputBlocked)
 {
     if (!game->perfMode && !GameWorldSimulationUserPaused(game) &&
         !game->landingTransition.active &&
@@ -708,8 +709,8 @@ void GameUpdatePlayerMotion(GameRuntime *game, float dt, bool inputBlocked)
         PlayerInput tickInput = GamePlayerInputConsumeFixed(
             &game->stagedPlayerInput, &game->playerInputEdgesPending);
         game->appliedPlayerInput = tickInput;
-        UpdatePlayerWithWorld(&game->player, dt, &game->appliedPlayerInput,
-                              &game->playerWorldOps);
+        UpdatePlayerWithWorld(&game->player, dt, simulationTime,
+                              &game->appliedPlayerInput, &game->playerWorldOps);
         if (PlanetWorldIsActive()) {
             game->wasInSpace = false;
         } else {

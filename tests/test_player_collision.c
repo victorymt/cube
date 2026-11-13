@@ -10,6 +10,7 @@
 #include "gameplay/ship.h"
 #include "world/block_types.h"
 #include "world/block_edits.h"
+#include "world/environment_query.h"
 #include "world/world_environment.h"
 #include "world/surface_contract_internal.h"
 #include "world/surface_cube.h"
@@ -595,6 +596,28 @@ static void TestWaterStateUsesActualColumnSurface(void)
     assert(water.eyeDepth == 0.0f);
 }
 
+static void TestEnvironmentQueryMatchesPlayerAdapters(void)
+{
+    ResetCollisionWorld();
+    waterEnabled = true;
+    WorldWaterSample neutral = WorldWaterSampleAt(
+        (Vector3){ 0.5f, 1.01f, 0.5f }, EYE_HEIGHT, PLAYER_HEIGHT);
+    PlayerWaterState player = PlayerWaterStateAt(
+        (Vector3){ 0.5f, 1.01f, 0.5f });
+    assert(neutral.feetSubmerged == player.feetSubmerged);
+    assert(neutral.bodySubmerged == player.bodySubmerged);
+    assert(neutral.eyesSubmerged == player.eyesSubmerged);
+    assert(neutral.surfaceY == player.surfaceY);
+    assert(neutral.eyeDepth == player.eyeDepth);
+
+    WorldEnvironmentSample environment = WorldEnvironmentSampleAt(
+        (Vector3){ 0.5f, 1.01f, 0.5f }, EYE_HEIGHT, PLAYER_HEIGHT, 12.5);
+    assert(environment.simulationTime == 12.5);
+    assert(environment.water.surfaceY == neutral.surfaceY);
+    assert(environment.gravity.gravityScale == 1.0f);
+    assert(!environment.gravity.inSpace);
+}
+
 static void TestRightVectorMatchesCameraFrame(void)
 {
     const float yaws[] = {0.0f, PI * 0.25f, PI * 0.5f, PI,
@@ -627,17 +650,21 @@ static bool TestPlayerWorldOverlaps(void *user, Vector3 position,
     return PlayerOverlapsWorldWithOptions(position, allowUnready);
 }
 
-static PlayerWaterState TestPlayerWorldWater(void *user, Vector3 position)
+static PlayerWaterState TestPlayerWorldWater(void *user, Vector3 position,
+                                             double simulationTime)
 {
     (void)user;
+    (void)simulationTime;
     return PlayerWaterStateAt(position);
 }
 
 static bool TestPlayerWorldGravity(void *user, Vector3 position,
+                                   double simulationTime,
                                    PlayerGravitySample *out)
 {
     (void)user;
     (void)position;
+    (void)simulationTime;
     *out = (PlayerGravitySample){ .gravityScale = 1.0f };
     return true;
 }
@@ -661,8 +688,8 @@ static void TestSwimmingSpeedAndAscent(void)
     };
     PlayerInput forward = { .forward = 1.0f };
     for (int frame = 0; frame < 120; frame++) {
-        UpdatePlayerWithWorld(&player, 1.0f / 60.0f, &forward,
-                              &testPlayerWorldOps);
+        UpdatePlayerWithWorld(&player, 1.0f / 60.0f, (double)frame / 60.0,
+                              &forward, &testPlayerWorldOps);
     }
     float distance = player.position.z - 0.5f;
     assert(distance > 5.0f && distance < 6.1f);
@@ -675,8 +702,8 @@ static void TestSwimmingSpeedAndAscent(void)
     PlayerInput ascend = { .vertical = 1.0f, .jumpPressed = true };
     for (int frame = 0; frame < 120; frame++) {
         ascend.jumpPressed = frame == 0;
-        UpdatePlayerWithWorld(&player, 1.0f / 60.0f, &ascend,
-                              &testPlayerWorldOps);
+        UpdatePlayerWithWorld(&player, 1.0f / 60.0f, (double)frame / 60.0,
+                              &ascend, &testPlayerWorldOps);
     }
     assert(player.position.y > 3.01f);
 }
@@ -906,6 +933,7 @@ int main(void)
     TestRuntimeStateIsPerPlayer();
     TestRuntimeStateReset();
     TestWaterStateUsesActualColumnSurface();
+    TestEnvironmentQueryMatchesPlayerAdapters();
     InstallPlayerCubeContract();
     TestCubeOverlapBranch();
     TestCubeDecorationBlocksArePassable();

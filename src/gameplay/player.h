@@ -6,7 +6,7 @@
 #include "gameplay/player_world.h"
 
 void PlayerResetRuntimeState(Player *player);
-void UpdatePlayerWithWorld(Player *player, float dt, const PlayerInput *input,
-                           const PlayerWorldOps *world);
+void UpdatePlayerWithWorld(Player *player, float dt, double simulationTime,
+                           const PlayerInput *input, const PlayerWorldOps *world);
 
 #endif

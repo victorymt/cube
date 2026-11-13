@@ -32,8 +32,8 @@ static float PlayerApproach(float current, float target, float dt,
     return current + (target - current) * amount;
 }
 
-void UpdatePlayerWithWorld(Player *player, float dt, const PlayerInput *input,
-                           const PlayerWorldOps *world)
+void UpdatePlayerWithWorld(Player *player, float dt, double simulationTime,
+                           const PlayerInput *input, const PlayerWorldOps *world)
 {
     if (!player || !input || !world || !world->move ||
         !world->sampleWater || !world->sampleGravity ||
@@ -57,7 +57,8 @@ void UpdatePlayerWithWorld(Player *player, float dt, const PlayerInput *input,
                               Vector3Scale(right, strafeInput));
     if (Vector3LengthSqr(wish) > 0.0f) wish = Vector3Normalize(wish);
 
-    PlayerWaterState water = world->sampleWater(world->user, player->position);
+    PlayerWaterState water = world->sampleWater(
+        world->user, player->position, simulationTime);
     bool swimming = water.bodySubmerged || water.eyesSubmerged;
     float speed = input->sprint ? SPRINT_SPEED : WALK_SPEED;
     if (swimming) speed = input->sprint ? WATER_SPRINT_SPEED : WATER_WALK_SPEED;
@@ -78,7 +79,8 @@ void UpdatePlayerWithWorld(Player *player, float dt, const PlayerInput *input,
     }
 
     PlayerGravitySample gravity = { .gravityScale = 1.0f };
-    (void)world->sampleGravity(world->user, player->position, &gravity);
+    (void)world->sampleGravity(world->user, player->position, simulationTime,
+                               &gravity);
     bool inSpace = gravity.inSpace;
     float gravityScale = Clamp(gravity.gravityScale, 0.45f, 1.75f);
     float jumpSpeed = JUMP_SPEED * sqrtf(gravityScale);
@@ -138,7 +140,8 @@ void UpdatePlayerWithWorld(Player *player, float dt, const PlayerInput *input,
 
     float horizontalSpeed = sqrtf(player->velocity.x * player->velocity.x +
                                   player->velocity.z * player->velocity.z);
-    PlayerWaterState movedWater = world->sampleWater(world->user, player->position);
+    PlayerWaterState movedWater = world->sampleWater(
+        world->user, player->position, simulationTime);
     bool feetInWater = movedWater.feetSubmerged;
     if (feetInWater && !player->wasInWater) {
         GameEffectsPlayAudio(GAME_AUDIO_SPLASH);

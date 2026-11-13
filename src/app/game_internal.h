@@ -122,7 +122,8 @@ bool GameEnvironmentSheltered(Vector3 position);
 void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed);
 void GameInstallWeatherSurfaceLightProvider(void);
 void GameUpdateCamera(GameRuntime *game, float dt);
-void GameUpdatePlayerMotion(GameRuntime *game, float dt, bool inputBlocked);
+void GameUpdatePlayerMotion(GameRuntime *game, float dt, double simulationTime,
+                            bool inputBlocked);
 int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive);
 void GameRequestWorldStreaming(Vector3 position, Vector3 velocity,
                                int effectiveRenderDistance,

@@ -204,7 +204,8 @@ void GameAdvanceSimulationStep(double simulationSeconds,
     SpaceAdvanceTime((float)stepSeconds);
     double simulationTime = SpaceElapsedSimulationTime();
     float dt = (float)stepSeconds;
-    GameUpdatePlayerMotion(game, dt, game->playerSimulationInputBlocked);
+    GameUpdatePlayerMotion(game, dt, simulationTime,
+                           game->playerSimulationInputBlocked);
     game->dayTime = (float)GameHomeDayPhaseAt(
         GameCaptureHomeDaylight(), simulationTime);
     if (game->debugDayTimeOverrideEnabled) {

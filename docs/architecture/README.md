@@ -40,6 +40,7 @@ new physical-simulation stages.
 | 30 | [player world motion P3 implementation (2026-11-13)](30-player-world-motion-p3-2026-11-13.md) | neutral world-side actor motion solver, PlayerWorldOps ActorBody boundary, compatibility facade, and behavior-preserving collision migration |
 | 31 | [player fixed-step locomotion P4a (2026-11-13)](31-player-fixed-step-locomotion-p4a-2026-11-13.md) | render-frame input staging, one-shot edge consumption, fixed-step player/ship motion, camera/streaming ordering, and tornado integration |
 | 32 | [player state commit P4b (2026-11-13)](32-player-state-commit-p4b-2026-11-13.md) | explicit halt/look/floating/place/restore commits, removal of app Player field writes, transition migration, and architecture enforcement |
+| 33 | [world environment query P5 (2026-11-13)](33-environment-query-p5-2026-11-13.md) | world-side water/gravity samples, explicit simulation time, Player adapter aliases, and environment boundary enforcement |
 
 Programmatic-generation review: [2026-11-12 procedural generation analysis](../procedural-generation-analysis-2026-11-12.md) records the current generation pipeline, determinism model, content gaps and suggested order.
 

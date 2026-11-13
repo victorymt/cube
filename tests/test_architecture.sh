@@ -134,6 +134,7 @@ if grep -R -nE '(game->player|player)->(position|velocity|yaw|pitch|onGround|flo
 fi
 
 [ -f src/world/actor_motion.h ] || fail "missing neutral world/actor_motion.h"
+[ -f src/world/environment_query.h ] || fail "missing neutral world/environment_query.h"
 
 if grep -nE '\b(GetBlockAt|BlockCollisionHeightAt|SurfaceContract|SurfaceAddress|WorldBlockBox|SurfacePoseDisplace)\b' \
     src/gameplay/player_motion.c; then
@@ -143,6 +144,11 @@ fi
 if grep -nE '#include "gameplay/|gameplay/player|\bPlayer\b' \
     src/world/actor_motion.c src/world/actor_motion.h; then
     fail "world actor motion must remain independent of gameplay Player types"
+fi
+
+if grep -nE '\b(PlanetSurfaceAt|WorldGravityScale|FluidSampleAt|WorldIsSpaceActive)\b' \
+    src/gameplay/player.c src/gameplay/player_world.c; then
+    fail "player environment access must go through world/environment_query"
 fi
 
 [ -f src/world/actor_body.h ] || fail "missing neutral world/actor_body.h"
