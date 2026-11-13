@@ -13,6 +13,7 @@
 #include "world/environment_query.h"
 #include "world/world_environment.h"
 #include "world/world_frame.h"
+#include "space/space_types.h"
 #include "world/surface_contract_internal.h"
 #include "world/surface_cube.h"
 #include "world/world_surface_snapshot.h"
@@ -77,6 +78,19 @@ bool IsWaterBlock(BlockType type)
 }
 
 bool WorldIsSpaceActive(void) { return false; }
+int SpaceOriginX(void) { return 0; }
+int SpaceOriginZ(void) { return 0; }
+int SpaceSystemGlobalCoordinate(int anchor)
+{
+    return anchor * STAR_SYSTEM_SPACING;
+}
+int SpaceAnchorForLocalCoordinate(float local, int origin)
+{
+    int64_t global = (int64_t)llroundf(local) + origin;
+    int64_t halfSpacing = STAR_SYSTEM_SPACING / 2;
+    return (int)(global >= 0 ? (global + halfSpacing) / STAR_SYSTEM_SPACING
+                             : (global - halfSpacing) / STAR_SYSTEM_SPACING);
+}
 float WorldGravityScale(void) { return 1.0f; }
 bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDirection,
                      float *surfaceDistance, float *gravityScale)
@@ -654,8 +668,8 @@ static void TestWorldFrameSurfaceRoundTrip(void)
     assert(body.frame.kind == WORLD_FRAME_LOCAL &&
            body.x == local.x && body.y == local.y && body.z == local.z);
     assert(WorldFrameTransformPoint(
-        &local, (WorldFrameId){ WORLD_FRAME_BODY_CENTERED, context.bodyId },
-        8.0, &body));
+        &local, (WorldFrameId){ .kind = WORLD_FRAME_BODY_CENTERED,
+                                .bodyId = context.bodyId }, 8.0, &body));
     assert(body.frame.kind == WORLD_FRAME_BODY_CENTERED);
     assert(body.frame.bodyId == context.bodyId);
     WorldFramePoint roundTrip;
@@ -663,12 +677,53 @@ static void TestWorldFrameSurfaceRoundTrip(void)
     assert(fabs(roundTrip.x - local.x) < 1e-3);
     assert(fabs(roundTrip.y - local.y) < 1e-3);
     assert(fabs(roundTrip.z - local.z) < 1e-3);
-    assert(!WorldFrameCanTransform(
-        local.frame, (WorldFrameId){ WORLD_FRAME_SYSTEM, context.bodyId }));
+    assert(WorldFrameCanTransform(
+        local.frame, (WorldFrameId){ .kind = WORLD_FRAME_SYSTEM,
+                                    .bodyId = context.bodyId }));
     local.x = NAN;
     assert(!WorldFrameTransformPoint(
-        &local, (WorldFrameId){ WORLD_FRAME_BODY_CENTERED, context.bodyId },
-        8.0, &body));
+        &local, (WorldFrameId){ .kind = WORLD_FRAME_BODY_CENTERED,
+                                .bodyId = context.bodyId }, 8.0, &body));
+
+    local = (WorldFramePoint){
+        .frame = { WORLD_FRAME_LOCAL, context.bodyId },
+        .x = 0.5,
+        .y = 12.5,
+        .z = 0.5
+    };
+    WorldFrameId systemFrame = WorldFrameSystemId(0, 0);
+    systemFrame.bodyId = context.bodyId;
+    WorldFramePoint system;
+    assert(WorldFrameTransformPoint(&local, systemFrame, 8.0, &system));
+    assert(system.frame.kind == WORLD_FRAME_SYSTEM);
+    WorldFramePoint systemRoundTrip;
+    assert(WorldFrameTransformPoint(&system, local.frame, 8.1,
+                                    &systemRoundTrip));
+    assert(fabs(systemRoundTrip.x - local.x) < 1e-3);
+    assert(fabs(systemRoundTrip.y - local.y) < 1e-3);
+    assert(fabs(systemRoundTrip.z - local.z) < 1e-3);
+    WorldFramePoint savePoint;
+    assert(WorldFrameTransformPoint(
+        &system, WorldFrameSaveId(context.bodyId), 8.15, &savePoint));
+    assert(savePoint.frame.kind == WORLD_FRAME_LOCAL);
+    assert(fabs(savePoint.x - local.x) < 1e-3);
+    assert(fabs(savePoint.y - local.y) < 1e-3);
+    assert(fabs(savePoint.z - local.z) < 1e-3);
+
+    Vector3 cameraLocal = { 2.0f, 3.0f, 4.0f };
+    WorldFramePoint cameraPoint;
+    assert(WorldFrameTransformPointToCamera(&local, cameraLocal, 8.2,
+                                             &cameraPoint));
+    assert(cameraPoint.frame.kind == WORLD_FRAME_RENDER_CAMERA);
+    assert(fabs(cameraPoint.x + 1.5) < 1e-6);
+    assert(fabs(cameraPoint.y - 9.5) < 1e-6);
+    assert(fabs(cameraPoint.z + 3.5) < 1e-6);
+    WorldFramePoint cameraRoundTrip;
+    assert(WorldFrameTransformPointFromCamera(&cameraPoint, cameraLocal, 8.3,
+                                               &cameraRoundTrip));
+    assert(fabs(cameraRoundTrip.x - local.x) < 1e-3);
+    assert(fabs(cameraRoundTrip.y - local.y) < 1e-3);
+    assert(fabs(cameraRoundTrip.z - local.z) < 1e-3);
 }
 
 static void TestRightVectorMatchesCameraFrame(void)

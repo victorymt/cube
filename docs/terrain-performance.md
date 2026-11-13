@@ -46,6 +46,10 @@ After connecting gravity rules to environment samples, the same recipe reported
 `median_total_ms=53.798`, `p95_total_ms=54.499`,
 `solid_vertices_per_chunk=2187.8`, and `sync_rebuilds=0`.
 
+After adding cross-frame point APIs, the same recipe reported
+`median_total_ms=53.306`, `p95_total_ms=53.565`,
+`solid_vertices_per_chunk=2187.8`, and `sync_rebuilds=0`.
+
 ## Semantic invariants
 
 These are behaviour, not performance, and must hold after any hot-path change:

@@ -1,5 +1,7 @@
 # World Rule Environment Consumption P6b（2026-11-13）
 
+> system/render/save frame API 已由 [World Frame Cross-Reference P6c](36-world-frame-cross-p6c-2026-11-13.md) 补充。
+
 - 日期：2026-11-13
 - 性质：阶段记录；扩展 [World Rules and Frame Foundation P6](34-world-rules-frame-p6-2026-11-13.md) 的环境规则消费
 - 范围：gravity acceleration 样本、body/region rule scope、rule count 和 environment query 集成
@@ -26,7 +28,7 @@
 
 - 规则结果尚未写入 V30；配置注册由运行时/未来 world definition 负责。
 - water rule stage 尚未作用于水体样本。
-- `SYSTEM`、render-camera 和 save-frame 转换仍未实现；P6c 继续处理。
+- system/render/save frame API 已由 P6c 提供；渲染器和 save caller 的全面采用仍待后续集成。
 
 ## 4. 代码索引
 

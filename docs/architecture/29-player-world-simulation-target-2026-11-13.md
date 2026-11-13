@@ -11,6 +11,7 @@
 > P5 的 world environment query 实现见 [World Environment Query P5](33-environment-query-p5-2026-11-13.md)。
 > P6 的规则与 frame 基础边界见 [World Rules and Frame Foundation P6](34-world-rules-frame-p6-2026-11-13.md)。
 > P6b 的 gravity rule 环境消费见 [World Rule Environment Consumption P6b](35-world-rule-environment-p6b-2026-11-13.md)。
+> P6c 的 surface/body/system/render/save frame API 见 [World Frame Cross-Reference P6c](36-world-frame-cross-p6c-2026-11-13.md)。
 
 ## 1. 结论
 
@@ -164,12 +165,12 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 验收：特殊星球 gravity 规则可注册并实际影响环境样本。
 
-### P6c：跨参考系
+### P6c：跨参考系 API（实施记录 36）
 
-- 覆盖 system ↔ surface/body、render camera-relative 和 save-frame 转换。
-- 为真实系统中心投影和相机相对渲染增加回归测试。
+- system anchor point、surface/body/system 组合转换、camera-relative position 和 save-local identity 已提供。
+- 系统投影仍使用 game-distance 近似；完整惯性、速度和旋转转换待后续。
 
-验收：surface、space、render 和 save 之间的位置转换均有具名入口和回归测试。
+验收：各 frame pair 均有具名入口；位置 round trip 和不支持输入有回归测试。渲染器/save caller 的全面采用仍待后续集成。
 
 ### P7：ECS 评估（P6c 完成后）
 
@@ -223,6 +224,6 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 当 Player Controller 不再包含具体几何 backend、所有 locomotion 状态写入都经过单一提交入口、环境与规则可通过接口替换，并且 surface/space/render/save 的参考系转换显式且可测试时，本目标架构才算完成。
 
-P3、P4a、P4b、P5、P6a 和 P6b 已实现对应边界；P6c 尚需补齐跨 frame 转换，之后才进入 P7 的 ECS 评估。
+P3、P4a、P4b、P5、P6a、P6b 和 P6c API 已实现对应边界；渲染器/save caller 的全面 frame 采用和 P7 ECS 评估仍待后续。
 
 完成 ECS 评估并不等于必须采用 ECS。最终验收标准是职责边界和可验证行为，而不是某个框架、坐标类型或文件数量。
