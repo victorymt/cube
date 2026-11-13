@@ -7,6 +7,7 @@
 
 > P3 的实施证据见 [Player World Motion P3 实施记录](30-player-world-motion-p3-2026-11-13.md)。
 > P4 的固定步输入与 locomotion 部分见 [Player Fixed-Step Locomotion P4a](31-player-fixed-step-locomotion-p4a-2026-11-13.md)。
+> P4 的特殊状态提交部分见 [Player State Commit P4b](32-player-state-commit-p4b-2026-11-13.md)。
 
 ## 1. 结论
 

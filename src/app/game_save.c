@@ -13,6 +13,7 @@
 #include "gameplay/inventory.h"
 #include "gameplay/map_markers.h"
 #include "gameplay/player.h"
+#include "gameplay/player_state.h"
 #include "gameplay/camera_distance.h"
 #include "gameplay/ship.h"
 #include "gameplay/ship_locator.h"
@@ -735,7 +736,7 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
     WorldCubeClearEdits();
     int loadedEditCount = 0;
     bool editIndexReady = GameLoadInstallCellEdits(&data, &loadedEditCount);
-    *player = data.player;
+    PlayerRestoreState(player, &data.player);
     WorldSetNetherActive(savedInNether);
     PlayerResetRuntimeState(player);
     ShipLocatorRecord shipLocator = data.shipLocator;

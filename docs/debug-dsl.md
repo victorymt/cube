@@ -1046,6 +1046,7 @@ ordinary pause menus and cursor-release state still apply.
 `fly on` enables the ordinary floating movement state and clears vertical
 velocity; `fly off` restores gravity-driven movement. Unlike `pause on`, it does
 not open a menu, so deterministic matrix screenshots can hold a chosen altitude.
+Scripted movement commands are staged at render-frame boundaries and applied by fixed simulation ticks; look and edge actions are consumed only once across catch-up ticks.
 
 Teleport coordinates are finite and bounded to +/-1,000,000,
 yaw to +/-1,000, and pitch to [-1.45, 1.45]. Absolute look uses the same pitch

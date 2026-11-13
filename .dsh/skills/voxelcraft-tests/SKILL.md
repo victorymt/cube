@@ -17,6 +17,7 @@ metadata:
 相机和 world-query 边界应优先用 fake backend 测：`test_camera` 不链接 Player、ship、terrain 或 interaction 实现，避免测试通过只是因为同一条耦合链仍被链接。
 
 迁移 geometry/collision 时同时测试 neutral API 和兼容 facade；例如 `test_player_collision` 直接调用 `WorldActorResolveMotion`，再验证 Player 包装入口。
+特殊 Player 状态入口要单独测试 transition helper；app 直接写 pose/velocity 字段应由架构检查拒绝。
 
 审计结果（2026-10-25）：126 个 C 测试中只有 6 个写了说明；979 个 `Test*` 函数只有 17 个带注释；`docs/documentation-rules.md` 从未提到测试注释。这个 skill 就是从"没有约定"到"有约定"的那一步。
 

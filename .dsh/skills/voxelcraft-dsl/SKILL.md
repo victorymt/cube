@@ -53,6 +53,7 @@ metadata:
 - 字段必须在游戏状态无效时有确定值（返回 `false` 表示不存在，或返回带默认含义的值），不要返回未初始化内存。
 - 命名用 `域.字段`，域前缀必须已在文档命名空间表里。
 - 多相机状态下，交互目标使用 interaction rig 的朝向；不要把 render rig 当作唯一的相机来源。
+- Fixed-step 模式下，scripted movement 按渲染帧 staging、在 simulation tick 消费；look/jump/floating 边沿不能在 catch-up tick 中重复执行。
 
 ## 截图报告字段
 

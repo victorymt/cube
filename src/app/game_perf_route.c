@@ -1,6 +1,7 @@
 #include "app/game_perf_route.h"
 
 #include "core/perf.h"
+#include "gameplay/player_state.h"
 #include "raymath.h"
 #include "world/world_environment.h"
 
@@ -31,13 +32,11 @@ void GameApplyPerfRoute(Player *player, int frame)
         ? (int)lroundf(sample.seaLevel) : -1;
     // The route must remain in the streamed vertical range over ocean cells.
     if (seaLevel >= 0 && terrainY < seaLevel) terrainY = seaLevel;
-    player->position = (Vector3){ x, (float)terrainY + 3.0f, z };
-    Vector3 delta = Vector3Scale(Vector3Subtract(player->position, previous),
+    Vector3 position = (Vector3){ x, (float)terrainY + 3.0f, z };
+    Vector3 delta = Vector3Scale(Vector3Subtract(position, previous),
                                  1.0f / dt);
-    player->velocity = delta;
+    float yaw = player->yaw;
     if (Vector3LengthSqr(delta) > 0.001f)
-        player->yaw = atan2f(delta.x, delta.z);
-    player->pitch = -0.18f;
-    player->onGround = true;
-    player->floating = false;
+        yaw = atan2f(delta.x, delta.z);
+    PlayerPlaceAt(player, position, delta, yaw, -0.18f, true, false);
 }

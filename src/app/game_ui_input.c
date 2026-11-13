@@ -3,6 +3,7 @@
 #include "app/game_runtime.h"
 
 #include "gameplay/interaction.h"
+#include "gameplay/player_state.h"
 #include "presentation/homeworld_map.h"
 #include "presentation/starmap.h"
 #include "raylib.h"
@@ -97,7 +98,7 @@ static UiEventResult GameUiRoutePlaying(void *context,
         event->key == INPUT_KEY_ESCAPE &&
         GameCanOpenPauseMenu(game, route->suppressPauseOpen)) {
         game->paused = true;
-        game->player.velocity = Vector3Zero();
+        PlayerHaltMotion(&game->player);
         game->cursorReleased = false;
         EnableCursor();
         route->result->pauseMenuSettings = PauseMenuSettingsSnapshot(game);
@@ -118,7 +119,7 @@ static UiEventResult GameUiRoutePlaying(void *context,
         OpenImportDialog(&game->importDialog);
         if (game->importDialog.open) {
             game->cursorReleased = true;
-            game->player.velocity = Vector3Zero();
+            PlayerHaltMotion(&game->player);
             EnableCursor();
         }
         return UI_EVENT_HANDLED;

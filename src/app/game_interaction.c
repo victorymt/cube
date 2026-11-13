@@ -15,6 +15,7 @@
 #include "gameplay/interaction.h"
 #include "gameplay/player_actor.h"
 #include "gameplay/player_motion.h"
+#include "gameplay/player_state.h"
 #include "gameplay/inventory.h"
 #include "presentation/particles.h"
 #include "gameplay/player.h"
@@ -434,7 +435,7 @@ static void GameOpenAlbumFromWorld(GameRuntime *game)
     }
     AlbumUiOpen();
     game->albumOpen = true;
-    game->player.velocity = Vector3Zero();
+    PlayerHaltMotion(&game->player);
     game->cursorReleased = false;
     EnableCursor();
 }
@@ -469,9 +470,8 @@ static void GameUseNetherPortal(GameRuntime *game)
         GameNoticePost("Portal destination is obstructed.");
         return;
     }
-    game->player.position = landing;
-    game->player.velocity = Vector3Zero();
-    game->player.floating = false;
+    PlayerPlaceAt(&game->player, landing, Vector3Zero(), game->player.yaw,
+                  game->player.pitch, false, false);
     game->wasInSpace = false;
 }
 

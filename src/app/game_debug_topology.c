@@ -4,6 +4,7 @@
 #include "core/debug_control.h"
 #include "gameplay/player.h"
 #include "gameplay/player_motion.h"
+#include "gameplay/player_state.h"
 #include "world/chunks.h"
 #include "world/surface_topology.h"
 #include "presentation/homeworld_map.h"
@@ -269,11 +270,9 @@ bool GameDebugEnterCubeWorld(struct GameRuntime *game)
             previousProjection.latitude, previousPosition.y,
             previousYaw, previousPitch, &restoredPose) &&
         PlayerLocalFromSurfacePose(&restoredPose, &restoredLocal)) {
-        game->player.position = restoredLocal;
-        game->player.velocity = (Vector3){ 0 };
-        game->player.yaw = previousYaw;
-        game->player.pitch = previousPitch;
-        game->player.onGround = false;
+        PlayerPlaceAt(&game->player, restoredLocal, (Vector3){ 0 },
+                      previousYaw, previousPitch, false,
+                      game->player.floating);
         PlayerResetRuntimeState(&game->player);
     }
     game->landingTransition = (LandingTransition){ 0 };
@@ -326,11 +325,10 @@ bool GameDebugSetSurfacePose(GameRuntime *game)
     }
     Vector3 local;
     if (!PlayerLocalFromSurfacePose(&pose, &local)) return false;
-    game->player.position = local;
-    game->player.velocity = (Vector3){ 0 };
-    game->player.yaw = (float)control->surfacePoseYaw;
-    game->player.pitch = (float)control->surfacePosePitch;
-    game->player.onGround = false;
+    PlayerPlaceAt(&game->player, local, (Vector3){ 0 },
+                  (float)control->surfacePoseYaw,
+                  (float)control->surfacePosePitch, false,
+                  game->player.floating);
     PlayerResetRuntimeState(&game->player);
     game->scriptedInputFrames = 0u;
     game->scriptedInputFirstFrame = false;
@@ -375,11 +373,10 @@ bool GameDebugSetSurfaceAddress(GameRuntime *game)
                                 control->surfaceAddressPitch, &pose)) return false;
     Vector3 local;
     if (!PlayerLocalFromSurfacePose(&pose, &local)) return false;
-    game->player.position = local;
-    game->player.velocity = (Vector3){ 0 };
-    game->player.yaw = (float)control->surfaceAddressYaw;
-    game->player.pitch = (float)control->surfaceAddressPitch;
-    game->player.onGround = false;
+    PlayerPlaceAt(&game->player, local, (Vector3){ 0 },
+                  (float)control->surfaceAddressYaw,
+                  (float)control->surfaceAddressPitch, false,
+                  game->player.floating);
     PlayerResetRuntimeState(&game->player);
     game->scriptedInputFrames = 0u;
     game->scriptedInputFirstFrame = false;

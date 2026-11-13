@@ -86,6 +86,7 @@ for player_header in \
     src/gameplay/player_input.h \
     src/gameplay/player_sensors.h \
     src/gameplay/player_motion.h \
+    src/gameplay/player_state.h \
     src/gameplay/camera.h \
     src/gameplay/camera_distance.h \
     src/gameplay/camera_world.h \
@@ -125,6 +126,11 @@ fi
 
 if grep -q 'CameraManagerUpdate' src/app/game_interaction.c; then
     fail "camera updates must remain outside the interaction phase"
+fi
+
+if grep -R -nE '(game->player|player)->(position|velocity|yaw|pitch|onGround|floating)[[:space:]]*=' \
+    src/app --include='*.c'; then
+    fail "app Player transitions must use player_state commit helpers"
 fi
 
 [ -f src/world/actor_motion.h ] || fail "missing neutral world/actor_motion.h"

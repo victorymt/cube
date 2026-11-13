@@ -43,6 +43,7 @@
 #include "app/game_world_transition.h"
 #include "gameplay/interaction.h"
 #include "gameplay/map_markers.h"
+#include "gameplay/player_state.h"
 #include "gameplay/ship.h"
 #include "presentation/homeworld_map.h"
 #include "presentation/import_dialog_ui.h"
@@ -100,7 +101,7 @@ static void GameDebugToggleSurfaceMap(GameRuntime *game)
         DayNightFactors(game->dayTime, &daylight, &sunset);
     }
     HomeWorldMapOpen(game->player.position, daylight);
-    game->player.velocity = Vector3Zero();
+    PlayerHaltMotion(&game->player);
     game->cursorReleased = true;
     EnableCursor();
     DebugControlReply(&game->debugControl, "DEBUG_CONTROL map open\n");
@@ -875,9 +876,8 @@ static GameDebugDispatchResult GameDebugDispatchMotionCommand(
                           game->manualInputEnabled ? "manual" : "scripted");
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_FLY:
-        game->player.floating = game->debugControl.flyEnabled;
-        game->player.velocity = (Vector3){ 0 };
-        game->player.onGround = false;
+        PlayerSetFloating(&game->player, game->debugControl.flyEnabled);
+        PlayerHaltMotion(&game->player);
         DebugControlReply(&game->debugControl, "DEBUG_CONTROL fly enabled=%d\n",
                           game->player.floating ? 1 : 0);
         return GAME_DEBUG_DISPATCH_HANDLED;

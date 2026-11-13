@@ -1,6 +1,7 @@
 #include "gameplay/player_motion.h"
 
 #include "core/config.h"
+#include "gameplay/player_state.h"
 #include "gameplay/ship.h"
 
 #include "raymath.h"
@@ -71,10 +72,7 @@ void PlayerMoveWithOptions(Player *player, Vector3 delta, bool allowUnready,
                                  &result)) {
         return;
     }
-    player->position = result.body.position;
-    player->velocity = result.body.velocity;
-    player->onGround = result.body.onGround;
-    player->floating = result.body.floating;
+    PlayerApplyMotionResult(player, &result);
 }
 
 void MovePlayer(Player *player, Vector3 delta)

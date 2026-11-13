@@ -5,6 +5,7 @@
 #include "core/config.h"
 #include "core/debug_control.h"
 #include "gameplay/player.h"
+#include "gameplay/player_state.h"
 
 #include "raylib.h"
 #include "raymath.h"
@@ -18,13 +19,12 @@ void GameDebugTeleport(GameRuntime *game)
                           "DEBUG_CONTROL teleport error reason=not_playing\n");
         return;
     }
-    game->player.position = (Vector3){ game->debugControl.teleport.x,
-                                       game->debugControl.teleport.y,
-                                       game->debugControl.teleport.z };
-    game->player.velocity = Vector3Zero();
-    game->player.yaw = game->debugControl.teleport.yaw;
-    game->player.pitch = game->debugControl.teleport.pitch;
-    game->player.onGround = false;
+    PlayerPlaceAt(&game->player,
+        (Vector3){ game->debugControl.teleport.x,
+                   game->debugControl.teleport.y,
+                   game->debugControl.teleport.z },
+        Vector3Zero(), game->debugControl.teleport.yaw,
+        game->debugControl.teleport.pitch, false, game->player.floating);
     PlayerResetRuntimeState(&game->player);
     game->scriptedInputFrames = 0u;
     game->scriptedInputFirstFrame = false;
@@ -49,12 +49,11 @@ void GameDebugLook(GameRuntime *game)
         float dz = game->debugControl.lookAtZ - game->player.position.z;
         float horizontal = sqrtf(dx * dx + dz * dz);
         if (horizontal > 0.0001f) {
-            game->player.yaw = atan2f(dx, dz);
-            game->player.pitch = Clamp(atan2f(dy, horizontal),
-                                       -1.45f, 1.45f);
+            PlayerSetLook(&game->player, atan2f(dx, dz),
+                          atan2f(dy, horizontal));
         } else {
-            game->player.pitch = Clamp(dy >= 0.0f ? 1.45f : -1.45f,
-                                       -1.45f, 1.45f);
+            PlayerSetLook(&game->player, game->player.yaw,
+                          dy >= 0.0f ? 1.45f : -1.45f);
         }
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL look at ok target=%.3f,%.3f,%.3f "
@@ -66,13 +65,12 @@ void GameDebugLook(GameRuntime *game)
         return;
     }
     if (game->debugControl.lookRelative) {
-        game->player.yaw += game->debugControl.lookYaw;
-        game->player.pitch = Clamp(
-            game->player.pitch + game->debugControl.lookPitch,
-            -1.45f, 1.45f);
+        PlayerSetLook(&game->player,
+                      game->player.yaw + game->debugControl.lookYaw,
+                      game->player.pitch + game->debugControl.lookPitch);
     } else {
-        game->player.yaw = game->debugControl.lookYaw;
-        game->player.pitch = game->debugControl.lookPitch;
+        PlayerSetLook(&game->player, game->debugControl.lookYaw,
+                      game->debugControl.lookPitch);
     }
     DebugControlReply(&game->debugControl,
                       "DEBUG_CONTROL look ok yaw=%.6f pitch=%.6f\n",

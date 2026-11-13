@@ -1,6 +1,7 @@
 #include "app/game_debug_gate.h"
 
 #include "app/game_runtime.h"
+#include "gameplay/player_state.h"
 #include "gameplay/ship.h"
 
 #include <stddef.h>
@@ -8,7 +9,7 @@
 void GameDebugApplyPauseCommand(GameRuntime *game)
 {
     game->paused = game->debugControl.pauseEnabled;
-    game->player.velocity = (Vector3){ 0 };
+    PlayerHaltMotion(&game->player);
     game->cursorReleased = false;
     if (game->paused) EnableCursor();
     else DisableCursor();

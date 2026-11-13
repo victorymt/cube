@@ -17,6 +17,7 @@
 #include "world/block_lighting.h"
 #include "world/block_edits.h"
 #include "world/world_surface_snapshot.h"
+#include "gameplay/player_state.h"
 
 #include "raymath.h"
 
@@ -99,10 +100,11 @@ bool GameWorldTransitionBeginDescent(Player *player, bool homeWorldTarget,
         GameWorldTransitionFinishSurfaceActivation();
         landing = GameWorldTransitionHomeLandingPosition();
 
-        player->position = (Vector3){
+        Vector3 entryPosition = (Vector3){
             landing.x, SPACE_ENTER_Y - 2.0f, landing.z - 96.0f
         };
-        player->yaw = 0.0f;
+        PlayerPlaceAt(player, entryPosition, Vector3Zero(), 0.0f, -0.62f,
+                      false, true);
         GameNoticePost("Crossing Homeworld upper atmosphere.");
     } else {
         if (PlanetWorldIsActive() || HomeWorldSurfaceIsActive()) return false;
@@ -117,18 +119,14 @@ bool GameWorldTransitionBeginDescent(Player *player, bool homeWorldTarget,
 
         float entryAngle = (float)(PlanetWorldSeed() % 6283u) * 0.001f;
         Vector3 forward = { sinf(entryAngle), 0.0f, cosf(entryAngle) };
-        player->position = Vector3Subtract(
+        Vector3 entryPosition = Vector3Subtract(
             landing, Vector3Scale(forward, 96.0f));
-        player->position.y = PlanetWorldAtmosphereEntryHeight();
-        player->yaw = atan2f(forward.x, forward.z);
+        entryPosition.y = PlanetWorldAtmosphereEntryHeight();
+        PlayerPlaceAt(player, entryPosition, Vector3Zero(),
+                      atan2f(forward.x, forward.z), -0.62f, false, true);
         GameNoticePost(TextFormat("Crossing %s upper atmosphere.",
                                     PlanetWorldName()));
     }
-
-    player->velocity = Vector3Zero();
-    player->pitch = -0.62f;
-    player->floating = true;
-    player->onGround = false;
     if (outLandingPosition) *outLandingPosition = landing;
 
     GameRequestWorldStreaming(player->position, player->velocity,
@@ -169,12 +167,8 @@ bool GameWorldTransitionTryLaunch(Player *player)
     RadiationRuntimeGlobalReset(NULL);
     HydrologyRuntimeGlobalReset(NULL);
 
-    player->position = spacePose.position;
-    player->velocity = spacePose.velocity;
-    player->yaw = spacePose.yaw;
-    player->pitch = spacePose.pitch;
-    player->floating = false;
-    player->onGround = false;
+    PlayerPlaceAt(player, spacePose.position, spacePose.velocity, spacePose.yaw,
+                  spacePose.pitch, false, false);
     if (fromPlanet) {
         GameNoticePost(TextFormat("Left %s atmosphere.", planetName));
     } else {
@@ -244,16 +238,13 @@ bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
     if (staged) CubeSwitchAdvance(&cubeSwitch); /* RESET */
     /* Spawn just above the sampled ground. A large drop wastes the settle time
      * and, on a cube surface, leaves the player falling while coverage fills. */
-    player->position = (Vector3){
+    Vector3 landingPosition = (Vector3){
         (float)landingX + 0.5f,
         (float)groundY + (cubeWorld ? 1.0f : 3.0f),
         (float)landingZ + 0.5f
     };
-    player->velocity = Vector3Zero();
-    player->yaw = 0.0f;
-    player->pitch = -0.25f;
-    player->floating = false;
-    player->onGround = false;
+    PlayerPlaceAt(player, landingPosition, Vector3Zero(), 0.0f, -0.25f,
+                  false, false);
     if (staged) CubeSwitchAdvance(&cubeSwitch); /* LANDED */
     GameRequestWorldStreaming(player->position, player->velocity,
                               MIN_RENDER_DISTANCE_CHUNKS, 8u);

@@ -26,6 +26,8 @@
 
 相机渲染距离和相机 rig 都是运行时派生状态，不写入 V30；读档后的首次流式请求仍由玩家眼高决定。
 
+读档通过 `PlayerRestoreState()` 提交反序列化后的 Player；该 helper 只统一状态复制入口，不改变 V30 字段顺序、校验或事务读取语义。
+
 `SaveIoReadTransactional` 先用 checkpointWriter 把当前世界写进 `tmpfile()`，再让 reader 读源文件。reader 失败时清掉错误标志、`rewind` checkpoint，再用同一个 reader 把快照读回去，于是“读失败”和“回滚失败”是两种不同的结果码。
 
 ## 备选方案

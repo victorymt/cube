@@ -1,5 +1,6 @@
 #include "app/game_inventory.h"
 #include "app/game_runtime.h"
+#include "gameplay/player_state.h"
 #include "presentation/starmap.h"
 #include "presentation/homeworld_map.h"
 
@@ -11,7 +12,7 @@ bool GameInventorySetOpen(GameRuntime *game, bool open)
         ShipIsDriving() || StarMapIsOpen() || HomeWorldMapIsOpen())) return false;
     game->inventoryOpen = open;
     game->inventory.drag = -1;
-    game->player.velocity = (Vector3){0};
+    PlayerHaltMotion(&game->player);
     game->cursorReleased = open;
     if (open) EnableCursor();
     else DisableCursor();

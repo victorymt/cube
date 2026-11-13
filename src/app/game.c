@@ -38,6 +38,7 @@
 #include "world/chunks.h"
 #include "gameplay/player.h"
 #include "gameplay/player_actor.h"
+#include "gameplay/player_state.h"
 #include "gameplay/camera.h"
 #include "gameplay/camera_distance.h"
 #include "gameplay/player_sensors.h"
@@ -206,12 +207,8 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     game->simulationTick = 0u;
 
     GamePluginsReset(game);
-    game->player.position = FindNewWorldSpawn();
-    game->player.velocity = Vector3Zero();
-    game->player.yaw = PI;
-    game->player.pitch = -0.25f;
-    game->player.onGround = false;
-    game->player.floating = false;
+    PlayerPlaceAt(&game->player, FindNewWorldSpawn(), Vector3Zero(),
+                  PI, -0.25f, false, false);
     PlayerResetRuntimeState(&game->player);
 
     game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
@@ -289,7 +286,7 @@ static void GameUpdateAlbum(GameRuntime *game)
         }
         AlbumUiOpen();
         game->albumOpen = true;
-        game->player.velocity = Vector3Zero();
+        PlayerHaltMotion(&game->player);
         game->cursorReleased = false;
         EnableCursor();
     }
@@ -368,7 +365,7 @@ static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game)
                IsKeyPressed(KEY_B)) {
         game->biologyAtlasOpen = true;
         game->biologyAtlasSlot = EvolutionCatalogFirstSpeciesSlot();
-        game->player.velocity = Vector3Zero();
+        PlayerHaltMotion(&game->player);
         game->cursorReleased = true;
         EnableCursor();
     }
@@ -407,7 +404,7 @@ static void GameUpdateViewModes(GameRuntime *game)
         !game->landingTransition.active && IsKeyPressed(KEY_TAB)) {
         game->cursorReleased = !game->cursorReleased;
         if (game->cursorReleased) {
-            game->player.velocity = Vector3Zero();
+            PlayerHaltMotion(&game->player);
             EnableCursor();
         } else {
             DisableCursor();
@@ -434,7 +431,7 @@ static void GameUpdateViewModes(GameRuntime *game)
         !StarMapIsOpen() && !game->paused && !game->cursorReleased) {
         HomeWorldMapOpen(game->player.position,
                          GameSurfaceMapDaylight(game));
-        game->player.velocity = Vector3Zero();
+        PlayerHaltMotion(&game->player);
         game->cursorReleased = true;
         EnableCursor();
         openedHomeMap = true;
@@ -453,7 +450,7 @@ static void GameUpdateViewModes(GameRuntime *game)
         IsKeyPressed(KEY_M) && !StarMapIsOpen() && !game->paused &&
         !game->cursorReleased) {
         StarMapOpen();
-        game->player.velocity = Vector3Zero();
+        PlayerHaltMotion(&game->player);
         game->cursorReleased = true;
         EnableCursor();
     }

@@ -7,6 +7,7 @@
 #include "ecology/ecology.h"
 #include "presentation/render.h"
 #include "gameplay/player_actor.h"
+#include "gameplay/player_state.h"
 #include "gameplay/player_motion.h"
 #include "gameplay/ship.h"
 #include "space/space_query.h"
@@ -147,7 +148,9 @@ bool LandingTransitionBegin(LandingTransition *transition, Player *player)
                  body.name);
     }
     ShipResetVisualEffects();
-    player->velocity = transition->targetVelocity;
+    PlayerPlaceAt(player, player->position, transition->targetVelocity,
+                  player->yaw, player->pitch, player->onGround,
+                  player->floating);
     GameNoticePost(TextFormat("Descent initiated: %s.", transition->targetName));
     return true;
 }
@@ -190,10 +193,10 @@ static bool LandingTransitionCommit(LandingTransition *transition, Player *playe
 {
     if (transition->committed) return true;
 
-    player->position = Vector3Add(transition->targetCenter,
-                                  Vector3Scale(transition->outward,
-                                               transition->targetDistance));
-    player->velocity = Vector3Zero();
+    PlayerPlaceAt(player,
+        Vector3Add(transition->targetCenter,
+                   Vector3Scale(transition->outward, transition->targetDistance)),
+        Vector3Zero(), player->yaw, player->pitch, false, player->floating);
     Vector3 landingPosition = Vector3Zero();
     bool enteredAtmosphere = GameWorldTransitionBeginDescent(
         player, transition->homeWorldTarget, &landingPosition);
@@ -215,17 +218,14 @@ static void LandingTransitionFinishLanding(LandingTransition *transition, Player
 {
     if (transition->landed) return;
 
-    player->position = transition->landingPosition;
-    player->velocity = Vector3Zero();
-    player->pitch = -0.12f;
-    player->floating = false;
-    player->onGround = false;
+    PlayerPlaceAt(player, transition->landingPosition, Vector3Zero(),
+                  player->yaw, -0.12f, false, false);
     ActorBody ship = PlayerActorBody(player);
     ShipEmitTouchdownDust(&ship);
     bool exited = ShipExit(&ship);
     PlayerApplyActorBody(player, &ship);
     if (!exited) {
-        player->floating = true;
+        PlayerSetFloating(player, true);
         transition->active = false;
         transition->summaryRemaining = 0.0f;
         ShipResetVisualEffects();
@@ -240,14 +240,14 @@ static void LandingTransitionFinishLanding(LandingTransition *transition, Player
     if (landingMinY < WorldSurfaceMinY()) {
         landingMinY = WorldSurfaceMinY();
     }
+    Vector3 finalPosition = player->position;
     if (PlayerFindLandingSpot(
             besideShip, landingMinY, WorldSurfaceMaxYExclusive() - 1,
             &besideShip)) {
-        player->position = besideShip;
+        finalPosition = besideShip;
     }
-    player->velocity = Vector3Zero();
-    player->floating = false;
-    player->onGround = false;
+    PlayerPlaceAt(player, finalPosition, Vector3Zero(), player->yaw,
+                  player->pitch, false, false);
     transition->landed = true;
     LandingTransitionCaptureSummary(transition, player);
 }
@@ -282,20 +282,22 @@ bool LandingTransitionUpdate(LandingTransition *transition, Player *player,
         float descent = LandingEase(linearDescent);
         float distance = Lerp(transition->startDistance,
                               transition->targetDistance, descent);
-        player->position = Vector3Add(transition->targetCenter,
-                                      Vector3Scale(transition->outward, distance));
         float look = LandingEase(transition->elapsed / 0.85f);
-        player->yaw = LandingLerpAngle(transition->startYaw,
-                                       transition->targetYaw, look);
-        player->pitch = Lerp(transition->startPitch,
-                             transition->targetPitch, look);
+        float yaw = LandingLerpAngle(transition->startYaw,
+                                     transition->targetYaw, look);
+        float pitch = Lerp(transition->startPitch,
+                           transition->targetPitch, look);
         float easeRate = 6.0f * linearDescent * (1.0f - linearDescent) /
                          LANDING_TRANSITION_COMMIT_TIME;
         float radialSpeed = (transition->targetDistance - transition->startDistance) *
                             easeRate;
-        player->velocity = Vector3Add(
+        Vector3 velocity = Vector3Add(
             transition->targetVelocity,
             Vector3Scale(transition->outward, radialSpeed));
+        PlayerPlaceAt(player,
+            Vector3Add(transition->targetCenter,
+                       Vector3Scale(transition->outward, distance)),
+            velocity, yaw, pitch, false, player->floating);
 
         if (transition->elapsed >= LANDING_TRANSITION_COMMIT_TIME) {
             if (!LandingTransitionCommit(transition, player)) {
@@ -313,16 +315,18 @@ bool LandingTransitionUpdate(LandingTransition *transition, Player *player,
             (LANDING_TRANSITION_TOUCHDOWN_TIME - LANDING_TRANSITION_COMMIT_TIME),
             0.0f, 1.0f);
         float descent = LandingEase(linearAtmosphere);
-        player->position = Vector3Lerp(transition->atmosphereStart,
-                                       transition->landingPosition, descent);
-        player->pitch = Lerp(-0.62f, -0.12f, LandingEase(linearAtmosphere));
+        float pitch = Lerp(-0.62f, -0.12f, LandingEase(linearAtmosphere));
         float easeRate = 6.0f * linearAtmosphere * (1.0f - linearAtmosphere) /
                          (LANDING_TRANSITION_TOUCHDOWN_TIME -
                           LANDING_TRANSITION_COMMIT_TIME);
-        player->velocity = Vector3Scale(
+        Vector3 velocity = Vector3Scale(
             Vector3Subtract(transition->landingPosition,
                             transition->atmosphereStart),
             easeRate);
+        PlayerPlaceAt(player,
+            Vector3Lerp(transition->atmosphereStart,
+                        transition->landingPosition, descent),
+            velocity, player->yaw, pitch, false, player->floating);
         ActorBody ship = PlayerActorBody(player);
         ShipUpdateLandingEffects(&ship, dt, linearAtmosphere);
         if (transition->elapsed >= LANDING_TRANSITION_TOUCHDOWN_TIME) {
