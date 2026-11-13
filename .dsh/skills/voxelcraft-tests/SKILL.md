@@ -21,6 +21,7 @@ metadata:
 Replay checkpoint 覆盖新状态类型时，同时验证完整重放、checkpoint 恢复后的续跑，以及改变输入后的首个 divergence lane。
 环境查询迁移要同时覆盖 world sample、Player alias/adapter 和原 E2E 行为，不能只验证新接口可编译。
 规则与 frame 基础要分别测试确定性顺序和不支持转换的显式失败，避免把未实现的坐标语义当成 identity。
+规则接入环境后，要断言 baseline、匹配 scope、不匹配 scope、rule count 和最终 acceleration，而不只是规则表自身。
 
 审计结果（2026-10-25）：126 个 C 测试中只有 6 个写了说明；979 个 `Test*` 函数只有 17 个带注释；`docs/documentation-rules.md` 从未提到测试注释。这个 skill 就是从"没有约定"到"有约定"的那一步。
 

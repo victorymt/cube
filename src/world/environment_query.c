@@ -117,6 +117,12 @@ WorldGravitySample WorldGravitySampleAt(Vector3 position,
         sample.hasPlanetGravity = PlanetSurfaceAt(
             position, &sample.direction, &sample.surfaceDistance,
             &sample.surfaceGravityScale);
+        if (sample.hasPlanetGravity) {
+            sample.acceleration = Vector3Scale(
+                sample.direction, sample.surfaceGravityScale);
+        }
+    } else {
+        sample.acceleration = (Vector3){ 0.0f, -sample.gravityScale, 0.0f };
     }
     return sample;
 }
@@ -126,10 +132,32 @@ WorldEnvironmentSample WorldEnvironmentSampleAt(Vector3 position,
                                                 float bodyHeight,
                                                 double simulationTime)
 {
-    return (WorldEnvironmentSample){
+    return WorldEnvironmentSampleAtWithRules(
+        position, eyeHeight, bodyHeight, simulationTime, 0u, 0u, NULL);
+}
+
+WorldEnvironmentSample WorldEnvironmentSampleAtWithRules(
+    Vector3 position, float eyeHeight, float bodyHeight,
+    double simulationTime, uint32_t bodyId, uint64_t regionId,
+    const WorldRuleSet *rules)
+{
+    WorldEnvironmentSample sample = {
         .position = position,
         .simulationTime = simulationTime,
         .water = WorldWaterSampleAt(position, eyeHeight, bodyHeight),
         .gravity = WorldGravitySampleAt(position, simulationTime)
     };
+    if (rules) {
+        unsigned indices[WORLD_RULE_MAX_RULES];
+        unsigned count = 0u;
+        if (WorldRuleSetResolve(rules, WORLD_RULE_STAGE_GRAVITY, bodyId,
+                                regionId, indices, WORLD_RULE_MAX_RULES,
+                                &count) && count > 0u) {
+            (void)WorldRuleSetApplyVector(
+                rules, WORLD_RULE_STAGE_GRAVITY, bodyId, regionId,
+                sample.gravity.acceleration, &sample.gravity.acceleration);
+            sample.gravity.ruleCount = count;
+        }
+    }
+    return sample;
 }

@@ -10,6 +10,7 @@
 > P4 的固定步输入与 locomotion 部分见 [Player Fixed-Step Locomotion P4a](31-player-fixed-step-locomotion-p4a-2026-11-13.md)；特殊状态提交和 replay checkpoint 见 [Player State Commit P4b](32-player-state-commit-p4b-2026-11-13.md)。
 > P5 的 world environment query 实现见 [World Environment Query P5](33-environment-query-p5-2026-11-13.md)。
 > P6 的规则与 frame 基础边界见 [World Rules and Frame Foundation P6](34-world-rules-frame-p6-2026-11-13.md)。
+> P6b 的 gravity rule 环境消费见 [World Rule Environment Consumption P6b](35-world-rule-environment-p6b-2026-11-13.md)。
 
 ## 1. 结论
 
@@ -96,7 +97,7 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 `PlayerGravitySample` 与 `PlayerWaterState` 现在是 world sample 的 gameplay aliases，`PlayerWorldOps` 默认 adapter 直接调用 world environment query。Player Controller 不再直接调用 `PlanetSurfaceAt()`、`WorldGravityScale()`、`FluidSampleAt()` 或 `WorldIsSpaceActive()`。
 
-规则系统必须声明执行阶段、作用范围、作用对象和组合方式。P6a 的 `WorldRuleSet` 已固定 global/body/region specificity、priority、registration id 顺序，并提供 `ADD`、`MODIFY`、`REPLACE` 向量语义；规则尚未接入 `WorldEnvironmentSampleAt()`（见记录 34）。
+规则系统必须声明执行阶段、作用范围、作用对象和组合方式。P6a 的 `WorldRuleSet` 已固定 global/body/region specificity、priority、registration id 顺序，并提供 `ADD`、`MODIFY`、`REPLACE` 向量语义；P6b 已让 gravity 规则通过 `WorldEnvironmentSampleAtWithRules()` 影响 `WorldGravitySample.acceleration`（见记录 34、35）。
 
 新增特殊星球最终应通过规则或 backend 扩展完成，不要求在通用 Player Controller 中增加 `if (planetType)`。动态实体是否共享这些规则由能力/组件决定，而不是由 `entity.type == PLAYER` 决定。
 
@@ -156,17 +157,23 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 验收：规则顺序可重放；未支持的 frame pair 显式失败。
 
-### P6b：规则消费与跨参考系
+### P6b：规则消费（实施记录 35）
 
-- 将 `WorldRuleSet` 接入 `WorldEnvironmentSampleAt()` 或对应 environment resolver。
+- 将 gravity `WorldRuleSet` 接入 `WorldEnvironmentSampleAtWithRules()`。
+- 验证 body/region scope、rule count 和 acceleration 结果。
+
+验收：特殊星球 gravity 规则可注册并实际影响环境样本。
+
+### P6c：跨参考系
+
 - 覆盖 system ↔ surface/body、render camera-relative 和 save-frame 转换。
-- 为 body/region gravity rule 增加真实环境样本测试。
+- 为真实系统中心投影和相机相对渲染增加回归测试。
 
-验收：特殊星球规则可注册并实际影响环境样本；surface、space、render 和 save 之间的位置转换均有具名入口和回归测试。
+验收：surface、space、render 和 save 之间的位置转换均有具名入口和回归测试。
 
-### P7：ECS 评估（P6b 完成后）
+### P7：ECS 评估（P6c 完成后）
 
-- 在 P6b 完成后，根据真实组件查询和系统调度需求决定是否采用 ECS。
+- 在 P6c 完成后，根据真实组件查询和系统调度需求决定是否采用 ECS。
 - 评估必须包含确定性、调试可读性、存档映射、测试成本和迁移回滚路径。
 
 验收：只有在现有架构无法清晰表达共享系统时才引入 ECS；ECS 不成为方块或地形存储的前置条件。
@@ -216,6 +223,6 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 当 Player Controller 不再包含具体几何 backend、所有 locomotion 状态写入都经过单一提交入口、环境与规则可通过接口替换，并且 surface/space/render/save 的参考系转换显式且可测试时，本目标架构才算完成。
 
-P3、P4a、P4b、P5 和 P6a 已实现对应基础边界；P6b 尚需把规则接入环境样本并补齐跨 frame 转换，之后才进入 P7 的 ECS 评估。
+P3、P4a、P4b、P5、P6a 和 P6b 已实现对应边界；P6c 尚需补齐跨 frame 转换，之后才进入 P7 的 ECS 评估。
 
 完成 ECS 评估并不等于必须采用 ECS。最终验收标准是职责边界和可验证行为，而不是某个框架、坐标类型或文件数量。

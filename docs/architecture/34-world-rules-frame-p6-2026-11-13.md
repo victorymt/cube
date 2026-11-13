@@ -1,5 +1,7 @@
 # World Rules and Frame Foundation P6（2026-11-13）
 
+> gravity rule 已接入 environment sample，见 [World Rule Environment Consumption P6b](35-world-rule-environment-p6b-2026-11-13.md)。
+
 - 日期：2026-11-13
 - 性质：阶段记录；实现 [Player、World Simulation 与参考系目标架构](29-player-world-simulation-target-2026-11-13.md) 的 P6 基础边界
 - 范围：确定性环境规则注册表、作用域/阶段/优先级与显式 frame identity
@@ -39,7 +41,7 @@
 
 ## 5. 已知边界
 
-- 规则注册表尚未接入 `WorldEnvironmentSampleAt()`；当前阶段先冻结规则顺序和冲突语义，后续再绑定具体环境字段。
+- gravity 规则已通过 `WorldEnvironmentSampleAtWithRules()` 接入；water 规则阶段仍未消费。
 - `SYSTEM`、render-camera 和 save-frame 转换需要真实参考系数据，本轮只建立显式失败边界。
 - 规则集合与 frame 都是运行时结构，不改变 V30 存档格式。
 

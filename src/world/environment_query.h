@@ -1,6 +1,8 @@
 #ifndef VOXELCRAFT_ENVIRONMENT_QUERY_H
 #define VOXELCRAFT_ENVIRONMENT_QUERY_H
 
+#include "world/world_rules.h"
+
 #include "raylib.h"
 
 #include <stdbool.h>
@@ -21,6 +23,8 @@ typedef struct WorldGravitySample {
     Vector3 direction;
     float surfaceDistance;
     float surfaceGravityScale;
+    Vector3 acceleration;
+    unsigned ruleCount;
 } WorldGravitySample;
 
 typedef struct WorldEnvironmentSample {
@@ -40,5 +44,9 @@ WorldEnvironmentSample WorldEnvironmentSampleAt(Vector3 position,
                                                 float eyeHeight,
                                                 float bodyHeight,
                                                 double simulationTime);
+WorldEnvironmentSample WorldEnvironmentSampleAtWithRules(
+    Vector3 position, float eyeHeight, float bodyHeight,
+    double simulationTime, uint32_t bodyId, uint64_t regionId,
+    const WorldRuleSet *rules);
 
 #endif
