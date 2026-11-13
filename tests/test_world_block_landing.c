@@ -108,7 +108,9 @@ static void TestPolarLandingIsClear(void)
      * hold for the cells that are actually reported. */
     FakeWorld world = {.groundRadial = 102, .knownBelow = 0, .solid = true};
     SurfacePose pose;
-    assert(SurfacePoseFromGeographic(0, 0.0, 1.5690, 103.5, 0.0, 0.0, &pose));
+    float bodyCenterRadial = 103.0f + half.y;
+    assert(SurfacePoseFromGeographic(0, 0.0, 1.5690, bodyCenterRadial,
+                                     0.0, 0.0, &pose));
     assert(WorldBlockLocationClear(&pose, half, BoxSolid, BoxKnown, &world));
     /* And a solid cell inside the reported span must block it. */
     world.groundRadial = 103;
