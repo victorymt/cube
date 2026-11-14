@@ -62,6 +62,12 @@ frame source to the save test closure. The same recipe reported
 `solid_vertices_per_chunk=2187.8`, and `sync_rebuilds=0`; the benchmark source
 closure and invariants remain unchanged.
 
+After extracting ordinary ground locomotion from the Player controller, the
+test manifest gained a focused actor-locomotion closure. The same recipe
+reported `median_total_ms=53.526`, `p95_total_ms=54.383`,
+`solid_vertices_per_chunk=2187.8`, and `sync_rebuilds=0`; the benchmark source
+closure and invariants remain unchanged.
+
 ## Semantic invariants
 
 These are behaviour, not performance, and must hold after any hot-path change:

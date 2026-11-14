@@ -15,6 +15,7 @@
 > P7 的 ECS 采用评估与决策见 [Player/Entity ECS Evaluation P7](37-player-entity-ecs-evaluation-p7-2026-11-13.md)。
 > P8a 的运行时规则消费见 [Player Runtime Rule Integration P8a](38-player-runtime-rule-integration-p8a-2026-11-14.md)。
 > P8b 的 save 边界采用与 renderer frame 定位见 [Frame Save Boundary P8b](39-frame-save-boundary-p8b-2026-11-14.md)。
+> P8.1 的普通地面 Intent/Motion Simulation 见 [Intent-Driven Ground Locomotion P8.1](40-intent-driven-ground-locomotion-p8-1-2026-11-14.md)。
 
 ## 1. 结论
 
@@ -65,17 +66,22 @@
 
 ```text
 InputSourceCaptureFrame
-  -> ActorIntent
+  -> PlayerInput
   -> PlayerController
+  -> ActorLocomotionIntent
+       + ActorBody
+       + ActorLocomotionProfile
+       + WorldEnvironmentSample
+  -> ActorGroundLocomotionStep
   -> ActorMotionRequest
   -> WorldActorResolveMotion
-  -> ActorMotionResult
+  -> ActorLocomotionResult
   -> ApplyActorMotion
   -> ActorBody / PlayerState
   -> Camera, presentation, persistence, diagnostics
 ```
 
-`ActorIntent` 是目标命令值；现有 P4a 实现使用 `PlayerInput` 承载前后、左右、垂直、跳跃、冲刺和视角增量。边沿动作必须在一 tick 内消费一次；输入层不得直接写 velocity 或 position。
+`ActorLocomotionIntent` 是普通地面运动的命令值；现有 P4a 输入仍使用 `PlayerInput` 承载前后、左右、垂直、跳跃、冲刺和视角增量，P8.1 再由 Player controller 转成 Intent。边沿动作必须在一 tick 内消费一次；输入层不得直接写 velocity 或 position。
 
 现有 `ActorMotionRequest` 携带期望位移、`allowUnready` 和 `canStepUp`，身体尺寸由独立的 `ActorCollider` 提供。`ActorMotionResult` 返回最终 `ActorBody` 和是否发生位移；碰撞原因、接触面、实际经过时间和 frame identity 仍是后续增强项。
 
@@ -83,7 +89,7 @@ InputSourceCaptureFrame
 
 `PlayerWorldOps` 保留为 gameplay 的组合端口；默认实现已经直接绑定 `WorldActorResolveMotion()`，不再由 gameplay 实现几何 backend。
 
-长期 actor 权威状态统一使用一个中性语义；`SurfaceAddress` 只能由连续位姿和世界快照派生，不能成为连续运动的规范存储。玩家在表面附近使用 `SurfacePose` 作为高保真物理解算状态；P6a/P6c 已提供 `WorldFrameId`/`WorldFramePoint`、local ↔ body-centered、system 和 render-camera 位置转换（见记录 34、36）。渲染器和 save caller 的全面采用仍待后续集成。
+长期 actor 权威状态统一使用一个中性语义；`SurfaceAddress` 只能由连续位姿和世界快照派生，不能成为连续运动的规范存储。玩家在表面附近使用 `SurfacePose` 作为高保真物理解算状态；P6a/P6c 已提供 `WorldFrameId`/`WorldFramePoint`、local ↔ body-centered、system 和 render-camera 位置转换（见记录 34、36）。P8b 后 save caller 已采用 save-local identity；renderer 保持 topology-native local-world 坐标，只有真实 camera-frame 消费者使用 camera-relative API。
 
 ## 5. 状态所有权与固定步
 
@@ -228,7 +234,7 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 当 Player Controller 不再包含具体几何 backend、所有 locomotion 状态写入都经过单一提交入口、环境与规则可通过接口替换，并且 surface/space/render/save 的参考系转换显式且可测试时，本目标架构才算完成。
 
-P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估、P8a 运行时规则消费和 P8b save/frame 边界已实现对应验收。具体星球规则内容与持久化属于后续 world definition 配置，不再是 Player/world 解耦的前置条件。
+P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估、P8a 运行时规则消费、P8b save/frame 边界和 P8.1 普通地面 Intent/Motion Simulation 已实现对应验收。具体星球规则内容与持久化属于后续 world definition 配置，不再是 Player/world 解耦的前置条件。
 
 完成 ECS 评估并不等于必须采用 ECS。最终验收标准是职责边界和可验证行为，而不是某个框架、坐标类型或文件数量。
 
@@ -247,3 +253,11 @@ P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估、P8a 运行时规则�
 - 速度、角速度和完整惯性 frame 仍不在本阶段伪造。
 
 验收：save round trip 和非法输入有回归；公共 frame pair 测试不回归；renderer 坐标契约被明确记录。
+
+### P8.1：普通地面 Intent / Motion Simulation（实施记录 40）
+
+- 新增 `ActorLocomotionIntent`、`ActorLocomotionProfile`、`ActorLocomotionResult` 和单 tick `ActorGroundLocomotionStep()`。
+- Player controller 只把普通地面输入转换为 Intent；中立 simulation 计算速度、jump 和候选位移，再调用既有 world geometry solver。
+- 水、太空、漂浮、载具、特效和表现时序保持原实现；Player 仍是唯一状态提交者。
+
+验收：普通地面行为不回归；通用 simulation 不依赖 Player、输入轮询或拓扑；不同 profile 可改变结果；固定步边沿与 replay 保持确定性。

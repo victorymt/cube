@@ -1,5 +1,7 @@
 # Player World Motion P3 实施记录（2026-11-13）
 
+> 普通地面行走/跳跃策略随后由 [Intent-Driven Ground Locomotion P8.1](40-intent-driven-ground-locomotion-p8-1-2026-11-14.md) 从 Player controller 抽离；world geometry solver 仍是本记录的 `actor_motion` 实现。
+
 - 日期：2026-11-13
 - 性质：阶段记录；实现 [Player、World Simulation 与参考系目标架构](29-player-world-simulation-target-2026-11-13.md) 的 P3
 - 范围：把 legacy/cube 位移、碰撞、step-up、落地查询和 surface pose 转换迁移到 world-side neutral motion solver

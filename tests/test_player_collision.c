@@ -845,6 +845,47 @@ static const PlayerWorldOps testPlayerWorldOps = {
     .sampleEnvironment = TestPlayerWorldEnvironment
 };
 
+static void TestGroundLocomotionProfileIntegration(void)
+{
+    ResetCollisionWorld();
+    groundEnabled = true;
+    Player walking = {
+        .position = { 0.5f, 1.0f, 0.5f },
+        .onGround = true
+    };
+    PlayerInput forward = { .forward = 1.0f };
+    UpdatePlayerWithWorld(&walking, 1.0f / 60.0f, 30.0,
+                          &forward, &testPlayerWorldOps);
+    assert(fabsf(walking.velocity.z - WALK_SPEED) < 1e-5f);
+    assert(fabsf(walking.velocity.x) < 1e-6f);
+
+    Player sprinting = {
+        .position = { 0.5f, 1.0f, 0.5f },
+        .onGround = true
+    };
+    PlayerInput sprint = { .forward = 1.0f, .sprint = true };
+    UpdatePlayerWithWorld(&sprinting, 1.0f / 60.0f, 30.1,
+                          &sprint, &testPlayerWorldOps);
+    assert(fabsf(sprinting.velocity.z - SPRINT_SPEED) < 1e-5f);
+
+    Player jumping = {
+        .position = { 0.5f, 1.0f, 0.5f },
+        .onGround = true
+    };
+    PlayerInput jump = { .vertical = 1.0f, .jumpPressed = true };
+    UpdatePlayerWithWorld(&jumping, 1.0f / 60.0f, 30.2,
+                          &jump, &testPlayerWorldOps);
+    assert(jumping.velocity.y > 0.0f);
+    assert(!jumping.onGround);
+    float jumpVelocity = jumping.velocity.y;
+    PlayerInput afterJump = { 0 };
+    UpdatePlayerWithWorld(&jumping, 1.0f / 60.0f, 30.3,
+                          &afterJump, &testPlayerWorldOps);
+    assert(jumping.velocity.y < jumpVelocity);
+    ResetCollisionWorld();
+}
+
+
 static void TestSwimmingSpeedAndAscent(void)
 {
     ResetCollisionWorld();
@@ -1116,6 +1157,7 @@ int main(void)
     assert(WorldInstallSurfaceSnapshot(NULL));
     WorldSetCubeRuntimeEnabled(false);
     WorldResetTopologyPolicy();
+    TestGroundLocomotionProfileIntegration();
     TestSwimmingSpeedAndAscent();
     puts("player collision tests passed");
     return 0;

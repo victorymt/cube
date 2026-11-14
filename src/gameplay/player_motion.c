@@ -14,9 +14,23 @@ static const ActorCollider playerCollider = {
     .stepHeight = 0.5f
 };
 
+static const ActorLocomotionProfile playerLocomotionProfile = {
+    .walkSpeed = WALK_SPEED,
+    .sprintSpeed = SPRINT_SPEED,
+    .jumpSpeed = JUMP_SPEED,
+    .minGravityScale = 0.45f,
+    .maxGravityScale = 1.75f,
+    .maxFallSpeed = 35.0f
+};
+
 const ActorCollider *PlayerMotionCollider(void)
 {
     return &playerCollider;
+}
+
+const ActorLocomotionProfile *PlayerLocomotionProfile(void)
+{
+    return &playerLocomotionProfile;
 }
 
 bool PlayerOverlapsWorldWithOptions(Vector3 position, bool allowUnready)

@@ -53,87 +53,91 @@ void UpdatePlayerWithWorld(Player *player, float dt, double simulationTime,
     player->pitch -= mouseDelta.y * MOUSE_SENSITIVITY;
     player->pitch = Clamp(player->pitch, -1.45f, 1.45f);
 
-    Vector3 forward = FlatForward(player->yaw);
-    Vector3 right = RightFromYaw(player->yaw);
-    float forwardInput = Clamp(input->forward, -1.0f, 1.0f);
-    float strafeInput = Clamp(input->strafe, -1.0f, 1.0f);
-    Vector3 wish = Vector3Add(Vector3Scale(forward, forwardInput),
-                              Vector3Scale(right, strafeInput));
-    if (Vector3LengthSqr(wish) > 0.0f) wish = Vector3Normalize(wish);
-
     WorldWaterSample water = environment.water;
     bool swimming = water.bodySubmerged || water.eyesSubmerged;
-    float speed = input->sprint ? SPRINT_SPEED : WALK_SPEED;
-    if (swimming) speed = input->sprint ? WATER_SPRINT_SPEED : WATER_WALK_SPEED;
-    float targetVelocityX = wish.x * speed;
-    float targetVelocityZ = wish.z * speed;
-    if (swimming) {
-        targetVelocityX += water.flowVelocity.x;
-        targetVelocityZ += water.flowVelocity.z;
-        player->velocity.x = PlayerApproach(player->velocity.x,
-                                            targetVelocityX, dt,
-                                            WATER_HORIZONTAL_RESPONSE);
-        player->velocity.z = PlayerApproach(player->velocity.z,
-                                            targetVelocityZ, dt,
-                                            WATER_HORIZONTAL_RESPONSE);
-    } else {
-        player->velocity.x = targetVelocityX;
-        player->velocity.z = targetVelocityZ;
-    }
-
     PlayerGravitySample gravity = environment.gravity;
     bool inSpace = gravity.inSpace;
-    float gravityScale = Clamp(gravity.gravityScale, 0.45f, 1.75f);
-    float jumpSpeed = JUMP_SPEED * sqrtf(gravityScale);
-    if (inSpace) {
-        player->velocity = Vector3Add(
-            player->velocity, Vector3Scale(gravity.acceleration, dt));
-        player->velocity.y -= player->velocity.y * 2.0f * dt;
-        player->velocity.y += Clamp(input->vertical, -1.0f, 1.0f) *
-                              12.0f * dt;
-        if (player->velocity.y > 10.0f) player->velocity.y = 10.0f;
-        if (player->velocity.y < -10.0f) player->velocity.y = -10.0f;
-    } else if (player->floating) {
-        player->velocity.y = Clamp(input->vertical, -1.0f, 1.0f) *
-                             FLOAT_VERTICAL_SPEED;
-    } else if (swimming) {
-        float verticalInput = Clamp(input->vertical, -1.0f, 1.0f);
-        float targetVertical = verticalInput * WATER_VERTICAL_SPEED;
-        if (fabsf(verticalInput) < 0.001f) {
-            targetVertical = water.eyesSubmerged ? 0.35f : -0.60f;
-        }
-        targetVertical += water.flowVelocity.y;
-        player->velocity.y = PlayerApproach(player->velocity.y,
-                                            targetVertical, dt,
-                                            WATER_VERTICAL_RESPONSE);
-        player->velocity.y = Clamp(player->velocity.y,
-                                   -WATER_MAX_VERTICAL_SPEED,
-                                   WATER_MAX_VERTICAL_SPEED);
-        if (verticalInput > 0.0f) player->onGround = false;
-    } else {
-        if (input->jumpPressed && input->vertical > 0.0f && player->onGround) {
-            player->velocity.y = jumpSpeed;
-            player->onGround = false;
-        }
-        player->velocity = Vector3Add(
-            player->velocity, Vector3Scale(gravity.acceleration, dt));
-        if (player->velocity.y < -35.0f) player->velocity.y = -35.0f;
-    }
+    bool ordinaryGround = !inSpace && !player->floating && !swimming;
 
-    ActorBody body = {
-        .position = player->position,
-        .velocity = player->velocity,
-        .yaw = player->yaw,
-        .pitch = player->pitch,
-        .onGround = player->onGround,
-        .floating = player->floating
-    };
-    ActorMotionRequest move = {
-        .delta = Vector3Scale(player->velocity, dt),
-        .canStepUp = body.onGround && !body.floating
-    };
-    (void)world->move(world->user, &body, &move);
-    PlayerApplyActorBody(player, &body);
+    if (ordinaryGround) {
+        ActorLocomotionIntent intent = {
+            .forward = Clamp(input->forward, -1.0f, 1.0f),
+            .strafe = Clamp(input->strafe, -1.0f, 1.0f),
+            .sprint = input->sprint,
+            .jump = input->jumpPressed && input->vertical > 0.0f
+        };
+        ActorBody body = PlayerActorBody(player);
+        ActorLocomotionResult result;
+        if (!ActorGroundLocomotionStep(
+                &body, &intent, PlayerLocomotionProfile(), &environment,
+                world, dt, &result)) {
+            return;
+        }
+        PlayerApplyActorBody(player, &result.body);
+    } else {
+        Vector3 forward = FlatForward(player->yaw);
+        Vector3 right = RightFromYaw(player->yaw);
+        float forwardInput = Clamp(input->forward, -1.0f, 1.0f);
+        float strafeInput = Clamp(input->strafe, -1.0f, 1.0f);
+        Vector3 wish = Vector3Add(Vector3Scale(forward, forwardInput),
+                                  Vector3Scale(right, strafeInput));
+        if (Vector3LengthSqr(wish) > 0.0f) wish = Vector3Normalize(wish);
+
+        float speed = input->sprint ? SPRINT_SPEED : WALK_SPEED;
+        if (swimming) {
+            speed = input->sprint ? WATER_SPRINT_SPEED : WATER_WALK_SPEED;
+        }
+        float targetVelocityX = wish.x * speed;
+        float targetVelocityZ = wish.z * speed;
+        if (swimming) {
+            targetVelocityX += water.flowVelocity.x;
+            targetVelocityZ += water.flowVelocity.z;
+            player->velocity.x = PlayerApproach(
+                player->velocity.x, targetVelocityX, dt,
+                WATER_HORIZONTAL_RESPONSE);
+            player->velocity.z = PlayerApproach(
+                player->velocity.z, targetVelocityZ, dt,
+                WATER_HORIZONTAL_RESPONSE);
+        } else {
+            player->velocity.x = targetVelocityX;
+            player->velocity.z = targetVelocityZ;
+        }
+
+        if (inSpace) {
+            player->velocity = Vector3Add(
+                player->velocity, Vector3Scale(gravity.acceleration, dt));
+            player->velocity.y -= player->velocity.y * 2.0f * dt;
+            player->velocity.y += Clamp(input->vertical, -1.0f, 1.0f) *
+                                  12.0f * dt;
+            if (player->velocity.y > 10.0f) player->velocity.y = 10.0f;
+            if (player->velocity.y < -10.0f) player->velocity.y = -10.0f;
+        } else if (player->floating) {
+            player->velocity.y = Clamp(input->vertical, -1.0f, 1.0f) *
+                                 FLOAT_VERTICAL_SPEED;
+        } else if (swimming) {
+            float verticalInput = Clamp(input->vertical, -1.0f, 1.0f);
+            float targetVertical = verticalInput * WATER_VERTICAL_SPEED;
+            if (fabsf(verticalInput) < 0.001f) {
+                targetVertical = water.eyesSubmerged ? 0.35f : -0.60f;
+            }
+            targetVertical += water.flowVelocity.y;
+            player->velocity.y = PlayerApproach(
+                player->velocity.y, targetVertical, dt,
+                WATER_VERTICAL_RESPONSE);
+            player->velocity.y = Clamp(player->velocity.y,
+                                       -WATER_MAX_VERTICAL_SPEED,
+                                       WATER_MAX_VERTICAL_SPEED);
+            if (verticalInput > 0.0f) player->onGround = false;
+        }
+
+        ActorBody body = PlayerActorBody(player);
+        ActorMotionRequest move = {
+            .delta = Vector3Scale(player->velocity, dt),
+            .canStepUp = body.onGround && !body.floating
+        };
+        (void)world->move(world->user, &body, &move);
+        PlayerApplyActorBody(player, &body);
+    }
 
     float horizontalSpeed = sqrtf(player->velocity.x * player->velocity.x +
                                   player->velocity.z * player->velocity.z);

@@ -47,6 +47,7 @@ new physical-simulation stages.
 | 37 | [player/entity ECS evaluation P7 (2026-11-13)](37-player-entity-ecs-evaluation-p7-2026-11-13.md) | player/entity storage and system audit, ECS decision gates, deterministic migration constraints, and the decision to defer component storage |
 | 38 | [player runtime rule integration P8a (2026-11-14)](38-player-runtime-rule-integration-p8a-2026-11-14.md) | runtime WorldRuleSet ownership, combined environment samples, active-body scope, and gravity/water rules driving real Player motion |
 | 39 | [frame save boundary P8b (2026-11-14)](39-frame-save-boundary-p8b-2026-11-14.md) | explicit save-local frame conversion, save/load round trip, and the topology-native renderer coordinate contract |
+| 40 | [intent-driven ground locomotion P8.1 (2026-11-14)](40-intent-driven-ground-locomotion-p8-1-2026-11-14.md) | actor-neutral ground intent/profile, ordinary walk/sprint/jump simulation, and one-tick Player state commit |
 
 Programmatic-generation review: [2026-11-12 procedural generation analysis](../procedural-generation-analysis-2026-11-12.md) records the current generation pipeline, determinism model, content gaps and suggested order.
 
