@@ -6,15 +6,48 @@
 #include "world/surface_contract.h"
 #include "world/block_edit_types.h"
 #include "world/world_cell.h"
+#include "space/space_frame.h"
+#include "world/world_frame.h"
 
 /* The production accessor returns the policy installed from the save header.
  * This fixture can switch to a cube policy so the cube section is actually
  * exercised; a permanently-legacy stub hid a write/read ordering bug. */
 static bool testCubePolicy = false;
 
+double SpaceElapsedSimulationTime(void) { return 42.0; }
+
 const SurfaceContract *WorldCurrentSurfaceContract(void)
 {
     return NULL;
+}
+
+bool WorldActorPoseFromLocal(Vector3 position, SurfacePose *outPose)
+{
+    (void)position;
+    (void)outPose;
+    return false;
+}
+
+bool WorldActorLocalFromPose(const SurfacePose *pose, Vector3 *outPosition)
+{
+    (void)pose;
+    (void)outPosition;
+    return false;
+}
+
+bool SpaceSystemPointToLocal(const SpaceSystemPoint *systemPoint,
+                             Vector3 *outLocal)
+{
+    (void)systemPoint;
+    (void)outLocal;
+    return false;
+}
+
+bool SpaceSystemPointFromLocal(Vector3 local, SpaceSystemPoint *out)
+{
+    (void)local;
+    (void)out;
+    return false;
 }
 
 WorldSurfaceContext WorldCurrentSurfaceContext(void)
@@ -362,6 +395,27 @@ static void TestHydrologyRuntimePayloadRouting(void)
     fclose(file);
 }
 
+static void TestPlayerSaveFrameBoundary(void)
+{
+    Player player = {
+        .position = { 12.25f, 20.5f, -7.75f }
+    };
+    Vector3 saved;
+    Vector3 local;
+    assert(GameSaveTestPlayerPositionToSaveFrame(
+        &player, WORLD_DIMENSION_HOME, &saved));
+    player.position = saved;
+    assert(GameSaveTestPlayerPositionFromSaveFrame(
+        &player, WORLD_DIMENSION_HOME, &local));
+    assert(local.x == 12.25f && local.y == 20.5f && local.z == -7.75f);
+
+    player.position.x = NAN;
+    assert(!GameSaveTestPlayerPositionToSaveFrame(
+        &player, WORLD_DIMENSION_HOME, &saved));
+    assert(!GameSaveTestPlayerPositionFromSaveFrame(
+        &player, WORLD_DIMENSION_HOME, &local));
+}
+
 /* V30 always writes the unified cell block, including an empty store. The
  * codec version and magic are independent of the per-surface topology. */
 static void TestCellSectionStartsWithItsMagic(void)
@@ -386,6 +440,7 @@ static void TestCellSectionStartsWithItsMagic(void)
 
 int main(void)
 {
+    TestPlayerSaveFrameBoundary();
     TestRemainderPayloadRouting();
     TestAshPayloadRouting();
     TestLavaPayloadRouting();

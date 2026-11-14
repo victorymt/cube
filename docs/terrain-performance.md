@@ -56,6 +56,12 @@ recipe reported `median_total_ms=54.232`, `p95_total_ms=55.710`,
 runtime rule path changed; the chunk mesh benchmark closure and semantic
 invariants did not.
 
+After adopting the save-local frame boundary, the test manifest added the world
+frame source to the save test closure. The same recipe reported
+`median_total_ms=53.687`, `p95_total_ms=55.387`,
+`solid_vertices_per_chunk=2187.8`, and `sync_rebuilds=0`; the benchmark source
+closure and invariants remain unchanged.
+
 ## Semantic invariants
 
 These are behaviour, not performance, and must hold after any hot-path change:

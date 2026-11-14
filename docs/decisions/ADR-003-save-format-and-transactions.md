@@ -28,6 +28,8 @@
 
 读档通过 `PlayerRestoreState()` 提交反序列化后的 Player；该 helper 只统一状态复制入口，不改变 V30 字段顺序、校验或事务读取语义。
 
+Player 的位置在 save boundary 通过 `WorldFrameSaveId()` 和 `WorldFrameTransformPoint()` 显式标记为 save-local，并在读档时转换回 active local frame。当前 V30 的 save-local 与 active local 数值相同，因此字段布局和字节数没有变化；这一步约束的是坐标语义，不是引入新格式。
+
 `SaveIoReadTransactional` 先用 checkpointWriter 把当前世界写进 `tmpfile()`，再让 reader 读源文件。reader 失败时清掉错误标志、`rewind` checkpoint，再用同一个 reader 把快照读回去，于是“读失败”和“回滚失败”是两种不同的结果码。
 
 ## 备选方案
@@ -63,7 +65,7 @@
 - `src/world/save_format.h`：`WorldSaveFormat` 枚举、`WORLD_SAVE_FORMAT_V30`、历史枚举值注释
 - `src/world/save_format.c`：`SAVE_MAGIC_V30`、`TOPOL002`、逐表面 topology 校验、V29 及更早拒绝
 - `src/world/cube_address_save.h/.c`：`CUBADDR2`、完整 `WorldCell` 记录、无效 volume/solid-water 拒绝
-- `src/app/game_save.c`：canonical `SurfacePose` 编解码、fresh-process topology 安装、统一 cell edit block、volume-aware undo/redo
+- `src/app/game_save.c`：canonical `SurfacePose` 编解码、save-local frame 边界、fresh-process topology 安装、统一 cell edit block、volume-aware undo/redo
 - `src/core/save_io.h`：`SaveIoWriter`、`SaveIoReader`、`SaveIoTransactionResult`、两个函数注释
 - `src/core/save_io.c`：`SyncParentDirectory`、`CopyFileAtomic`、`SaveIoWriteAtomic`、`SaveIoReadTransactional`
 - `src/app/game_save.c`：`SAVE_FILE_BAK`、`SAVE_MAX_FILE_BYTES`、`GameSaveMap`、`GameSaveWriteFile`、`GameSaveCheckpoint`、`GameLoadApplyFile` 的 `WORLD_SAVE_FORMAT_V30`、`GameLoadMap`

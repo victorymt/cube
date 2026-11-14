@@ -24,6 +24,7 @@ Replay checkpoint 覆盖新状态类型时，同时验证完整重放、checkpoi
 规则接入环境后，要断言 baseline、匹配 scope、不匹配 scope、rule count 和最终 acceleration，而不只是规则表自身。
 规则接入运行时后，还要通过真实 PlayerWorldOps 断言最终速度或位置变化；只验证 environment sample 不能证明游戏行为已经消费规则。
 跨 frame 测试要覆盖 anchor 匹配、camera-relative round trip 和 save-local identity；不支持的 frame pair 必须断言失败。
+Save frame 采用要测试 local → save → local、非法数值和被丢弃的版本，并确认 V30 编码不变；raylib world draw 仍使用 local-world 坐标，不能把 camera-relative 点直接提交给已有 camera view。
 
 审计结果（2026-10-25）：126 个 C 测试中只有 6 个写了说明；979 个 `Test*` 函数只有 17 个带注释；`docs/documentation-rules.md` 从未提到测试注释。这个 skill 就是从"没有约定"到"有约定"的那一步。
 

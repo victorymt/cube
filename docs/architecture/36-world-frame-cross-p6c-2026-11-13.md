@@ -40,9 +40,9 @@ system anchor、body id、frame kind 和 source/target 不匹配时返回 `false
 
 ## 4. 已知边界
 
-- 渲染器尚未全面改用 `WorldFrameTransformPointToCamera()`，本轮先提供可测试 API。
+- P8b 后 save caller 已使用 `WorldFrameSaveId()`；renderer 保持 topology-native local-world 坐标，只有真实 camera-frame 消费者才使用 camera-relative API。
 - system frame 仍是 game-distance 近似，不是完整的惯性/自转参考系；速度和加速度转换需要后续扩展。
-- V30 仍只保存 local pose，没有新增 frame 字段。
+- V30 仍只保存 local pose，没有新增 frame 字段；P8b 只把该边界显式标记并验证，不改变编码。
 
 ## 5. 代码索引
 

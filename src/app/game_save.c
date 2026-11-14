@@ -34,6 +34,7 @@
 #include "world/block_lighting.h"
 #include "world/block_edits.h"
 #include "world/world_environment.h"
+#include "world/world_frame.h"
 #include "world/world_surface_snapshot.h"
 #include "world/world_persistence.h"
 #include "world/fluid.h"
@@ -233,12 +234,69 @@ static const char *GameLoadInventoryRemainders(FILE *file, WorldSaveFormat forma
 }
 
 
+static uint32_t GameSavePlayerBodyId(WorldDimension dimension)
+{
+    if (!WorldIsSurfaceDimension(dimension)) return 0u;
+    return WorldCurrentSurfaceContext().bodyId;
+}
+
+static bool GameSavePlayerPositionToSaveFrame(
+    const Player *player, WorldDimension dimension, Vector3 *outPosition)
+{
+    if (!player || !outPosition) return false;
+    uint32_t bodyId = GameSavePlayerBodyId(dimension);
+    WorldFramePoint local = {
+        .frame = { .kind = WORLD_FRAME_LOCAL, .bodyId = bodyId },
+        .x = player->position.x,
+        .y = player->position.y,
+        .z = player->position.z
+    };
+    WorldFramePoint saved = { 0 };
+    if (!WorldFrameTransformPoint(&local, WorldFrameSaveId(bodyId),
+                                  SpaceElapsedSimulationTime(), &saved)) {
+        return false;
+    }
+    *outPosition = (Vector3){
+        (float)saved.x, (float)saved.y, (float)saved.z
+    };
+    return true;
+}
+
+static bool GameSavePlayerPositionFromSaveFrame(
+    const Player *player, WorldDimension dimension, Vector3 *outPosition)
+{
+    if (!player || !outPosition) return false;
+    uint32_t bodyId = GameSavePlayerBodyId(dimension);
+    WorldFramePoint saved = {
+        .frame = WorldFrameSaveId(bodyId),
+        .x = player->position.x,
+        .y = player->position.y,
+        .z = player->position.z
+    };
+    WorldFramePoint local = { 0 };
+    if (!WorldFrameTransformPoint(
+            &saved, (WorldFrameId){ .kind = WORLD_FRAME_LOCAL, .bodyId = bodyId },
+            SpaceElapsedSimulationTime(), &local)) {
+        return false;
+    }
+    *outPosition = (Vector3){
+        (float)local.x, (float)local.y, (float)local.z
+    };
+    return true;
+}
+
 static bool GameSaveWritePlayerState(FILE *file, const Player *player,
                                      WorldDimension dimension)
 {
     if (!file || !player) return false;
+    Vector3 savedPosition;
+    if (!GameSavePlayerPositionToSaveFrame(player, dimension, &savedPosition)) {
+        return false;
+    }
     float local[9] = {
-        player->position.x, player->position.y, player->position.z,
+        savedPosition.x,
+        savedPosition.y,
+        savedPosition.z,
         player->velocity.x, player->velocity.y, player->velocity.z,
         player->yaw, player->pitch, player->floating ? 1.0f : 0.0f
     };
@@ -247,11 +305,11 @@ static bool GameSaveWritePlayerState(FILE *file, const Player *player,
     if (hasPose) {
         WorldSurfaceContext context = WorldCurrentSurfaceContext();
         SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
-            (float)context.originX + player->position.x,
-            (float)context.originZ + player->position.z);
+            (float)context.originX + savedPosition.x,
+            (float)context.originZ + savedPosition.z);
         if (!SurfacePoseFromGeographic(
                 context.bodyId, projection.longitude, projection.latitude,
-                player->position.y, player->yaw, player->pitch, &pose)) {
+                savedPosition.y, player->yaw, player->pitch, &pose)) {
             hasPose = false;
         }
         if (hasPose) {
@@ -420,6 +478,18 @@ static bool GameLoadCurrentCorePayload(FILE *file, LoadedGameSave *data)
 
 
 #ifdef GAME_SAVE_TESTING
+bool GameSaveTestPlayerPositionToSaveFrame(
+    const Player *player, WorldDimension dimension, Vector3 *outPosition)
+{
+    return GameSavePlayerPositionToSaveFrame(player, dimension, outPosition);
+}
+
+bool GameSaveTestPlayerPositionFromSaveFrame(
+    const Player *player, WorldDimension dimension, Vector3 *outPosition)
+{
+    return GameSavePlayerPositionFromSaveFrame(player, dimension, outPosition);
+}
+
 bool GameSaveTestPolicyUsesCubeGrid(void)
 {
     return GameSavePolicyUsesCubeGrid();
@@ -471,7 +541,16 @@ const char *GameSaveTestLoadHydrologyRuntimeState(
 
 static bool GameLoadResolvePlayerPose(LoadedGameSave *data)
 {
-    if (!data || !data->hasSurfacePose) return true;
+    if (!data) return false;
+    Vector3 localPosition;
+    if (!GameSavePlayerPositionFromSaveFrame(
+            &data->player, data->dimension, &localPosition)) {
+        return false;
+    }
+    if (!data->hasSurfacePose) {
+        data->player.position = localPosition;
+        return true;
+    }
     WorldSurfaceContext context = WorldCurrentSurfaceContext();
     if (!context.active || data->surfacePose.bodyId != context.bodyId) {
         return false;

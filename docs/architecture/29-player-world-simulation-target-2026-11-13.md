@@ -14,6 +14,7 @@
 > P6c 的 surface/body/system/render/save frame API 见 [World Frame Cross-Reference P6c](36-world-frame-cross-p6c-2026-11-13.md)。
 > P7 的 ECS 采用评估与决策见 [Player/Entity ECS Evaluation P7](37-player-entity-ecs-evaluation-p7-2026-11-13.md)。
 > P8a 的运行时规则消费见 [Player Runtime Rule Integration P8a](38-player-runtime-rule-integration-p8a-2026-11-14.md)。
+> P8b 的 save 边界采用与 renderer frame 定位见 [Frame Save Boundary P8b](39-frame-save-boundary-p8b-2026-11-14.md)。
 
 ## 1. 结论
 
@@ -172,7 +173,7 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 - system anchor point、surface/body/system 组合转换、camera-relative position 和 save-local identity 已提供。
 - 系统投影仍使用 game-distance 近似；完整惯性、速度和旋转转换待后续。
 
-验收：各 frame pair 均有具名入口；位置 round trip 和不支持输入有回归测试。渲染器/save caller 的全面采用仍待后续集成。
+验收：各 frame pair 均有具名入口；位置 round trip 和不支持输入有回归测试。save caller 已在 P8b 接入 save-local identity；renderer 保持 topology-native local-world 坐标，只有真实 camera-frame 消费者使用 camera-relative API。
 
 ### P7：ECS 评估（实施记录 37）
 
@@ -227,7 +228,7 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 当 Player Controller 不再包含具体几何 backend、所有 locomotion 状态写入都经过单一提交入口、环境与规则可通过接口替换，并且 surface/space/render/save 的参考系转换显式且可测试时，本目标架构才算完成。
 
-P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估和 P8a 运行时规则消费已实现对应边界；渲染器/save caller 的全面 frame 采用仍待后续。
+P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估、P8a 运行时规则消费和 P8b save/frame 边界已实现对应验收。具体星球规则内容与持久化属于后续 world definition 配置，不再是 Player/world 解耦的前置条件。
 
 完成 ECS 评估并不等于必须采用 ECS。最终验收标准是职责边界和可验证行为，而不是某个框架、坐标类型或文件数量。
 
@@ -238,3 +239,11 @@ P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估和 P8a 运行时规则
 - 当前通用 region identity 尚未建立，Player 查询使用 `0`，global/body 规则已生效，region scope 留给后续 world definition。
 
 验收：无规则行为不回归；body-scoped gravity/water 规则通过真实 PlayerWorldOps 改变运动；不匹配 body 不生效。
+
+### P8b：save 与 renderer frame 边界（实施记录 39）
+
+- Player save/load 通过 `WorldFrameSaveId()` 和 `WorldFrameTransformPoint()` 显式验证 local ↔ save-local；V30 数值和编码不变。
+- renderer 继续使用 camera + topology-native local-world transform，不以 camera-relative API 重复平移；camera-frame API 只服务真实跨 frame 数值消费者。
+- 速度、角速度和完整惯性 frame 仍不在本阶段伪造。
+
+验收：save round trip 和非法输入有回归；公共 frame pair 测试不回归；renderer 坐标契约被明确记录。

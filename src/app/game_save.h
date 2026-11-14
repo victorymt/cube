@@ -11,11 +11,15 @@ void GameSaveMap(const Player *player);
 bool GameLoadMap(Player *player);
 
 #ifdef GAME_SAVE_TESTING
+#include "world/world_environment.h"
+#include "world/save_format.h"
 /* Returns true when the active policy writes the cube edit section. */
 bool GameSaveTestPolicyUsesCubeGrid(void);
 bool GameSaveTestWriteCubeEdits(FILE *file);
-#include "world/world_environment.h"
-#include "world/save_format.h"
+bool GameSaveTestPlayerPositionToSaveFrame(
+    const Player *player, WorldDimension dimension, Vector3 *outPosition);
+bool GameSaveTestPlayerPositionFromSaveFrame(
+    const Player *player, WorldDimension dimension, Vector3 *outPosition);
 
 #include <stdio.h>
 #include "world/block_edit_types.h"
