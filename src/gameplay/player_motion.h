@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_PLAYER_MOTION_H
 #define VOXELCRAFT_PLAYER_MOTION_H
 
-#include "gameplay/actor_locomotion.h"
+#include "gameplay/player_motion_simulation.h"
 #include "gameplay/player_types.h"
 #include "world/actor_motion.h"
 
@@ -11,6 +11,7 @@
  * solver. New geometry implementations live in world/actor_motion.c. */
 const ActorCollider *PlayerMotionCollider(void);
 const ActorLocomotionProfile *PlayerLocomotionProfile(void);
+const PlayerMotionProfile *PlayerMotionProfileDefault(void);
 bool PlayerOverlapsWorld(Vector3 position);
 bool PlayerOverlapsWorldWithOptions(Vector3 position, bool allowUnready);
 bool PlayerLocalFromSurfacePose(const SurfacePose *pose, Vector3 *outPosition);

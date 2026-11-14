@@ -16,6 +16,7 @@
 > P8a 的运行时规则消费见 [Player Runtime Rule Integration P8a](38-player-runtime-rule-integration-p8a-2026-11-14.md)。
 > P8b 的 save 边界采用与 renderer frame 定位见 [Frame Save Boundary P8b](39-frame-save-boundary-p8b-2026-11-14.md)。
 > P8.1 的普通地面 Intent/Motion Simulation 见 [Intent-Driven Ground Locomotion P8.1](40-intent-driven-ground-locomotion-p8-1-2026-11-14.md)。
+> P8.2 的统一 ground/water/space/floating pipeline 见 [Unified Player Environment Motion P8.2](41-unified-player-environment-motion-p8-2-2026-11-14.md)。
 
 ## 1. 结论
 
@@ -67,21 +68,21 @@
 ```text
 InputSourceCaptureFrame
   -> PlayerInput
-  -> PlayerController
-  -> ActorLocomotionIntent
+  -> PlayerMotionIntent
        + ActorBody
-       + ActorLocomotionProfile
-       + WorldEnvironmentSample
-  -> ActorGroundLocomotionStep
-  -> ActorMotionRequest
-  -> WorldActorResolveMotion
-  -> ActorLocomotionResult
-  -> ApplyActorMotion
-  -> ActorBody / PlayerState
+       + PlayerMotionProfile
+  -> PlayerMotionStep
+       -> GROUND / WATER / SPACE / FLOATING simulation
+       -> common ActorMotionRequest
+       -> WorldActorResolveMotion
+       -> moved environment sample
+  -> PlayerMotionResult
+  -> PlayerApplyActorBody
+  -> gameplay effects
   -> Camera, presentation, persistence, diagnostics
 ```
 
-`ActorLocomotionIntent` 是普通地面运动的命令值；现有 P4a 输入仍使用 `PlayerInput` 承载前后、左右、垂直、跳跃、冲刺和视角增量，P8.1 再由 Player controller 转成 Intent。边沿动作必须在一 tick 内消费一次；输入层不得直接写 velocity 或 position。
+`PlayerMotionIntent` 是普通 Player locomotion 的命令值；P8.2 把 ground、water、space、floating 都接到同一个 Intent → Mode Simulation → Common Collision → Commit 管线。现有固定步输入仍使用 `PlayerInput` 承载前后、左右、垂直、跳跃、冲刺和视角增量，再由 Player controller 转成 Intent。边沿动作必须在一 tick 内消费一次；输入层不得直接写 velocity 或 position。
 
 现有 `ActorMotionRequest` 携带期望位移、`allowUnready` 和 `canStepUp`，身体尺寸由独立的 `ActorCollider` 提供。`ActorMotionResult` 返回最终 `ActorBody` 和是否发生位移；碰撞原因、接触面、实际经过时间和 frame identity 仍是后续增强项。
 
@@ -234,7 +235,7 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 当 Player Controller 不再包含具体几何 backend、所有 locomotion 状态写入都经过单一提交入口、环境与规则可通过接口替换，并且 surface/space/render/save 的参考系转换显式且可测试时，本目标架构才算完成。
 
-P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估、P8a 运行时规则消费、P8b save/frame 边界和 P8.1 普通地面 Intent/Motion Simulation 已实现对应验收。具体星球规则内容与持久化属于后续 world definition 配置，不再是 Player/world 解耦的前置条件。
+P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估、P8a 运行时规则消费、P8b save/frame 边界、P8.1 普通地面 simulation 和 P8.2 统一环境 locomotion pipeline 已实现对应验收。Tornado external force 与 ship 仍为独立后续工作；具体星球规则内容与持久化属于 world definition 配置。
 
 完成 ECS 评估并不等于必须采用 ECS。最终验收标准是职责边界和可验证行为，而不是某个框架、坐标类型或文件数量。
 
@@ -261,3 +262,12 @@ P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估、P8a 运行时规则�
 - 水、太空、漂浮、载具、特效和表现时序保持原实现；Player 仍是唯一状态提交者。
 
 验收：普通地面行为不回归；通用 simulation 不依赖 Player、输入轮询或拓扑；不同 profile 可改变结果；固定步边沿与 replay 保持确定性。
+
+### P8.2：统一 ground/water/space/floating（实施记录 41）
+
+- 新增 `PlayerMotionIntent`、`PlayerMotionMode`、`PlayerMotionProfile`、`PlayerMotionResult` 和 `PlayerMotionStep()`。
+- Player controller 不再包含 water/space/floating 速度分支；四种 mode 共用一次 world collision 和一次 `ActorBody` commit。
+- water flow/buoyancy、space damping/clamp、floating vertical speed 原样迁入 mode simulation。
+- tornado 和 ship 尚未进入统一 pipeline，保持原路径。
+
+验收：四种 mode 行为与旧实现一致；mode priority 明确；每 tick 只有一次 collision 和 Player commit；fixed-step/replay/E2E 不回归。

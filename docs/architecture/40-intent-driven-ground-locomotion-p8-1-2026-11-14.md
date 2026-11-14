@@ -1,5 +1,7 @@
 # Intent-Driven Ground Locomotion P8.1（2026-11-14）
 
+> water/space/floating 随后由 [Unified Player Environment Motion P8.2](41-unified-player-environment-motion-p8-2-2026-11-14.md) 接入同一 pipeline。
+
 - 日期：2026-11-14
 - 性质：阶段记录；实现玩家普通地面行走、冲刺和跳跃策略的 actor-neutral simulation 抽离
 - 范围：`ActorLocomotionIntent`、`ActorLocomotionProfile`、一 tick ground solver 和 Player 固定步接入
@@ -84,7 +86,7 @@ Profile 只是能力参数，不保存 position/velocity；当前运动状态始
 
 ## 5. 已知边界 / Deferred
 
-- 只抽离普通地面移动与跳跃；水、太空、漂浮、载具和龙卷风策略保持原实现。
+- P8.1 只抽离普通地面移动与跳跃；P8.2 随后迁移了水、太空和漂浮，载具与龙卷风仍保持原实现。
 - `PlayerWorldOps` 名称未重命名；未来可评估 `ActorWorldOps`，但不属于 P8.1。
 - 跨 frame 的速度/角速度语义、规则持久化和具体星球规则内容仍属于其他阶段。
 - 未引入 ECS、Entity 存储改造、消息总线或新的世界状态副本。

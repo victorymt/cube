@@ -68,6 +68,12 @@ reported `median_total_ms=53.526`, `p95_total_ms=54.383`,
 `solid_vertices_per_chunk=2187.8`, and `sync_rebuilds=0`; the benchmark source
 closure and invariants remain unchanged.
 
+After unifying ground/water/space/floating Player motion, the test manifest
+gained a mode-pipeline closure. The same recipe reported
+`median_total_ms=53.500`, `p95_total_ms=58.018`,
+`solid_vertices_per_chunk=2187.8`, and `sync_rebuilds=0`; the benchmark source
+closure and invariants remain unchanged.
+
 ## Semantic invariants
 
 These are behaviour, not performance, and must hold after any hot-path change:

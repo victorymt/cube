@@ -48,6 +48,7 @@ new physical-simulation stages.
 | 38 | [player runtime rule integration P8a (2026-11-14)](38-player-runtime-rule-integration-p8a-2026-11-14.md) | runtime WorldRuleSet ownership, combined environment samples, active-body scope, and gravity/water rules driving real Player motion |
 | 39 | [frame save boundary P8b (2026-11-14)](39-frame-save-boundary-p8b-2026-11-14.md) | explicit save-local frame conversion, save/load round trip, and the topology-native renderer coordinate contract |
 | 40 | [intent-driven ground locomotion P8.1 (2026-11-14)](40-intent-driven-ground-locomotion-p8-1-2026-11-14.md) | actor-neutral ground intent/profile, ordinary walk/sprint/jump simulation, and one-tick Player state commit |
+| 41 | [unified player environment motion P8.2 (2026-11-14)](41-unified-player-environment-motion-p8-2-2026-11-14.md) | one intent/mode/profile pipeline for ground, water, space and floating, common collision, and a single Player body commit |
 
 Programmatic-generation review: [2026-11-12 procedural generation analysis](../procedural-generation-analysis-2026-11-12.md) records the current generation pipeline, determinism model, content gaps and suggested order.
 

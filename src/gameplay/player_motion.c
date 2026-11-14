@@ -14,13 +14,41 @@ static const ActorCollider playerCollider = {
     .stepHeight = 0.5f
 };
 
-static const ActorLocomotionProfile playerLocomotionProfile = {
-    .walkSpeed = WALK_SPEED,
-    .sprintSpeed = SPRINT_SPEED,
-    .jumpSpeed = JUMP_SPEED,
-    .minGravityScale = 0.45f,
-    .maxGravityScale = 1.75f,
-    .maxFallSpeed = 35.0f
+#define WATER_WALK_SPEED 3.0f
+#define WATER_SPRINT_SPEED 4.2f
+#define WATER_VERTICAL_SPEED 3.0f
+#define WATER_MAX_VERTICAL_SPEED 3.5f
+#define WATER_HORIZONTAL_RESPONSE 6.0f
+#define WATER_VERTICAL_RESPONSE 5.0f
+#define SPACE_VERTICAL_INPUT_ACCELERATION 12.0f
+#define SPACE_VERTICAL_DAMPING 2.0f
+#define SPACE_MIN_VERTICAL_SPEED (-10.0f)
+#define SPACE_MAX_VERTICAL_SPEED 10.0f
+
+static const PlayerMotionProfile playerMotionProfile = {
+    .ground = {
+        .walkSpeed = WALK_SPEED,
+        .sprintSpeed = SPRINT_SPEED,
+        .jumpSpeed = JUMP_SPEED,
+        .minGravityScale = 0.45f,
+        .maxGravityScale = 1.75f,
+        .maxFallSpeed = 35.0f
+    },
+    .water = {
+        .walkSpeed = WATER_WALK_SPEED,
+        .sprintSpeed = WATER_SPRINT_SPEED,
+        .verticalSpeed = WATER_VERTICAL_SPEED,
+        .maxVerticalSpeed = WATER_MAX_VERTICAL_SPEED,
+        .horizontalResponse = WATER_HORIZONTAL_RESPONSE,
+        .verticalResponse = WATER_VERTICAL_RESPONSE
+    },
+    .space = {
+        .verticalInputAcceleration = SPACE_VERTICAL_INPUT_ACCELERATION,
+        .verticalDamping = SPACE_VERTICAL_DAMPING,
+        .minVerticalSpeed = SPACE_MIN_VERTICAL_SPEED,
+        .maxVerticalSpeed = SPACE_MAX_VERTICAL_SPEED
+    },
+    .floatingVerticalSpeed = FLOAT_VERTICAL_SPEED
 };
 
 const ActorCollider *PlayerMotionCollider(void)
@@ -30,7 +58,12 @@ const ActorCollider *PlayerMotionCollider(void)
 
 const ActorLocomotionProfile *PlayerLocomotionProfile(void)
 {
-    return &playerLocomotionProfile;
+    return &playerMotionProfile.ground;
+}
+
+const PlayerMotionProfile *PlayerMotionProfileDefault(void)
+{
+    return &playerMotionProfile;
 }
 
 bool PlayerOverlapsWorldWithOptions(Vector3 position, bool allowUnready)

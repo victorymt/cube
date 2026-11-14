@@ -119,6 +119,15 @@ if grep -nE '\b(MovePlayer|PlayerOverlapsWorld|PlayerWaterStateAt|WorldGravitySc
     fail "player policy must use PlayerWorldOps for motion and environment queries"
 fi
 
+if grep -nE 'WATER_(WALK|SPRINT|VERTICAL|MAX_VERTICAL|HORIZONTAL)|FLOAT_VERTICAL_SPEED|PlayerApproach|bodySubmerged|eyesSubmerged' \
+    src/gameplay/player.c; then
+    fail "player.c must delegate mode-specific locomotion to player_motion_simulation"
+fi
+grep -q 'PlayerMotionStep' src/gameplay/player.c ||
+    fail "player.c must use the unified Player motion pipeline"
+[ "$(grep -c 'PlayerApplyActorBody(player' src/gameplay/player.c)" -eq 1 ] ||
+    fail "player locomotion must commit the final ActorBody exactly once"
+
 if grep -nE '#include "(gameplay/player|gameplay/ship|gameplay/player_motion|world/world_environment)' \
     src/gameplay/camera.c; then
     fail "camera pose policy must consume neutral target views and world ports"

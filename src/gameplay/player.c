@@ -3,19 +3,9 @@
 #include "core/game_effects.h"
 #include "gameplay/player_actor.h"
 #include "gameplay/player_motion.h"
-#include "gameplay/player_world.h"
-
-#include "raymath.h"
 
 #include <math.h>
 #include <stdlib.h>
-
-#define WATER_WALK_SPEED 3.0f
-#define WATER_SPRINT_SPEED 4.2f
-#define WATER_VERTICAL_SPEED 3.0f
-#define WATER_MAX_VERTICAL_SPEED 3.5f
-#define WATER_HORIZONTAL_RESPONSE 6.0f
-#define WATER_VERTICAL_RESPONSE 5.0f
 
 void PlayerResetRuntimeState(Player *player)
 {
@@ -24,128 +14,31 @@ void PlayerResetRuntimeState(Player *player)
     player->stepTimer = 0.0f;
 }
 
-static float PlayerApproach(float current, float target, float dt,
-                            float response)
-{
-    if (!isfinite(current)) current = 0.0f;
-    float amount = 1.0f - expf(-fmaxf(dt, 0.0f) * response);
-    return current + (target - current) * amount;
-}
-
 void UpdatePlayerWithWorld(Player *player, float dt, double simulationTime,
                            const PlayerInput *input, const PlayerWorldOps *world)
 {
-    if (!player || !input || !world || !world->move ||
-        !world->sampleEnvironment || !isfinite(dt) || dt <= 0.0f) return;
-    WorldEnvironmentSample environment = {
-        .gravity = { .gravityScale = 1.0f }
+    if (!player || !input || !world || !isfinite(dt) || dt <= 0.0f) return;
+    const PlayerMotionIntent intent = {
+        .forward = input->forward,
+        .strafe = input->strafe,
+        .vertical = input->vertical,
+        .sprint = input->sprint,
+        .jump = input->jumpPressed && input->vertical > 0.0f,
+        .toggleFloating = input->toggleFloating,
+        .lookDelta = input->lookDelta
     };
-    if (!world->sampleEnvironment(world->user, player->position,
-                                  simulationTime, &environment)) return;
-    if (input->toggleFloating) {
-        player->floating = !player->floating;
-        player->velocity.y = 0.0f;
-        player->onGround = false;
+    ActorBody body = PlayerActorBody(player);
+    PlayerMotionResult result;
+    if (!PlayerMotionStep(
+            &body, &intent, PlayerMotionProfileDefault(), world,
+            simulationTime, dt, &result)) {
+        return;
     }
-
-    Vector2 mouseDelta = input->lookDelta;
-    player->yaw -= mouseDelta.x * MOUSE_SENSITIVITY;
-    player->pitch -= mouseDelta.y * MOUSE_SENSITIVITY;
-    player->pitch = Clamp(player->pitch, -1.45f, 1.45f);
-
-    WorldWaterSample water = environment.water;
-    bool swimming = water.bodySubmerged || water.eyesSubmerged;
-    PlayerGravitySample gravity = environment.gravity;
-    bool inSpace = gravity.inSpace;
-    bool ordinaryGround = !inSpace && !player->floating && !swimming;
-
-    if (ordinaryGround) {
-        ActorLocomotionIntent intent = {
-            .forward = Clamp(input->forward, -1.0f, 1.0f),
-            .strafe = Clamp(input->strafe, -1.0f, 1.0f),
-            .sprint = input->sprint,
-            .jump = input->jumpPressed && input->vertical > 0.0f
-        };
-        ActorBody body = PlayerActorBody(player);
-        ActorLocomotionResult result;
-        if (!ActorGroundLocomotionStep(
-                &body, &intent, PlayerLocomotionProfile(), &environment,
-                world, dt, &result)) {
-            return;
-        }
-        PlayerApplyActorBody(player, &result.body);
-    } else {
-        Vector3 forward = FlatForward(player->yaw);
-        Vector3 right = RightFromYaw(player->yaw);
-        float forwardInput = Clamp(input->forward, -1.0f, 1.0f);
-        float strafeInput = Clamp(input->strafe, -1.0f, 1.0f);
-        Vector3 wish = Vector3Add(Vector3Scale(forward, forwardInput),
-                                  Vector3Scale(right, strafeInput));
-        if (Vector3LengthSqr(wish) > 0.0f) wish = Vector3Normalize(wish);
-
-        float speed = input->sprint ? SPRINT_SPEED : WALK_SPEED;
-        if (swimming) {
-            speed = input->sprint ? WATER_SPRINT_SPEED : WATER_WALK_SPEED;
-        }
-        float targetVelocityX = wish.x * speed;
-        float targetVelocityZ = wish.z * speed;
-        if (swimming) {
-            targetVelocityX += water.flowVelocity.x;
-            targetVelocityZ += water.flowVelocity.z;
-            player->velocity.x = PlayerApproach(
-                player->velocity.x, targetVelocityX, dt,
-                WATER_HORIZONTAL_RESPONSE);
-            player->velocity.z = PlayerApproach(
-                player->velocity.z, targetVelocityZ, dt,
-                WATER_HORIZONTAL_RESPONSE);
-        } else {
-            player->velocity.x = targetVelocityX;
-            player->velocity.z = targetVelocityZ;
-        }
-
-        if (inSpace) {
-            player->velocity = Vector3Add(
-                player->velocity, Vector3Scale(gravity.acceleration, dt));
-            player->velocity.y -= player->velocity.y * 2.0f * dt;
-            player->velocity.y += Clamp(input->vertical, -1.0f, 1.0f) *
-                                  12.0f * dt;
-            if (player->velocity.y > 10.0f) player->velocity.y = 10.0f;
-            if (player->velocity.y < -10.0f) player->velocity.y = -10.0f;
-        } else if (player->floating) {
-            player->velocity.y = Clamp(input->vertical, -1.0f, 1.0f) *
-                                 FLOAT_VERTICAL_SPEED;
-        } else if (swimming) {
-            float verticalInput = Clamp(input->vertical, -1.0f, 1.0f);
-            float targetVertical = verticalInput * WATER_VERTICAL_SPEED;
-            if (fabsf(verticalInput) < 0.001f) {
-                targetVertical = water.eyesSubmerged ? 0.35f : -0.60f;
-            }
-            targetVertical += water.flowVelocity.y;
-            player->velocity.y = PlayerApproach(
-                player->velocity.y, targetVertical, dt,
-                WATER_VERTICAL_RESPONSE);
-            player->velocity.y = Clamp(player->velocity.y,
-                                       -WATER_MAX_VERTICAL_SPEED,
-                                       WATER_MAX_VERTICAL_SPEED);
-            if (verticalInput > 0.0f) player->onGround = false;
-        }
-
-        ActorBody body = PlayerActorBody(player);
-        ActorMotionRequest move = {
-            .delta = Vector3Scale(player->velocity, dt),
-            .canStepUp = body.onGround && !body.floating
-        };
-        (void)world->move(world->user, &body, &move);
-        PlayerApplyActorBody(player, &body);
-    }
+    PlayerApplyActorBody(player, &result.body);
 
     float horizontalSpeed = sqrtf(player->velocity.x * player->velocity.x +
                                   player->velocity.z * player->velocity.z);
-    WorldEnvironmentSample movedEnvironment = environment;
-    (void)world->sampleEnvironment(world->user, player->position,
-                                   simulationTime, &movedEnvironment);
-    WorldWaterSample movedWater = movedEnvironment.water;
-    bool feetInWater = movedWater.feetSubmerged;
+    bool feetInWater = result.feetInWater;
     if (feetInWater && !player->wasInWater) {
         GameEffectsPlayAudio(GAME_AUDIO_SPLASH);
     }
@@ -166,15 +59,15 @@ void UpdatePlayerWithWorld(Player *player, float dt, double simulationTime,
     if (!isfinite(player->stepTimer)) player->stepTimer = 0.0f;
     player->stepTimer -= dt;
     if (!isfinite(player->stepTimer)) player->stepTimer = 0.0f;
-    if (player->stepTimer <= 0.0f && horizontalSpeed > 0.5f) {
-        if (!player->floating && !inSpace) {
-            if (feetInWater) {
-                GameEffectsPlayAudio(GAME_AUDIO_WATER_STEP);
-                player->stepTimer = 0.35f;
-            } else if (player->onGround) {
-                GameEffectsPlayAudio(GAME_AUDIO_STEP);
-                player->stepTimer = 0.38f;
-            }
+    if (player->stepTimer <= 0.0f && horizontalSpeed > 0.5f &&
+        result.mode != PLAYER_MOTION_SPACE &&
+        result.mode != PLAYER_MOTION_FLOATING) {
+        if (feetInWater) {
+            GameEffectsPlayAudio(GAME_AUDIO_WATER_STEP);
+            player->stepTimer = 0.35f;
+        } else if (player->onGround) {
+            GameEffectsPlayAudio(GAME_AUDIO_STEP);
+            player->stepTimer = 0.38f;
         }
     }
 }

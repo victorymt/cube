@@ -35,6 +35,16 @@ typedef struct ActorLocomotionResult {
     bool jumped;
 } ActorLocomotionResult;
 
+/* Compute the intent-derived candidate body without applying collision. */
+bool ActorGroundLocomotionCompute(
+    const ActorBody *body,
+    const ActorLocomotionIntent *intent,
+    const ActorLocomotionProfile *profile,
+    const WorldEnvironmentSample *environment,
+    float dt,
+    ActorBody *outBody,
+    bool *outJumped);
+
 /* Resolve one fixed-tick ordinary-ground step. Geometry remains in world
  * ActorMotion; this function only computes intent-derived velocity and asks the
  * supplied world ops for the constrained body. It never receives a Player. */

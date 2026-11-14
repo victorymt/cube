@@ -1409,6 +1409,29 @@
         "make check-docs",
         "make test-one TEST=test_actor_locomotion"
       ]
+    },
+    "docs/architecture/41-unified-player-environment-motion-p8-2-2026-11-14.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/gameplay/player_motion_simulation.h",
+        "src/gameplay/player_motion_simulation.c",
+        "src/gameplay/actor_locomotion.h",
+        "src/gameplay/actor_locomotion.c",
+        "src/gameplay/player.c",
+        "src/gameplay/player_motion.h",
+        "src/gameplay/player_motion.c",
+        "src/gameplay/player_world.h",
+        "src/gameplay/player_world.c",
+        "tests/test_player_motion_simulation.c",
+        "tests/test_player_collision.c",
+        "tests/test_architecture.sh",
+        "mk/tests.mk"
+      ],
+      "recipes": [
+        "make check-docs",
+        "make test-one TEST=test_player_motion_simulation"
+      ]
     }
   }
 }

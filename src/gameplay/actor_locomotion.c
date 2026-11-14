@@ -24,23 +24,24 @@ static bool ActorLocomotionProfileIsValid(
         isfinite(profile->maxFallSpeed) && profile->maxFallSpeed > 0.0f;
 }
 
-bool ActorGroundLocomotionStep(
+bool ActorGroundLocomotionCompute(
     const ActorBody *body,
     const ActorLocomotionIntent *intent,
     const ActorLocomotionProfile *profile,
     const WorldEnvironmentSample *environment,
-    const PlayerWorldOps *world,
     float dt,
-    ActorLocomotionResult *out)
+    ActorBody *outBody,
+    bool *outJumped)
 {
     ActorBody bodySnapshot = { 0 };
     bool haveBody = body != NULL;
     if (haveBody) bodySnapshot = *body;
-    if (out) *out = (ActorLocomotionResult){ 0 };
+    if (outBody) *outBody = (ActorBody){ 0 };
+    if (outJumped) *outJumped = false;
     if (!haveBody) return false;
     body = &bodySnapshot;
     if (!intent || !ActorLocomotionProfileIsValid(profile) ||
-        !environment || !world || !world->move || !out ||
+        !environment || !outBody ||
         !isfinite(dt) || dt <= 0.0f || body->floating ||
         !ActorLocomotionVectorIsFinite(body->position) ||
         !ActorLocomotionVectorIsFinite(body->velocity) ||
@@ -83,6 +84,33 @@ bool ActorGroundLocomotionStep(
     if (working.velocity.y < -profile->maxFallSpeed)
         working.velocity.y = -profile->maxFallSpeed;
 
+    *outBody = working;
+    if (outJumped) *outJumped = jumped;
+    return true;
+}
+
+bool ActorGroundLocomotionStep(
+    const ActorBody *body,
+    const ActorLocomotionIntent *intent,
+    const ActorLocomotionProfile *profile,
+    const WorldEnvironmentSample *environment,
+    const PlayerWorldOps *world,
+    float dt,
+    ActorLocomotionResult *out)
+{
+    ActorBody bodySnapshot = { 0 };
+    bool haveBody = body != NULL;
+    if (haveBody) bodySnapshot = *body;
+    if (out) *out = (ActorLocomotionResult){ 0 };
+    if (!haveBody || !world || !world->move || !out) return false;
+    body = &bodySnapshot;
+
+    ActorBody working = { 0 };
+    bool jumped = false;
+    if (!ActorGroundLocomotionCompute(
+            body, intent, profile, environment, dt, &working, &jumped)) {
+        return false;
+    }
     const ActorMotionRequest request = {
         .delta = Vector3Scale(working.velocity, dt),
         .canStepUp = working.onGround && !working.floating
