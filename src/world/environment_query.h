@@ -30,11 +30,20 @@ typedef struct WorldGravitySample {
     unsigned ruleCount;
 } WorldGravitySample;
 
+typedef struct WorldTornadoSample {
+    bool active;
+    Vector3 acceleration;
+    float exposure;
+    float localWindMps;
+    float horizontalDistance;
+} WorldTornadoSample;
+
 typedef struct WorldEnvironmentSample {
     Vector3 position;
     double simulationTime;
     WorldWaterSample water;
     WorldGravitySample gravity;
+    WorldTornadoSample tornado;
     unsigned waterRuleCount;
 } WorldEnvironmentSample;
 
@@ -44,6 +53,9 @@ WorldWaterSample WorldWaterSampleAt(Vector3 position, float eyeHeight,
                                     float bodyHeight);
 WorldGravitySample WorldGravitySampleAt(Vector3 position,
                                         double simulationTime);
+/* Sample the tornado force field at the supplied point. Exposure/force are
+ * independent of Player shelter, water resistance and velocity clamps. */
+WorldTornadoSample WorldTornadoSampleAt(Vector3 samplePosition);
 WorldEnvironmentSample WorldEnvironmentSampleAt(Vector3 position,
                                                 float eyeHeight,
                                                 float bodyHeight,

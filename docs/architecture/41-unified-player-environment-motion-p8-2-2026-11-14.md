@@ -1,5 +1,7 @@
 # Unified Player Environment Motion P8.2（2026-11-14）
 
+> tornado 随后加入组合环境样本，见 [Tornado Environment Sample P8.3](42-tornado-environment-sample-p8-3-2026-11-14.md)。
+
 - 日期：2026-11-14
 - 性质：阶段记录；统一 Player 的 ground、water、space、floating locomotion
 - 范围：Intent、mode selection、mode simulation、common collision 和 single Player commit
@@ -84,7 +86,7 @@ Mode priority 与旧 Player 分支一致：
 
 ## 5. 已知边界 / Deferred
 
-- Tornado 外力仍由 app 在统一 pipeline 之后直接应用，尚未进入 external-force stage。
+- P8.3 后 Tornado 已进入组合环境样本，但仍由 app 在统一 pipeline 之后应用，尚未进入 external-force stage。
 - Ship 仍使用独立 `ShipUpdate*()` 和 app commit 路径。
 - Landing、world transition、teleport/debug placement 继续作为显式状态过渡。
 - 跨 frame 的 velocity/rotation 语义未在本阶段扩展。

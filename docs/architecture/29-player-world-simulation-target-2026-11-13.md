@@ -17,6 +17,7 @@
 > P8b 的 save 边界采用与 renderer frame 定位见 [Frame Save Boundary P8b](39-frame-save-boundary-p8b-2026-11-14.md)。
 > P8.1 的普通地面 Intent/Motion Simulation 见 [Intent-Driven Ground Locomotion P8.1](40-intent-driven-ground-locomotion-p8-1-2026-11-14.md)。
 > P8.2 的统一 ground/water/space/floating pipeline 见 [Unified Player Environment Motion P8.2](41-unified-player-environment-motion-p8-2-2026-11-14.md)。
+> P8.3 的 tornado 环境样本见 [Tornado Environment Sample P8.3](42-tornado-environment-sample-p8-3-2026-11-14.md)。
 
 ## 1. 结论
 
@@ -104,7 +105,7 @@ P4a 已实现 render-frame input staging：持续轴使用最新值，look/jump/
 
 ## 6. 环境查询与星球规则
 
-Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 已实现 `WorldEnvironmentSampleAt()` 的 position/time、water、gravity 组合样本；当前 frame 是 active local frame，显式 frame 参数尚未接入该接口（见记录 33）。
+Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 已实现 `WorldEnvironmentSampleAt()` 的 position/time、water、gravity 组合样本；P8.3 又加入 chest-height tornado field。当前 frame 是 active local frame，显式 frame 参数尚未接入该接口（见记录 33、42）。
 
 `PlayerGravitySample` 与 `PlayerWaterState` 现在是 world sample 的 gameplay aliases，`PlayerWorldOps` 默认 adapter 直接调用 world environment query。Player Controller 不再直接调用 `PlanetSurfaceAt()`、`WorldGravityScale()`、`FluidSampleAt()` 或 `WorldIsSpaceActive()`。
 
@@ -235,7 +236,7 @@ Environment 查询的目标仍是显式位置、模拟时间和参考系。P5 �
 
 当 Player Controller 不再包含具体几何 backend、所有 locomotion 状态写入都经过单一提交入口、环境与规则可通过接口替换，并且 surface/space/render/save 的参考系转换显式且可测试时，本目标架构才算完成。
 
-P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估、P8a 运行时规则消费、P8b save/frame 边界、P8.1 普通地面 simulation 和 P8.2 统一环境 locomotion pipeline 已实现对应验收。Tornado external force 与 ship 仍为独立后续工作；具体星球规则内容与持久化属于 world definition 配置。
+P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估、P8a 运行时规则消费、P8b save/frame 边界、P8.1 普通地面 simulation、P8.2 统一环境 locomotion pipeline 和 P8.3 tornado 环境样本已实现对应验收。Tornado external-force stage 与 ship 仍为独立后续工作；具体星球规则内容与持久化属于 world definition 配置。
 
 完成 ECS 评估并不等于必须采用 ECS。最终验收标准是职责边界和可验证行为，而不是某个框架、坐标类型或文件数量。
 
@@ -271,3 +272,12 @@ P3、P4a、P4b、P5、P6a、P6b、P6c API、P7 ECS 评估、P8a 运行时规则�
 - tornado 和 ship 尚未进入统一 pipeline，保持原路径。
 
 验收：四种 mode 行为与旧实现一致；mode priority 明确；每 tick 只有一次 collision 和 Player commit；fixed-step/replay/E2E 不回归。
+
+### P8.3：tornado 环境样本（实施记录 42）
+
+- `WorldEnvironmentSample` 新增 `WorldTornadoSample`，包含 active、acceleration、exposure、local wind 和 horizontal distance。
+- 环境查询在 Player chest offset 处采样 tornado；water/gravity rule 语义不变。
+- app 的 Player tornado 外力改为消费组合环境样本，不再直接调用 `TornadoForceAt()` 或额外查询 Player water。
+- tornado 的 shelter、介质阻力、速度限制和最终 velocity 写入仍在 app external-force response 中。
+
+验收：tornado sample 与 water/gravity 一致组合；Player chest offset 保持不变；底层 tornado 与外力和既有 E2E 路径不回归。

@@ -627,20 +627,18 @@ static void GameUpdateAutoSave(GameRuntime *game, float dt)
     }
 }
 
-static void GameApplyTornadoPlayerForce(GameRuntime *game, float dt)
+static void GameApplyTornadoPlayerForce(
+    GameRuntime *game, const WorldEnvironmentSample *environment, float dt)
 {
-    if (!game || !WorldIsSurfaceActive() || ShipIsDriving() ||
+    if (!game || !environment || !WorldIsSurfaceActive() || ShipIsDriving() ||
         GameWorldSimulationPaused(game) || !isfinite(dt) || dt <= 0.0f) {
         return;
     }
-    Vector3 samplePosition = game->player.position;
-    samplePosition.y += EYE_HEIGHT * 0.52f;
-    TornadoForceSample force = TornadoForceAt(samplePosition);
-    if (force.exposure <= 0.0f) return;
-    PlayerWaterState water = PlayerWaterStateAt(game->player.position);
+    WorldTornadoSample force = environment->tornado;
+    if (!force.active || force.exposure <= 0.0f) return;
     float resistance = GameEnvironmentSheltered(game->player.position) ?
         0.16f : 1.0f;
-    if (water.bodySubmerged) resistance *= 0.10f;
+    if (environment->water.bodySubmerged) resistance *= 0.10f;
     if (game->player.onGround) {
         force.acceleration.x *= 0.72f;
         force.acceleration.z *= 0.72f;
@@ -742,7 +740,17 @@ void GameUpdatePlayerMotion(GameRuntime *game, float dt, double simulationTime,
             &game->player.yaw)) {
         ParticlesClear();
     }
-    GameApplyTornadoPlayerForce(game, dt);
+    if (WorldIsSurfaceActive() && !ShipIsDriving() &&
+        !GameWorldSimulationPaused(game) && isfinite(dt) && dt > 0.0f) {
+        WorldEnvironmentSample environment = {
+            .gravity = { .gravityScale = 1.0f }
+        };
+        if (game->playerWorldOps.sampleEnvironment(
+                game->playerWorldOps.user, game->player.position,
+                simulationTime, &environment)) {
+            GameApplyTornadoPlayerForce(game, &environment, dt);
+        }
+    }
 }
 
 static void GameUpdateWorldJobs(GameRuntime *game, float dt)

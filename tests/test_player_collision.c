@@ -13,6 +13,7 @@
 #include "world/environment_query.h"
 #include "world/world_environment.h"
 #include "world/world_frame.h"
+#include "world/tornado.h"
 #include "space/space_types.h"
 #include "world/surface_contract_internal.h"
 #include "world/surface_cube.h"
@@ -36,6 +37,14 @@ static BlockType ecologyPlant = BLOCK_AIR;
 static bool proceduralWaterEnabled = false;
 static bool surfaceReady = true;
 static bool shipDriving = false;
+static TornadoForceSample testTornadoForce;
+static Vector3 testTornadoSamplePosition;
+
+TornadoForceSample TornadoForceAt(Vector3 position)
+{
+    testTornadoSamplePosition = position;
+    return testTornadoForce;
+}
 static float proceduralWaterSurface = 0.0f;
 static int waterMinY = 1;
 static int waterMaxY = 5;
@@ -633,6 +642,28 @@ static void TestEnvironmentQueryMatchesPlayerAdapters(void)
     assert(environment.gravity.acceleration.y == -GRAVITY);
     assert(environment.gravity.ruleCount == 0u);
     assert(!environment.gravity.inSpace);
+    assert(!environment.tornado.active);
+    assert(environment.tornado.exposure == 0.0f);
+
+    testTornadoForce = (TornadoForceSample){
+        .acceleration = { 1.0f, 2.0f, 3.0f },
+        .exposure = 0.75f,
+        .localWindMps = 18.0f,
+        .horizontalDistance = 4.0f
+    };
+    environment = WorldEnvironmentSampleAt(
+        (Vector3){ 0.5f, 1.01f, 0.5f }, EYE_HEIGHT, PLAYER_HEIGHT, 12.5);
+    assert(environment.tornado.active);
+    assert(environment.tornado.acceleration.x == 1.0f);
+    assert(environment.tornado.acceleration.y == 2.0f);
+    assert(environment.tornado.acceleration.z == 3.0f);
+    assert(environment.tornado.exposure == 0.75f);
+    assert(environment.tornado.localWindMps == 18.0f);
+    assert(environment.tornado.horizontalDistance == 4.0f);
+    assert(fabsf(testTornadoSamplePosition.y -
+                 (1.01f + EYE_HEIGHT * 0.52f)) < 1e-6f);
+    testTornadoForce = (TornadoForceSample){ 0 };
+    assert(!WorldTornadoSampleAt((Vector3){ NAN, 0.0f, 0.0f }).active);
 
     WorldRuleSet rules;
     WorldRuleSetInit(&rules);

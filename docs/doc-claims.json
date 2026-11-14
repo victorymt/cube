@@ -1432,6 +1432,27 @@
         "make check-docs",
         "make test-one TEST=test_player_motion_simulation"
       ]
+    },
+    "docs/architecture/42-tornado-environment-sample-p8-3-2026-11-14.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/environment_query.h",
+        "src/world/environment_query.c",
+        "src/world/tornado.h",
+        "src/world/tornado.c",
+        "src/world/tornado_model.h",
+        "src/world/tornado_model.c",
+        "src/app/game.c",
+        "tests/test_player_collision.c",
+        "tests/test_tornado.c",
+        "tests/test_tornado_model.c"
+      ],
+      "recipes": [
+        "make check-docs",
+        "make test-one TEST=test_player_collision",
+        "make test-one TEST=test_tornado"
+      ]
     }
   }
 }

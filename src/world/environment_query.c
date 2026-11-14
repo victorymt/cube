@@ -5,6 +5,7 @@
 #include "world/block_edits.h"
 #include "world/block_types.h"
 #include "world/fluid.h"
+#include "world/tornado.h"
 #include "world/world_environment.h"
 
 #include "raymath.h"
@@ -106,6 +107,22 @@ WorldWaterSample WorldWaterSampleAt(Vector3 position, float eyeHeight,
     return state;
 }
 
+WorldTornadoSample WorldTornadoSampleAt(Vector3 samplePosition)
+{
+    WorldTornadoSample sample = { 0 };
+    if (!isfinite(samplePosition.x) || !isfinite(samplePosition.y) ||
+        !isfinite(samplePosition.z)) {
+        return sample;
+    }
+    TornadoForceSample force = TornadoForceAt(samplePosition);
+    sample.active = force.exposure > 0.0f;
+    sample.acceleration = force.acceleration;
+    sample.exposure = force.exposure;
+    sample.localWindMps = force.localWindMps;
+    sample.horizontalDistance = force.horizontalDistance;
+    return sample;
+}
+
 WorldGravitySample WorldGravitySampleAt(Vector3 position,
                                         double simulationTime)
 {
@@ -150,11 +167,15 @@ WorldEnvironmentSample WorldEnvironmentSampleAtWithRules(
     double simulationTime, uint32_t bodyId, uint64_t regionId,
     const WorldRuleSet *rules)
 {
+    Vector3 tornadoPosition = {
+        position.x, position.y + eyeHeight * 0.52f, position.z
+    };
     WorldEnvironmentSample sample = {
         .position = position,
         .simulationTime = simulationTime,
         .water = WorldWaterSampleAt(position, eyeHeight, bodyHeight),
-        .gravity = WorldGravitySampleAt(position, simulationTime)
+        .gravity = WorldGravitySampleAt(position, simulationTime),
+        .tornado = WorldTornadoSampleAt(tornadoPosition)
     };
     if (rules) {
         unsigned indices[WORLD_RULE_MAX_RULES];

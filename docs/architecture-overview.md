@@ -96,6 +96,7 @@ Make 是唯一的构建系统。`mk/modules.mk` 按目录通配出源文件列�
 - 天气只以物理采样值过界（`WeatherFieldSample`），视觉推导在 `presentation/weather_presentation.c`。
 - 运行时 `WorldRuleSet` 由 `app/GameRuntime` 拥有并初始化；`PlayerWorldOps` 只绑定它的稳定指针，通过组合 environment sample 读取 active body 的水/重力结果，不写规则表或世界状态。真实规则消费由链接 `player_world.c` 的 Player 集成测试验证。
 - Player save/load 在 app 边界通过 `WorldFrameSaveId()` 和 `WorldFrameTransformPoint()` 标记并验证 local ↔ save-local；renderer 使用 camera 与 topology-native local-world transform，只有真实 camera-frame 数值消费者才使用 camera-relative API。
+- Tornado 力场作为 `WorldEnvironmentSample.tornado` 在 chest offset 处采样；app external-force response 只消费该样本和组合 water state，不再单独查询 tornado/Player water。遮蔽、介质阻力和速度限制仍归 gameplay。
 - 物理输入只有一个采集边界：`app/input_source` 调用 raylib 输入 API 并把结果封成当帧不可变的 `InputFrame`；`core/input_event` 定义事件类型、帧快照与独立的消费状态。上层只读事件并标记消费，不各自轮询同一份原始输入。
 
 ## 观测与调试边界

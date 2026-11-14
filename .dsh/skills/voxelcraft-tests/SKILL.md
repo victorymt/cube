@@ -25,6 +25,7 @@ Replay checkpoint 覆盖新状态类型时，同时验证完整重放、checkpoi
 规则接入运行时后，还要通过真实 PlayerWorldOps 断言最终速度或位置变化；只验证 environment sample 不能证明游戏行为已经消费规则。
 Intent-driven locomotion 要同时测试中立 simulation 和真实 Player 接入：前者覆盖 profile/jump/阻挡，后者证明特殊模式分支、固定步边沿和唯一状态提交没有回归。
 Mode pipeline 要分别断言 mode priority、每模式速度语义、common collision 次数和单次 commit；水/太空/漂浮测试不能只检查最终速度而漏掉 mode 选择。
+Tornado 加入环境样本后，要断言 chest offset、inactive zero、字段复制和与 water/gravity 的组合；shelter 与速度限制仍属于 gameplay response，不能混进 raw sample。
 跨 frame 测试要覆盖 anchor 匹配、camera-relative round trip 和 save-local identity；不支持的 frame pair 必须断言失败。
 Save frame 采用要测试 local → save → local、非法数值和被丢弃的版本，并确认 V30 编码不变；raylib world draw 仍使用 local-world 坐标，不能把 camera-relative 点直接提交给已有 camera view。
 
